@@ -1,0 +1,44 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    Options -Indexes
+
+    # Redirect Trailing Slashes If Not A Folder...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # Legacy Asset Aliases (Ensures existing view paths resolve seamlessly)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^style\.css$ assets/css/style.css [L]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^favicon\.svg$ assets/images/favicon.svg [L]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^brand-logos/(.*)$ assets/brand-logos/$1 [L]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{DOCUMENT_ROOT}/$1/assets/images/$2 -f [OR]
+    RewriteCond %{REQUEST_URI} ^/(.+)/([^/]+\.(svg|png|jpg|jpeg|webp))$
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^([^/]+\.(svg|png|jpg|jpeg|webp))$ assets/images/$1 [L]
+
+    # Serve direct static files if found
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Handle Front Controller
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# Security: Deny direct access to hidden files (.env, .git, etc.)
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

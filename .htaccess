@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # 1. Defense-in-Depth: Strictly deny HTTP access to private application layers
+    RewriteRule ^(data|data_backup|database|src|config|views|docs|vendor|\.git|\.env)(\/.*)?$ - [F,L,NC]
+
+    # 2. Prevent rewrite loop if request is already targeting /public
+    RewriteRule ^public/ - [L]
+
+    # 3. Transparently route all traffic into /public/
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Prevent directory listing across entire project
+Options -Indexes

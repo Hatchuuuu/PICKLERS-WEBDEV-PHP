@@ -1,0 +1,58 @@
+[
+    {
+        "id": "msg_0e91c7eb2d20",
+        "sender_id": "usr_admin",
+        "receiver_id": "usr_jobert",
+        "content": "Hello Kuya Jobert, see you on court!",
+        "is_read": 0,
+        "created_at": "2026-09-06 04:33:35"
+    },
+    {
+        "id": "msg_e17e21094217",
+        "sender_id": "usr_player",
+        "receiver_id": "usr_admin",
+        "content": "Are courts free tonight?",
+        "is_read": 0,
+        "created_at": "2026-09-06 10:23:37"
+    },
+    {
+        "id": "msg_aabb365d0db8",
+        "sender_id": "usr_admin",
+        "receiver_id": "usr_player",
+        "content": "Let's get some games in! Court 1 at BGC is usually free around 6 PM.",
+        "is_read": 0,
+        "created_at": "2026-09-06 10:23:37"
+    },
+    {
+        "id": "msg_947a17fd2ebe",
+        "sender_id": "usr_player",
+        "receiver_id": "usr_admin",
+        "content": "Are courts free tonight?",
+        "is_read": 0,
+        "created_at": "2026-09-06 10:26:29"
+    },
+    {
+        "id": "msg_9a5452fc3c62",
+        "sender_id": "usr_admin",
+        "receiver_id": "usr_player",
+        "content": "Always ready for a dink battle! See you on the court \ud83c\udfd3",
+        "is_read": 0,
+        "created_at": "2026-09-06 10:26:29"
+    },
+    {
+        "id": "msg_38dabfd249d2",
+        "sender_id": "usr_player",
+        "receiver_id": "usr_admin",
+        "content": "Are courts free tonight?",
+        "is_read": 0,
+        "created_at": "2026-09-06 10:28:38"
+    },
+    {
+        "id": "msg_551808f3d857",
+        "sender_id": "usr_admin",
+        "receiver_id": "usr_player",
+        "content": "Always ready for a dink battle! See you on the court \ud83c\udfd3",
+        "is_read": 0,
+        "created_at": "2026-09-06 10:28:38"
+    }
+]

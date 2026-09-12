@@ -1,0 +1,198 @@
+/* ==========================================================================
+   PICKLERS — Centralized Design System Tokens & Spatial Grid
+   Pure CSS Variable Architecture with Dark / Light Mode Parity
+
+   Semantic tokens (--pk-bg-*, --pk-text-*, --pk-border-*, --pk-danger-*,
+   --pk-accent-*) are redefined under html.dark / html.light. Consume those
+   in components; never hardcode a hex that differs between themes.
+
+   Light-mode text tokens are verified at WCAG AA 4.5:1 against --pk-bg-card.
+   ========================================================================== */
+
+:root {
+  /* Core Brand Palette */
+  --pk-brand-emerald: #00D98B;
+  --pk-brand-emerald-hover: #00C27C;
+  --pk-brand-emerald-glow: rgba(0, 217, 139, 0.25);
+  --pk-brand-amber: #FFB800;
+  --pk-brand-amber-hover: #FFA000;
+  --pk-brand-dark-blue: #0B182B;
+  --pk-brand-navy-card: #11233D;
+  --pk-brand-card-border: rgba(255, 255, 255, 0.08);
+
+  /* Semantic State Colors (WCAG Compliant) */
+  --pk-status-success: #00D98B;
+  --pk-status-success-bg: rgba(0, 217, 139, 0.15);
+  --pk-status-warning: #F59E0B;
+  --pk-status-warning-bg: rgba(245, 158, 11, 0.15);
+  --pk-status-error: #EF4444;
+  --pk-status-error-bg: rgba(239, 68, 68, 0.15);
+  --pk-status-info: #3B82F6;
+  --pk-status-info-bg: rgba(59, 130, 246, 0.15);
+
+  /* Strict Spatial Grid (4px / 8px Base Unit) */
+  --pk-space-1: 4px;
+  --pk-space-2: 8px;
+  --pk-space-3: 12px;
+  --pk-space-4: 16px;
+  --pk-space-5: 20px;
+  --pk-space-6: 24px;
+  --pk-space-8: 32px;
+  --pk-space-10: 40px;
+  --pk-space-12: 48px;
+
+  /* Typography Scales */
+  --pk-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --pk-font-heading: 'Montserrat', var(--pk-font-sans);
+  --pk-font-price: 'Montserrat', var(--pk-font-heading), sans-serif;
+  --pk-font-number: 'Montserrat', var(--pk-font-heading), sans-serif;
+
+  --pk-text-xs: 0.75rem;     /* 12px */
+  --pk-text-sm: 0.875rem;    /* 14px */
+  --pk-text-base: 1rem;      /* 16px */
+  --pk-text-lg: 1.125rem;    /* 18px */
+  --pk-text-xl: 1.25rem;     /* 20px */
+  --pk-text-2xl: 1.5rem;     /* 24px */
+  --pk-text-3xl: 1.875rem;   /* 30px */
+
+  /* Touch Ergonomics & Accessibility Focus Ring */
+  --pk-touch-min: 44px;
+  --pk-focus-ring: 0 0 0 3px rgba(0, 217, 139, 0.45);
+  --pk-radius-sm: 8px;
+  --pk-radius-md: 12px;
+  --pk-radius-lg: 16px;
+  --pk-radius-full: 9999px;
+
+  /* --------------------------------------------------------------------
+     Semantic fallbacks — mirror of html.dark.
+     Guarantees these resolve even if no theme class is on <html>.
+     -------------------------------------------------------------------- */
+  --pk-bg-page: #0B182B;
+  --pk-bg-card: #11233D;
+  --pk-bg-card-hover: #162D4D;
+  --pk-bg-surface: #0E1A2D;
+  --pk-border-card: rgba(255, 255, 255, 0.08);
+  --pk-border-subtle: rgba(255, 255, 255, 0.06);
+  --pk-text-primary: #F8FAFC;
+  --pk-text-secondary: #CBD5E1;
+  --pk-text-muted: #94A3B8;
+  --pk-input-bg: rgba(255, 255, 255, 0.05);
+  --pk-danger-bg: rgba(239, 68, 68, 0.12);
+  --pk-danger-border: rgba(239, 68, 68, 0.25);
+  --pk-danger-text: #F87171;
+  --pk-accent-cyan: #00E5FF;
+  --pk-accent-sky: #38BDF8;
+  --pk-accent-emerald-text: #00D98B;
+  --pk-shadow-card: 0 4px 14px rgba(0, 0, 0, 0.30);
+}
+
+/* Dark Mode Tokens (Default) */
+html.dark {
+  --pk-bg-page: #0B182B;
+  --pk-bg-card: #11233D;
+  --pk-bg-card-hover: #162D4D;
+  --pk-bg-surface: #0E1A2D;          /* owner-portal card surface */
+  --pk-border-card: rgba(255, 255, 255, 0.08);
+  --pk-border-subtle: rgba(255, 255, 255, 0.06);
+  --pk-text-primary: #F8FAFC;
+  --pk-text-secondary: #CBD5E1;      /* WCAG 4.5:1 AA ratio against #0E1A2D */
+  --pk-text-muted: #94A3B8;
+  --pk-input-bg: rgba(255, 255, 255, 0.05);
+
+  --pk-danger-bg: rgba(239, 68, 68, 0.12);
+  --pk-danger-border: rgba(239, 68, 68, 0.25);
+  --pk-danger-text: #F87171;
+
+  --pk-accent-cyan: #00E5FF;
+  --pk-accent-sky: #38BDF8;
+  --pk-accent-emerald-text: #00D98B;
+
+  --pk-shadow-card: 0 4px 14px rgba(0, 0, 0, 0.30);
+}
+
+/* Light Mode Tokens */
+html.light {
+  --pk-bg-page: #F8FAFC;
+  --pk-bg-card: #FFFFFF;
+  --pk-bg-card-hover: #F1F5F9;
+  --pk-bg-surface: #FFFFFF;
+  --pk-border-card: #E2E8F0;
+  --pk-border-subtle: #EEF2F6;
+  --pk-text-primary: #0F172A;        /* 17.9:1 on #FFFFFF */
+  --pk-text-secondary: #334155;      /* 10.8:1 on #FFFFFF */
+  --pk-text-muted: #64748B;          /*  4.8:1 on #FFFFFF — AA */
+  --pk-input-bg: #F1F5F9;
+
+  --pk-danger-bg: #FEF2F2;
+  --pk-danger-border: #FECACA;
+  --pk-danger-text: #DC2626;         /*  4.8:1 on #FFFFFF — AA */
+
+  /* #00E5FF is 1.4:1 on white and #0284C7 only 4.1:1; #0369A1 clears AA at 5.9:1 */
+  --pk-accent-cyan: #0369A1;
+  /* #38BDF8 (sky-400) is 1.6:1 on white; #0369A1 (sky-700) clears AA at 5.9:1 */
+  --pk-accent-sky: #0369A1;
+  /* #00D98B is 1.9:1 on white — unusable as text. Emerald stays brand color
+     for FILLED surfaces; this token is for emerald-colored TEXT only. */
+  --pk-accent-emerald-text: #047857;  /* 5.6:1 on #FFFFFF — AA */
+
+  --pk-shadow-card: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+/* Utility Focus Rings & Accessibility Overlay */
+:focus-visible {
+  outline: none !important;
+  box-shadow: var(--pk-focus-ring) !important;
+}
+
+/* Skeleton Pulse Animation Utility */
+.pk-skeleton {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 25%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.05) 75%);
+  background-size: 200% 100%;
+  animation: pkPulseGlow 1.8s ease-in-out infinite;
+  border-radius: var(--pk-radius-sm);
+}
+
+@keyframes pkPulseGlow {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Responsive Touch Target Minimum Enforcement */
+.pk-btn, button, input[type="submit"] {
+  min-height: var(--pk-touch-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Suppress Browser Native Password Reveal Icons (Edge / IE) to Prevent Duplicate Eye Icons */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Facility Multi-Image Gallery & Amenities */
+.facility-gallery-strip::-webkit-scrollbar {
+  height: 4px;
+}
+.facility-gallery-strip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+.gallery-thumb:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+.gallery-thumb.active {
+  border-color: var(--pk-brand-emerald, #00D98B) !important;
+}
+.gallery-thumb:focus-visible {
+  outline: none;
+  box-shadow: var(--pk-focus-ring);
+}
+.amenity-chip:hover {
+  background: rgba(0, 217, 139, 0.12) !important;
+  border-color: rgba(0, 217, 139, 0.3) !important;
+}

@@ -1,0 +1,29 @@
+[
+    {
+        "id": "comm_075869531e",
+        "post_id": "post_2bb18db3f789",
+        "user_id": "usr_player",
+        "author_name": "Marcus Vance",
+        "author_avatar": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=300&auto=format&fit=crop",
+        "comment": "Count me in!",
+        "created_at": "2026-09-06 10:23:37"
+    },
+    {
+        "id": "comm_25397e0b88",
+        "post_id": "post_96a6486df3e3",
+        "user_id": "usr_player",
+        "author_name": "Marcus Vance",
+        "author_avatar": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=300&auto=format&fit=crop",
+        "comment": "Count me in!",
+        "created_at": "2026-09-06 10:26:29"
+    },
+    {
+        "id": "comm_0141e897ab",
+        "post_id": "post_6b9dc7e31c2a",
+        "user_id": "usr_player",
+        "author_name": "Marcus Vance",
+        "author_avatar": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=300&auto=format&fit=crop",
+        "comment": "Count me in!",
+        "created_at": "2026-09-06 10:28:38"
+    }
+]

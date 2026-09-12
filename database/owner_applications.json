@@ -1,0 +1,21 @@
+[
+    {
+        "id": "app_77aa18d4e290",
+        "facility_name": "Makati Metro Dinkers Hub",
+        "address": "Salcedo Village, Makati City",
+        "latitude": 14.5547,
+        "longitude": 121.0244,
+        "courts_count": 4,
+        "court_surface": "Indoor Hard",
+        "operating_hours": "06:00 AM \u2013 11:00 PM",
+        "owner_name": "Ramon Bautista",
+        "business_email": "ramon@makatidink.ph",
+        "phone": "+63 917 123 4567",
+        "entity_name": "Makati Pickleball Corp",
+        "reg_number": "SEC-2026-9901",
+        "permit_file": "mayors_permit_20260905.pdf",
+        "gov_id_file": "gov_id_20260905.jpg",
+        "status": "approved",
+        "created_at": "2026-09-05 16:58:42"
+    }
+]

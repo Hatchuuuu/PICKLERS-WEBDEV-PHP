@@ -1,0 +1,272 @@
+[
+    {
+        "id": "tx_a02c610ab7",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 1000,
+        "label": "GCash",
+        "date": "Sep 7, 2026",
+        "created_at": "2026-09-07 08:04:30"
+    },
+    {
+        "id": "tx_2f91213c62",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 1000,
+        "label": "GCash",
+        "date": "Sep 7, 2026",
+        "created_at": "2026-09-07 07:58:08"
+    },
+    {
+        "id": "tx_979770c67b",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 1000,
+        "label": "BDO",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 15:24:27"
+    },
+    {
+        "id": "tx_a2cd118582",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 500,
+        "label": "Maya",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 15:24:27"
+    },
+    {
+        "id": "tx_47a6af0e0d",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 200,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 15:24:26"
+    },
+    {
+        "id": "tx_c8d8bf1fe7",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 200,
+        "label": "GCash PH",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 15:24:05"
+    },
+    {
+        "id": "tx_19145982cc",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 200,
+        "label": "GCash PH",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 15:23:45"
+    },
+    {
+        "id": "tx_609b015a65",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 200,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 15:21:19"
+    },
+    {
+        "id": "tx_d0c8a00f0b",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 17:14:01"
+    },
+    {
+        "id": "tx_c1ae6f175a",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 17:13:59"
+    },
+    {
+        "id": "tx_14031f856c",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 17:13:57"
+    },
+    {
+        "id": "tx_50eb2af16a",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 17:13:55"
+    },
+    {
+        "id": "tx_d9bfa76694",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 17:13:53"
+    },
+    {
+        "id": "tx_058323a1ed",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 17:13:51"
+    },
+    {
+        "id": "tx_e6996094ee",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 10:28:37"
+    },
+    {
+        "id": "tx_e5a7f68080",
+        "user_id": "usr_player",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-9E624C at Incredoball Sports Center",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 10:28:37"
+    },
+    {
+        "id": "tx_c819e89c85",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 10:26:29"
+    },
+    {
+        "id": "tx_149bac8ab2",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 500,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 10:23:37"
+    },
+    {
+        "id": "tx_e5239c02ed",
+        "user_id": "usr_player",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-0B6B68 at Incredoball Sports Center",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 10:23:37"
+    },
+    {
+        "id": "tx_038e922a9c",
+        "user_id": "usr_e22d88a875e1",
+        "type": "credit",
+        "amount": 450,
+        "label": "Full Refund for Cancelled Booking #PKL-2724F1",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 08:54:43"
+    },
+    {
+        "id": "tx_35caabce65",
+        "user_id": "usr_e22d88a875e1",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-2724F1 at Incredoball Sports Center",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 08:54:43"
+    },
+    {
+        "id": "tx_8c8f4646ac",
+        "user_id": "usr_ff3205c2044a",
+        "type": "credit",
+        "amount": 450,
+        "label": "Full Refund for Cancelled Booking #PKL-ACA29C",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 05:40:03"
+    },
+    {
+        "id": "tx_77387e6903",
+        "user_id": "usr_ff3205c2044a",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-ACA29C at Incredoball Sports Center",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 05:40:03"
+    },
+    {
+        "id": "tx_2fdfdeac26",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 100,
+        "label": "GCash",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 04:33:35"
+    },
+    {
+        "id": "tx_597cad7ceb",
+        "user_id": "usr_admin",
+        "type": "credit",
+        "amount": 450,
+        "label": "Full Refund for Cancelled Booking #PKL-36CB3C",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 04:33:35"
+    },
+    {
+        "id": "tx_8ff48e3d15",
+        "user_id": "usr_admin",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-36CB3C at Incredoball Sports Center",
+        "date": "Sep 6, 2026",
+        "created_at": "2026-09-06 04:33:35"
+    },
+    {
+        "id": "tx_033ba3d465",
+        "user_id": "usr_player",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-8EC177 at BGC Pickleball Hub",
+        "date": "Sep 5, 2026",
+        "created_at": "2026-09-05 09:42:28"
+    },
+    {
+        "id": "tx_1",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 1000,
+        "label": "GCash",
+        "date": "Sep 4, 2026",
+        "created_at": "2026-09-04 09:39:55"
+    },
+    {
+        "id": "tx_2",
+        "user_id": "usr_player",
+        "type": "debit",
+        "amount": 450,
+        "label": "Booking #PKL-8F92A1 BGC Court 1",
+        "date": "Sep 4, 2026",
+        "created_at": "2026-09-04 09:39:55"
+    },
+    {
+        "id": "tx_3",
+        "user_id": "usr_player",
+        "type": "credit",
+        "amount": 1300,
+        "label": "Maya Welcome Bonus",
+        "date": "Sep 1, 2026",
+        "created_at": "2026-09-01 09:39:55"
+    }
+]

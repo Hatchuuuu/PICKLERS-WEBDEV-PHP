@@ -1,0 +1,92 @@
+[
+    {
+        "id": "notif_1a9a6a1153",
+        "user_id": "usr_player",
+        "title": "Booking Confirmed! \ud83c\udfbe",
+        "body": "Court reserved: Court 3 at Incredoball Sports Center for Thu Sep 10 2026 (7:00 AM \u2013 12:00 PM). Enjoy your game!",
+        "type": "booking",
+        "is_read": 0,
+        "time": "Just now",
+        "created_at": "2026-09-08 19:39:00"
+    },
+    {
+        "id": "notif_4a72505cdc",
+        "user_id": "usr_31df737b4d77",
+        "title": "Booking Confirmed! \ud83c\udfbe",
+        "body": "Court reserved: Court 2 at Incredoball Sports Center for Tue, Sep 8, 2026 (3:00 PM \u2013 4:00 PM). Enjoy your game!",
+        "type": "booking",
+        "is_read": 0,
+        "time": "Just now",
+        "created_at": "2026-09-08 08:35:41"
+    },
+    {
+        "id": "notif_bb4b0790b7",
+        "user_id": "usr_player",
+        "title": "Court Booking Confirmed \ud83d\udcc5",
+        "body": "Court 1 reserved for tomorrow at 4:00 PM. Digital QR Pass generated.",
+        "type": "booking",
+        "is_read": 1,
+        "time": "2h ago",
+        "created_at": "2026-09-07 06:15:00"
+    },
+    {
+        "id": "notif_9204f95813",
+        "user_id": "usr_player",
+        "title": "Top-Up Successful! \ud83d\udcb3",
+        "body": "\u20b1500.00 Pickle Credits added via Maya. Current balance: \u20b12,800.00",
+        "type": "system",
+        "is_read": 1,
+        "time": "Yesterday",
+        "created_at": "2026-09-06 15:24:27"
+    },
+    {
+        "id": "notif_a05cf9589d",
+        "user_id": "usr_player",
+        "title": "Identity Verified! \ud83d\udee1\ufe0f",
+        "body": "Your player identity has been officially verified by Picklers.",
+        "type": "system",
+        "is_read": 1,
+        "time": "2d ago",
+        "created_at": "2026-09-05 10:28:38"
+    },
+    {
+        "id": "notif_owner_1",
+        "user_id": "usr_owner",
+        "title": "New Booking Request \ud83d\udcc5",
+        "body": "Sarah G. requested Court 1 for 4:00 PM - 5:00 PM (\u20b1450.00 via GCash).",
+        "type": "booking",
+        "is_read": 0,
+        "time": "Just now",
+        "created_at": "2026-09-07 08:15:00"
+    },
+    {
+        "id": "notif_owner_2",
+        "user_id": "usr_owner",
+        "title": "Player Checked In \ud83c\udfbe",
+        "body": "Mark V. scanned digital QR pass at Court 2 entrance.",
+        "type": "system",
+        "is_read": 0,
+        "time": "15m ago",
+        "created_at": "2026-09-07 07:50:00"
+    },
+    {
+        "id": "notif_owner_3",
+        "user_id": "usr_owner",
+        "title": "Daily Payout Processed \ud83d\udcb0",
+        "body": "\u20b15,400.00 disbursed to your verified Maya payout account.",
+        "type": "system",
+        "is_read": 1,
+        "time": "Yesterday",
+        "created_at": "2026-09-06 18:00:00"
+    },
+    {
+        "id": "notif_admin_1",
+        "user_id": "usr_admin",
+        "title": "System Audit Cleared \ud83d\udee1\ufe0f",
+        "body": "All daily ledger transactions reconciled with 100% accuracy.",
+        "type": "system",
+        "is_read": 0,
+        "time": "Just now",
+        "created_at": "2026-09-07 08:00:00"
+    }
+]

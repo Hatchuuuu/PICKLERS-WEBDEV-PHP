@@ -1,0 +1,37 @@
+# ==============================================================================
+# PICKLERS — Git Ignore Rules
+# ==============================================================================
+
+# Environment & Secrets
+.env
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Temporary / Scratch scripts
+/scratch/
+/storage/
+
+# Logs & Cache
+*.log
+logs/
+*.tmp
+*.cache
+/database/*.json.bak
+/database/rate_limits/
+
+# Runtime state (regenerated automatically, must not be committed)
+/database/.schema_version*
+/database/.seeded
+/database/login_attempts.json
+/database/cache/
+/database_test/
+
+# Local pre-migration safety dumps
+/database/backups/
+
+# Isolated test-run state (schema stamp + seed flag for picklers_test)
+/database/.test-state/
