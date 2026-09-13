@@ -42,6 +42,7 @@ class AppController extends BaseController {
             'unreadNotifsCount' => $unreadNotifsCount,
             'csrfToken' => $csrfToken,
             'facilities' => $db->getFacilities(),
+            'favoriteFacilityIds' => $db->getFavoriteFacilityIds((string)$currentUser['id']),
             'db' => $db
         ]);
     }

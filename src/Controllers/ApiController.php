@@ -161,7 +161,7 @@ class ApiController extends BaseController {
             'approve_booking', 'decline_booking', 'update_court_status', 'owner_update_court',
             'change_password', 'update_profile', 'verify_identity', 'delete_own_account', 'switch_user',
             'mark_notifications_read', 'delete_notification',
-            'create_post', 'send_message', 'like_post', 'add_comment',
+            'create_post', 'send_message', 'like_post', 'add_comment', 'toggle_favorite_facility',
             'create_tournament', 'update_tournament', 'delete_tournament',
             'add_tournament_team', 'add_tournament_player', 'add_tournament_entrant',
             'update_tournament_team', 'remove_tournament_team', 'remove_tournament_player',
@@ -251,6 +251,13 @@ class ApiController extends BaseController {
                         'server_time' => time(),
                     ];
                     if ($currentUser) {
+                        // Real-time "your time is up" alert: checked on this same
+                        // poll a logged-in player is already making every ~12s
+                        // (see PickSync in ux-core.js), so a booking that just
+                        // ended surfaces within seconds without a server cron —
+                        // see Database::checkAndNotifySessionEnd()'s doc comment.
+                        $syncPayload['ended_sessions'] = \Picklers\Core\Database::get()->checkAndNotifySessionEnd((string)$currentUser['id']);
+
                         $unread = $this->notificationService->getNotifications($currentUser['id']);
                         $syncPayload['unread_notifications'] = count(array_filter($unread, fn($n) => empty($n['is_read'])));
                     }
@@ -274,6 +281,80 @@ class ApiController extends BaseController {
                         'court_name' => $courtName,
                         'data' => ['roster' => $roster]
                     ]);
+
+                case 'get_pending_requests':
+                    // Backs the owner Dashboard's live "Requests" queue refresh:
+                    // PickSync notices the 'bookings' version moved and re-fetches
+                    // this instead of just telling the owner to reload the page.
+                    if (!$this->isOwnerAccount($currentUser)) {
+                        return $this->jsonError('Owner access required.', 403);
+                    }
+                    $facilityId = trim((string)($request->query('facility_id') ?? $request->input('facility_id', '')));
+                    $facility = $this->ownerFacility($currentUser, $facilityId);
+                    if ($facility === null) {
+                        return $this->jsonError('No facility context found.', 403);
+                    }
+                    $pendingRequests = \Picklers\Core\Database::get()->getPendingBookingRequests($facility['id']);
+                    return $this->json([
+                        'success' => true,
+                        'requests' => $pendingRequests,
+                    ]);
+
+                case 'verify_checkin':
+                    // The venue "Scan QR Pass" flow used to parse the scanned
+                    // string CLIENT-SIDE ONLY and always show "Verified &
+                    // Checked In!" — scanning a random QR code, or typing
+                    // gibberish into the manual entry box, "verified" it every
+                    // time. This actually looks the code up against a real
+                    // booking and only reports success for one that is real,
+                    // belongs to this facility, and is actually confirmed.
+                    if (!$this->isOwnerAccount($currentUser)) {
+                        return $this->jsonError('Owner access required.', 403);
+                    }
+                    $rawCode = trim((string)($request->query('code') ?? $request->input('code', '')));
+                    if ($rawCode === '') {
+                        return $this->jsonError('No code provided.', 400);
+                    }
+                    // Accept either the raw booking id, or the "PICKLERS:<id>:..."
+                    // payload embedded in the receipt's own QR code.
+                    $scanBookingId = $rawCode;
+                    if (str_starts_with($rawCode, 'PICKLERS:')) {
+                        $scanParts = explode(':', $rawCode);
+                        $scanBookingId = $scanParts[1] ?? '';
+                    }
+                    $scanBookingId = trim($scanBookingId);
+                    if ($scanBookingId === '') {
+                        return $this->jsonError('Unrecognized code format.', 400);
+                    }
+
+                    $db = \Picklers\Core\Database::get();
+                    $scanBooking = $db->getBookingById($scanBookingId);
+                    if (!$scanBooking) {
+                        return $this->jsonError('No booking found for this code.', 404);
+                    }
+                    if (empty($currentUser['is_admin']) && !$db->verifyBookingOwner($scanBookingId, $currentUser['id'])) {
+                        return $this->jsonError('This pass is not for a booking at your facility.', 403);
+                    }
+
+                    $scanPlayer = $db->getUserById((string)($scanBooking['user_id'] ?? ''));
+                    $scanDetails = [
+                        'booking_id' => $scanBookingId,
+                        'player_name' => $scanPlayer['name'] ?? ($scanBooking['author_name'] ?? 'Registered Player'),
+                        'court_name' => (string)($scanBooking['court_name'] ?? 'Court'),
+                        'date' => (string)($scanBooking['date'] ?? ''),
+                        'time' => (string)($scanBooking['time'] ?? ''),
+                        'status' => (string)($scanBooking['status'] ?? ''),
+                    ];
+
+                    $scanStatus = (string)($scanBooking['status'] ?? '');
+                    if ($scanStatus !== 'confirmed') {
+                        $reason = $scanStatus === 'pending'
+                            ? 'This reservation is still pending owner approval — it has not been confirmed.'
+                            : 'This reservation is ' . $scanStatus . " — it can't be checked in.";
+                        return $this->json(['success' => false, 'message' => $reason, 'booking' => $scanDetails], 409);
+                    }
+
+                    return $this->json(['success' => true, 'message' => 'Booking verified.', 'booking' => $scanDetails]);
 
                 case 'mark_notifications_read':
                     if (!$currentUser) {
@@ -438,6 +519,18 @@ class ApiController extends BaseController {
                     $type = (string)$request->query('type', 'All');
                     $sort = (string)$request->query('sort', 'recommended');
                     $facilities = $this->facilityService->getFacilities($search, $type, $sort);
+                    if ($currentUser) {
+                        // So a client-side re-render (silentRefreshDiscover(),
+                        // triggered by PickSync on a 'facilities'/'courts'
+                        // change) still shows this player's real favorited
+                        // hearts filled in, not just the ones on-screen when
+                        // the page first loaded.
+                        $favIds = \Picklers\Core\Database::get()->getFavoriteFacilityIds((string)$currentUser['id']);
+                        foreach ($facilities as &$favFac) {
+                            $favFac['is_favorited'] = in_array((int)($favFac['id'] ?? 0), $favIds, true);
+                        }
+                        unset($favFac);
+                    }
                     return $this->json(['success' => true, 'facilities' => $facilities]);
 
                 case 'facility_detail':
@@ -736,6 +829,19 @@ class ApiController extends BaseController {
                     $res = $this->communityService->toggleLikePost($postId, $currentUser['id']);
                     return $this->json($res);
 
+                case 'toggle_favorite_facility':
+                    // Was a CSS class toggled in the browser only — no backend,
+                    // reset on every reload, meant nothing beyond that one tab.
+                    if (!$currentUser) {
+                        return $this->jsonError('Please log in to save favorites', 401);
+                    }
+                    $favFacilityId = (string)$request->input('facility_id', '');
+                    if ($favFacilityId === '') {
+                        return $this->jsonError('Missing facility ID', 400);
+                    }
+                    $favRes = \Picklers\Core\Database::get()->toggleFavoriteFacility((string)$currentUser['id'], $favFacilityId);
+                    return $this->json($favRes);
+
                 case 'add_comment':
                     if (!$currentUser) {
                         return $this->jsonError('Please log in to comment', 401);
@@ -834,34 +940,58 @@ class ApiController extends BaseController {
                         }
                     }
                     $booking = $db->getBookingById($bookingId);
+                    if (!$booking) {
+                        return $this->jsonError('Booking record not found', 404);
+                    }
+                    if (($booking['status'] ?? '') === 'cancelled') {
+                        return $this->jsonError('This request was already cancelled or declined.', 400);
+                    }
                     $prevStatus = $booking['status'] ?? 'pending';
-                    $this->bookingService->updateBookingStatus($bookingId, 'confirmed');
 
-                    if ($booking) {
-                        $playerUser = $db->getUserById($booking['user_id'] ?? '');
-                        $playerName = $playerUser['name'] ?? ($booking['author_name'] ?? 'Player');
-                        $courtTarget = !empty($booking['court_id']) ? $booking['court_id'] : ($booking['court_name'] ?? null);
-                        $facId = $booking['facility_id'] ?? null;
-                        // Booking status is set to 'confirmed' above. Dynamic real-time court status
-                        // handles active occupancy during the booking's time window automatically.
-
-                        // Increment match player count if this was an Open Play join request being approved
-                        if ($prevStatus !== 'confirmed') {
-                            $matchId = $booking['match_id'] ?? null;
-                            if (!$matchId && ($facId !== null) && (!empty($booking['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
-                                $matches = $db->getMatchesByFacility($facId);
-                                foreach ($matches as $m) {
-                                    if (($m['type'] ?? '') === ($booking['court_name'] ?? '') && ($m['date'] ?? '') === ($booking['date'] ?? '') && ($m['time'] ?? '') === ($booking['time'] ?? '')) {
-                                        $matchId = $m['id'];
-                                        break;
-                                    }
-                                }
-                            }
-                            if ($matchId) {
-                                $db->adjustMatchPlayerCount((string)$matchId, 1);
+                    // Resolve the Open Play match (if any) BEFORE writing the new
+                    // status, so a full session can be rejected without leaving
+                    // the booking half-approved.
+                    $matchId = $booking['match_id'] ?? null;
+                    $facId = $booking['facility_id'] ?? null;
+                    if (!$matchId && ($facId !== null) && (!empty($booking['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
+                        $matches = $db->getMatchesByFacility($facId);
+                        foreach ($matches as $m) {
+                            if (($m['type'] ?? '') === ($booking['court_name'] ?? '') && ($m['date'] ?? '') === ($booking['date'] ?? '') && ($m['time'] ?? '') === ($booking['time'] ?? '')) {
+                                $matchId = $m['id'];
+                                break;
                             }
                         }
                     }
+                    if ($matchId && $prevStatus !== 'confirmed') {
+                        $match = $db->getMatchById((string)$matchId);
+                        // Belt-and-suspenders: joinMatch() already gates new requests
+                        // at capacity, so this should only ever trip on legacy data.
+                        // Either way, an owner must never be able to silently accept
+                        // more players than the session's own declared capacity.
+                        if ($match && (int)($match['current_players'] ?? 0) >= (int)($match['max_players'] ?? 0)) {
+                            return $this->jsonError('This Open Play session is already full. Decline this request or increase its capacity first.', 409);
+                        }
+                    }
+
+                    $this->bookingService->updateBookingStatus($bookingId, 'confirmed');
+
+                    // Increment match player count if this was an Open Play join request being approved
+                    if ($matchId && $prevStatus !== 'confirmed') {
+                        $db->adjustMatchPlayerCount((string)$matchId, 1);
+                    }
+
+                    // The player was only ever told a request was SENT (see
+                    // createBooking()/joinMatch()'s notifications). This is the
+                    // one place that actually confirms it.
+                    $courtLabel = (string)($booking['court_name'] ?? 'your court');
+                    $facilityLabel = (string)($booking['facility_name'] ?? 'the facility');
+                    $this->notificationService->addNotification(
+                        (string)($booking['user_id'] ?? ''),
+                        'Booking Confirmed! 🎾',
+                        "Great news! Your reservation for {$courtLabel} at {$facilityLabel} on " .
+                        ($booking['date'] ?? 'the requested date') . ' (' . ($booking['time'] ?? 'the requested time') . ') has been confirmed. See you on the court!',
+                        'booking'
+                    );
 
                     return $this->jsonSuccess(['booking_id' => $bookingId, 'status' => 'confirmed'], 'Booking confirmed successfully');
 
@@ -1168,6 +1298,14 @@ class ApiController extends BaseController {
 
                 case 'search_players':
                 case 'search_users':
+                    // Only used by the owner Staff/Walk-In search and the
+                    // tournament roster search (owner.js, tournament.js) — both
+                    // owner-only screens — but had no auth check at all, so
+                    // anyone unauthenticated could enumerate every registered
+                    // user's name, email, and role via this one GET request.
+                    if (!$this->isOwnerAccount($currentUser)) {
+                        return $this->jsonError('Unauthorized', 401);
+                    }
                     $q = strtolower(trim((string)($request->query('q') ?? $request->input('q', ''))));
                     $allUsers = \Picklers\Core\Database::get()->getAllUsers();
                     $matched = [];

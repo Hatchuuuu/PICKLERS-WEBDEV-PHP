@@ -338,6 +338,7 @@
   var known = null;       // null until the first successful poll
   var timer = null;
   var subscribers = {};   // channel -> [callbacks]
+  var sessionEndedSubscribers = [];
   var started = false;
 
   function pollInterval() {
@@ -370,6 +371,25 @@
     fetch('api.php?action=sync', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        // Real-time "your booking just ended" alert. Unlike everything else
+        // here, this isn't a version-diff channel — the server itself only
+        // ever returns a given booking here once (see
+        // Database::checkAndNotifySessionEnd()), so every entry on every
+        // tick, first poll included, is a genuinely new event to act on.
+        if (data && Array.isArray(data.ended_sessions) && data.ended_sessions.length) {
+          data.ended_sessions.forEach(function (session) {
+            for (var i = 0; i < sessionEndedSubscribers.length; i++) {
+              try {
+                sessionEndedSubscribers[i](session);
+              } catch (err) {
+                if (window.console && window.console.error) {
+                  window.console.error('[PickSync] session-ended subscriber threw:', err);
+                }
+              }
+            }
+          });
+        }
+
         // unread_notifications rides the same channel/version comparison as
         // everything else in `versions` — it's just another number a
         // subscriber wants to know changed, not a special case.
@@ -415,6 +435,13 @@
     on: function (channel, callback) {
       if (!subscribers[channel]) subscribers[channel] = [];
       subscribers[channel].push(callback);
+    },
+    /**
+     * Register a callback for "one of my bookings just ended" events —
+     * called once per booking, with {booking_id, court_name, facility_name}.
+     */
+    onSessionEnded: function (callback) {
+      sessionEndedSubscribers.push(callback);
     },
     /** Begin polling. Safe to call more than once — only the first counts. */
     start: function () {

@@ -11,8 +11,15 @@
     // has explicitly accepted it yet. 'confirmed' — what approve_booking
     // actually sets — matched nothing here before, so an owner accepting a
     // booking made it disappear from the player's own Bookings tab entirely.
-    $upcomingBookings = array_values(array_filter($allBookings, fn($b) => in_array($b['status'] ?? '', ['upcoming', 'confirmed', 'pending'], true)));
-    $completedBookings = array_values(array_filter($allBookings, fn($b) => ($b['status'] ?? '') === 'completed'));
+    // Nothing ever actually sets status='completed' — updateBookingStatus() only
+    // ever writes 'confirmed' or 'cancelled' — so a booking is moved out of
+    // Upcoming and into Completed by whether its play window has actually
+    // elapsed (Database::isBookingPast()), not by a status value that never
+    // arrives. This is also what makes a session ended early (see
+    // endCourtSessionEarly()) show as Completed immediately instead of sitting
+    // in Upcoming until its original, un-shortened end time.
+    $upcomingBookings = array_values(array_filter($allBookings, fn($b) => in_array($b['status'] ?? '', ['upcoming', 'confirmed', 'pending'], true) && !$db->isBookingPast($b)));
+    $completedBookings = array_values(array_filter($allBookings, fn($b) => in_array($b['status'] ?? '', ['upcoming', 'confirmed', 'pending', 'completed'], true) && $db->isBookingPast($b)));
     $cancelledBookings = array_values(array_filter($allBookings, fn($b) => in_array($b['status'] ?? '', ['cancelled', 'declined'], true)));
 
     $allTransactions = $db->getWalletTransactions($currentUser['id'] ?? '');

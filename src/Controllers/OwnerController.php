@@ -148,6 +148,32 @@ class OwnerController extends BaseController {
         $entityName = trim((string)$request->input('entity_name', ''));
         $regNumber = trim((string)$request->input('reg_number', ''));
 
+        // Every one of these used to fall back to a specific fake business
+        // ("BGC Pickleball Arena", "Marcus Vance", "SEC-CS2026-98124", ...)
+        // whenever a field was left blank — and the form's own inputs shipped
+        // those exact strings as their pre-filled `value`, so an applicant
+        // could tab straight through the whole wizard without typing
+        // anything real and still pass HTML5 `required` (which only checks
+        // "not empty", and a pre-filled fake value isn't empty). This is a
+        // facility-owner identity/licensing check for a marketplace handling
+        // real money — reject incomplete applications instead of inventing a
+        // complete-looking fake one for an admin to unknowingly approve.
+        $missing = [];
+        if ($facilityName === '') $missing[] = 'Facility Brand Name';
+        if ($address === '') $missing[] = 'Street Address';
+        if ($ownerName === '') $missing[] = 'Owner Full Name';
+        if ($businessEmail === '' || !filter_var($businessEmail, FILTER_VALIDATE_EMAIL)) $missing[] = 'a valid Business Email';
+        if ($phone === '') $missing[] = 'Mobile Number';
+        if ($entityName === '') $missing[] = 'Registered Legal Trade Name';
+        if ($regNumber === '') $missing[] = 'DTI / SEC Registration Number';
+        if ($missing !== []) {
+            $msg = 'Please complete: ' . implode(', ', $missing) . '.';
+            if ($request->header('X-Requested-With') === 'XMLHttpRequest' || $request->input('ajax') === '1') {
+                return Response::json(['success' => false, 'message' => $msg], 400);
+            }
+            return Response::redirect('owner-application.php?notice=incomplete');
+        }
+
         // Handle uploaded permits/IDs safely with whitelist validation and actual file storage
         $uploadDir = dirname(__DIR__, 2) . '/public/uploads/permits';
         if (!is_dir($uploadDir)) {
@@ -155,41 +181,58 @@ class OwnerController extends BaseController {
         }
 
         $allowedExts = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
-        $sanitizeUpload = function(?array $file, string $defaultPrefix, string $defaultExt, string $uploadDir) use ($allowedExts): string {
+        // Returns null (not a fake filename) when no real file was uploaded —
+        // the caller must treat that as a rejected application, not silently
+        // record a permit/ID that was never actually provided.
+        $sanitizeUpload = function(?array $file, string $uploadDir) use ($allowedExts): ?string {
             if (!$file || empty($file['name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                return $defaultPrefix . '_' . date('Ymd') . '.' . $defaultExt;
+                return null;
             }
             $cleanName = basename((string)$file['name']);
             $ext = strtolower(pathinfo($cleanName, PATHINFO_EXTENSION));
             if (!in_array($ext, $allowedExts, true)) {
-                return $defaultPrefix . '_' . date('Ymd') . '.' . $defaultExt;
+                return null;
             }
             $safeBase = preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($cleanName, PATHINFO_FILENAME));
             $finalName = substr((string)$safeBase, 0, 40) . '_' . date('Ymd_His') . '.' . $ext;
-            if (isset($file['tmp_name']) && is_uploaded_file($file['tmp_name'])) {
-                move_uploaded_file($file['tmp_name'], $uploadDir . '/' . $finalName);
+            if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+                return null;
+            }
+            if (!move_uploaded_file($file['tmp_name'], $uploadDir . '/' . $finalName)) {
+                return null;
             }
             return $finalName;
         };
 
-        $permitName = $sanitizeUpload($_FILES['permit_file'] ?? null, 'mayors_permit', 'pdf', $uploadDir);
-        $govIdName  = $sanitizeUpload($_FILES['gov_id_file'] ?? null, 'gov_id', 'jpg', $uploadDir);
+        $permitName = $sanitizeUpload($_FILES['permit_file'] ?? null, $uploadDir);
+        $govIdName  = $sanitizeUpload($_FILES['gov_id_file'] ?? null, $uploadDir);
+
+        if ($permitName === null || $govIdName === null) {
+            $docsMissing = [];
+            if ($permitName === null) $docsMissing[] = "Mayor's Permit / Business License";
+            if ($govIdName === null) $docsMissing[] = 'a valid Government ID';
+            $msg = 'Please upload ' . implode(' and ', $docsMissing) . ' (PDF, PNG, or JPG, max 5MB).';
+            if ($request->header('X-Requested-With') === 'XMLHttpRequest' || $request->input('ajax') === '1') {
+                return Response::json(['success' => false, 'message' => $msg], 400);
+            }
+            return Response::redirect('owner-application.php?notice=incomplete');
+        }
 
         $appRecord = [
             'id' => 'app_' . bin2hex(random_bytes(6)),
             'user_id' => $currentUser['id'],
-            'facility_name' => $facilityName ?: 'BGC Pickleball Arena',
-            'address' => $address ?: '9th Ave, Bonifacio Global City, Taguig',
+            'facility_name' => $facilityName,
+            'address' => $address,
             'latitude' => $latitude,
             'longitude' => $longitude,
             'courts_count' => $courtsCount,
             'court_surface' => $courtSurface,
             'operating_hours' => $operatingHours,
-            'owner_name' => $ownerName ?: ($currentUser['name'] ?? 'Court Operator'),
-            'business_email' => $businessEmail ?: ($currentUser['email'] ?? 'owner@picklers.ph'),
-            'phone' => $phone ?: '+63 917 888 2026',
-            'entity_name' => $entityName ?: 'Pickle Sports Enterprises Inc.',
-            'reg_number' => $regNumber ?: 'DTI-NCR-2026-88910',
+            'owner_name' => $ownerName,
+            'business_email' => $businessEmail,
+            'phone' => $phone,
+            'entity_name' => $entityName,
+            'reg_number' => $regNumber,
             'permit_file' => $permitName,
             'gov_id_file' => $govIdName,
             'status' => 'pending_review',
@@ -522,42 +565,11 @@ class OwnerController extends BaseController {
             }
         }
 
-        // Section 1: Booking Requests Queue (Live Database Records)
-        $realRequests = [];
-        $currentFacId = (string)($currentFacility['id'] ?? '');
-        $allUsers = \Picklers\Core\Database::get()->getAllUsers();
-        $userMap = [];
-        foreach ($allUsers as $u) {
-            $userMap[(string)($u['id'] ?? '')] = $u;
-        }
-
-        foreach ($bookings as $b) {
-            $bStatus = strtolower((string)($b['status'] ?? ''));
-            if ((string)($b['facility_id'] ?? '') === $currentFacId && $bStatus === 'pending') {
-                $playerUser = $userMap[(string)($b['user_id'] ?? '')] ?? null;
-                $playerName = $playerUser['name'] ?? ($b['author_name'] ?? 'Player ' . substr((string)($b['user_id'] ?? ''), -4));
-                $rawPm = trim((string)($b['payment_method'] ?? 'GCASH'));
-                if (strcasecmp($rawPm, 'Pay at Venue') === 0 || strcasecmp($rawPm, 'payatvenue') === 0) {
-                    $badge = 'PAY AT VENUE';
-                } elseif (strcasecmp($rawPm, 'Pickle Credits') === 0 || strcasecmp($rawPm, 'picklecredits') === 0) {
-                    $badge = 'CREDITS';
-                } else {
-                    $badge = strtoupper($rawPm);
-                }
-                $feeNum = (float)($b['price'] ?? 0);
-                $dur = (string)($b['duration'] ?? '1');
-                $durFormatted = is_numeric($dur) ? ($dur . ' ' . ((int)$dur === 1 ? 'hr' : 'hrs')) : $dur;
-                $realRequests[] = [
-                    'id' => (string)$b['id'],
-                    'name' => $playerName,
-                    'badge' => $badge,
-                    'court_name' => (string)($b['court_name'] ?? 'Court 1'),
-                    'schedule' => ($b['date'] ?? 'Upcoming') . ' at ' . ($b['time'] ?? 'TBD') . ' (' . $durFormatted . ')',
-                    'fee' => '₱' . number_format($feeNum),
-                    'fee_numeric' => $feeNum
-                ];
-            }
-        }
+        // Section 1: Booking Requests Queue (Live Database Records) — shared
+        // with the 'get_pending_requests' API action (ApiController) via
+        // Database::getPendingBookingRequests() so the first page render and
+        // every later live refresh build the exact same shape from one place.
+        $realRequests = \Picklers\Core\Database::get()->getPendingBookingRequests($currentFacility['id'] ?? '');
 
         // Real requests only. This used to always append three fabricated
         // rows (Bob Joshua, Daniel Alfeche, Alex Reyes) after the real ones —
@@ -694,6 +706,7 @@ class OwnerController extends BaseController {
             'currentFacility' => $currentFacility,
             'facilities' => $facilities,
             'metrics' => $metrics,
+            'financials' => $fin,
             'liveCourts' => $liveCourts,
             'courts' => $realCourts,
             'bookings' => $bookings,
@@ -880,6 +893,37 @@ class OwnerController extends BaseController {
 
                 return $this->jsonSuccess(['active' => $active], $statusMsg);
 
+            case 'end_court_session':
+                // Previously wired to 'toggle_court_status', which only ever
+                // touches courts.status — a field the dashboard's dynamic
+                // occupancy calculation doesn't read for a real, timed
+                // booking. That made "End Session Early" a no-op: the court
+                // showed occupied by the same booking again on the very next
+                // page load. This calls Database::endCourtSessionEarly(),
+                // which flags the actual active booking so it's genuinely
+                // excluded from that calculation.
+                $courtId = trim((string)$request->input('court_id', ''));
+                $courtName = trim((string)$request->input('court_name', ''));
+                if ($courtId === '' && $courtName === '') {
+                    return $this->jsonError('Missing court identifier', 400);
+                }
+
+                $db = Database::get();
+                if ($courtId !== '' && empty($currentUser['is_admin']) && !$db->verifyCourtOwner($courtId, (string)$currentUser['id'])) {
+                    return $this->jsonError('Unauthorized: You do not own this court', 403);
+                }
+
+                $sessionFacility = $this->resolveRequestedFacility($currentUser, $request);
+                if ($sessionFacility === null) {
+                    return $this->jsonError('No facility found for this account.', 400);
+                }
+
+                $endResult = $db->endCourtSessionEarly((string)$sessionFacility['id'], $courtId, $courtName);
+                if (!$endResult['success']) {
+                    return $this->jsonError($endResult['message'], 404);
+                }
+                return $this->jsonSuccess([], $endResult['message']);
+
             case 'delete_court':
                 $courtId = trim((string)$request->input('court_id', ''));
                 $courtName = trim((string)$request->input('name', ''));
@@ -1044,6 +1088,26 @@ class OwnerController extends BaseController {
                     $updateData['image'] = $facImage;
                 }
 
+                // Payout destination + accepted-methods — previously saved to
+                // localStorage only (see saveFacilitySettings() in owner.js),
+                // so it never reached here at all. Digits-only, capped at the
+                // same 11-char length the settings form's own input enforces.
+                if ($request->input('gcash_number', null) !== null) {
+                    $updateData['gcash_number'] = substr(preg_replace('/\D/', '', (string)$request->input('gcash_number', '')), 0, 11);
+                }
+                if ($request->input('maya_number', null) !== null) {
+                    $updateData['maya_number'] = substr(preg_replace('/\D/', '', (string)$request->input('maya_number', '')), 0, 11);
+                }
+                if ($request->input('gcash_enabled', null) !== null) {
+                    $updateData['gcash_enabled'] = filter_var($request->input('gcash_enabled'), FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+                }
+                if ($request->input('maya_enabled', null) !== null) {
+                    $updateData['maya_enabled'] = filter_var($request->input('maya_enabled'), FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+                }
+                if ($request->input('cash_on_site', null) !== null) {
+                    $updateData['cash_on_site'] = filter_var($request->input('cash_on_site'), FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+                }
+
                 $db = Database::get();
                 $ok = $db->updateFacility($facility['id'], $updateData);
                 if (!$ok) {
@@ -1163,9 +1227,14 @@ class OwnerController extends BaseController {
             case 'request_payout':
                 $amount = (float)$request->input('amount', 0.0);
                 $method = trim((string)$request->input('method', 'GCash'));
+                $accountName = trim((string)$request->input('account_name', ''));
+                $accountNumber = trim((string)$request->input('account_number', ''));
 
                 if ($amount <= 0) {
                     return $this->jsonError('Payout amount must be greater than zero.', 400);
+                }
+                if ($accountName === '' || $accountNumber === '') {
+                    return $this->jsonError('Account name and account/mobile number are required.', 400);
                 }
 
                 $payoutFacility = $this->resolveRequestedFacility($currentUser, $request);
@@ -1187,7 +1256,8 @@ class OwnerController extends BaseController {
                     (string)$currentUser['id'],
                     (string)$payoutFacility['id'],
                     $amount,
-                    $method
+                    $method,
+                    "Disbursement to: {$accountName}, {$accountNumber}"
                 );
 
                 return $this->jsonSuccess(

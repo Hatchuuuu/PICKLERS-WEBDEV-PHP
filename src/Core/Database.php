@@ -229,6 +229,17 @@ class Database {
                 image TEXT,
                 courts_count INT DEFAULT 4,
                 is_verified TINYINT(1) DEFAULT 1,
+                -- Payout destination + accepted-methods, set from the owner
+                -- Settings tab. Previously these five fields were saved to
+                -- localStorage only (see saveFacilitySettings() in owner.js) —
+                -- never reached the server, so a different device/browser (or
+                -- clearing site data) silently lost them, and nothing else in
+                -- the app could ever actually read them.
+                gcash_number VARCHAR(20) NULL,
+                maya_number VARCHAR(20) NULL,
+                gcash_enabled TINYINT(1) DEFAULT 1,
+                maya_enabled TINYINT(1) DEFAULT 1,
+                cash_on_site TINYINT(1) DEFAULT 1,
                 INDEX idx_facility_owner (owner_id)
             )",
             "CREATE TABLE IF NOT EXISTS courts (
@@ -297,6 +308,19 @@ class Database {
                 payment_method VARCHAR(50) DEFAULT 'Pickle Credits',
                 status VARCHAR(30) DEFAULT 'upcoming',
                 is_new TINYINT(1) DEFAULT 1,
+                -- Set when an owner ends a live session early. Status/price/time
+                -- stay exactly as originally booked (the player paid for and was
+                -- entitled to the full slot — this isn't a cancellation and
+                -- carries no refund), but a booking flagged here is excluded
+                -- from the 'currently occupying this court' time-window match,
+                -- so the court frees up immediately instead of showing occupied
+                -- until the original end time arrives regardless.
+                ended_early TINYINT(1) DEFAULT 0,
+                -- Set once the 'your time is up' real-time alert has actually
+                -- been raised for this booking (see checkAndNotifySessionEnd()),
+                -- so a player polling every ~12s doesn't get the alarm fired on
+                -- every single tick after their session ends.
+                end_alert_sent TINYINT(1) DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_booking_user (user_id),
                 INDEX idx_booking_facility (facility_id),
@@ -342,6 +366,13 @@ class Database {
                 user_id VARCHAR(64),
                 PRIMARY KEY (post_id, user_id),
                 INDEX idx_likes_user (user_id)
+            )",
+            "CREATE TABLE IF NOT EXISTS facility_favorites (
+                user_id VARCHAR(64),
+                facility_id INT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, facility_id),
+                INDEX idx_favorites_facility (facility_id)
             )",
             "CREATE TABLE IF NOT EXISTS feed_comments (
                 id VARCHAR(64) PRIMARY KEY,
@@ -525,6 +556,20 @@ class Database {
              'sql'  => "ALTER TABLE bookings ADD COLUMN start_min SMALLINT UNSIGNED NULL AFTER booking_date"],
             ['type' => 'column', 'table' => 'bookings', 'name' => 'end_min',
              'sql'  => "ALTER TABLE bookings ADD COLUMN end_min SMALLINT UNSIGNED NULL AFTER start_min"],
+            ['type' => 'column', 'table' => 'bookings', 'name' => 'ended_early',
+             'sql'  => "ALTER TABLE bookings ADD COLUMN ended_early TINYINT(1) DEFAULT 0 AFTER is_new"],
+            ['type' => 'column', 'table' => 'bookings', 'name' => 'end_alert_sent',
+             'sql'  => "ALTER TABLE bookings ADD COLUMN end_alert_sent TINYINT(1) DEFAULT 0 AFTER ended_early"],
+            ['type' => 'column', 'table' => 'facilities', 'name' => 'gcash_number',
+             'sql'  => "ALTER TABLE facilities ADD COLUMN gcash_number VARCHAR(20) NULL"],
+            ['type' => 'column', 'table' => 'facilities', 'name' => 'maya_number',
+             'sql'  => "ALTER TABLE facilities ADD COLUMN maya_number VARCHAR(20) NULL"],
+            ['type' => 'column', 'table' => 'facilities', 'name' => 'gcash_enabled',
+             'sql'  => "ALTER TABLE facilities ADD COLUMN gcash_enabled TINYINT(1) DEFAULT 1"],
+            ['type' => 'column', 'table' => 'facilities', 'name' => 'maya_enabled',
+             'sql'  => "ALTER TABLE facilities ADD COLUMN maya_enabled TINYINT(1) DEFAULT 1"],
+            ['type' => 'column', 'table' => 'facilities', 'name' => 'cash_on_site',
+             'sql'  => "ALTER TABLE facilities ADD COLUMN cash_on_site TINYINT(1) DEFAULT 1"],
 
             ['type' => 'column', 'table' => 'staff', 'name' => 'user_id',
              'sql'  => "ALTER TABLE staff ADD COLUMN user_id VARCHAR(64) NULL AFTER facility_id"],
@@ -567,6 +612,25 @@ class Database {
                 // A migration that cannot apply must never take the app down.
                 error_log("[PICKLERS Migration] {$m['table']}.{$m['name']} skipped: " . $e->getMessage());
             }
+        }
+
+        // New tables added after the initial schema shipped: initMySQLSchema()'s
+        // own CREATE TABLE list only ever runs once, on a brand-new database
+        // (see schemaNeedsInit() in the constructor) — an already-provisioned
+        // database at the current SCHEMA_VERSION never sees it again, so a
+        // table added later needs its own CREATE TABLE IF NOT EXISTS here too.
+        try {
+            $this->pdo->exec(
+                "CREATE TABLE IF NOT EXISTS facility_favorites (
+                    user_id VARCHAR(64),
+                    facility_id INT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, facility_id),
+                    INDEX idx_favorites_facility (facility_id)
+                )"
+            );
+        } catch (\Throwable $e) {
+            error_log('[PICKLERS Migration] facility_favorites table skipped: ' . $e->getMessage());
         }
 
         try {
@@ -846,7 +910,7 @@ class Database {
     }
 
     private function initJSONSchema() {
-        $files = ['users', 'facilities', 'courts', 'staff', 'matches', 'bookings', 'wallet_transactions', 'feed_posts', 'feed_likes', 'feed_comments', 'direct_messages', 'notifications', 'owner_applications', 'promo_codes', 'promo_redemptions', 'court_images', 'amenities', 'facility_amenities'];
+        $files = ['users', 'facilities', 'courts', 'staff', 'matches', 'bookings', 'wallet_transactions', 'feed_posts', 'feed_likes', 'feed_comments', 'direct_messages', 'notifications', 'owner_applications', 'promo_codes', 'promo_redemptions', 'court_images', 'amenities', 'facility_amenities', 'facility_favorites'];
         foreach ($files as $f) {
             $path = $this->dataDir . '/' . $f . '.json';
             if (!file_exists($path)) {
@@ -2368,7 +2432,10 @@ class Database {
     }
 
     public function updateFacility(int|string $facilityId, array $fields): bool {
-        $allowed = ['name', 'location', 'hours', 'type', 'transit', 'image', 'price', 'price_numeric'];
+        $allowed = [
+            'name', 'location', 'hours', 'type', 'transit', 'image', 'price', 'price_numeric',
+            'gcash_number', 'maya_number', 'gcash_enabled', 'maya_enabled', 'cash_on_site',
+        ];
         $clean = [];
         foreach ($fields as $k => $v) {
             if (in_array($k, $allowed, true)) {
@@ -2469,7 +2536,8 @@ class Database {
                 "SELECT b.*, u.name as user_name FROM bookings b
                  LEFT JOIN users u ON b.user_id = u.id
                  WHERE b.facility_id = ? AND b.booking_date = ?
-                   AND b.status NOT IN ('cancelled', 'declined')"
+                   AND b.status NOT IN ('cancelled', 'declined')
+                   AND (b.ended_early = 0 OR b.ended_early IS NULL)"
             );
             $bStmt->execute([$facilityId, $todayStr]);
             $activeBookingsToday = $bStmt->fetchAll();
@@ -2484,6 +2552,7 @@ class Database {
                 if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
                 $st = (string)($b['status'] ?? '');
                 if ($st === 'cancelled' || $st === 'declined') continue;
+                if (!empty($b['ended_early'])) continue;
                 $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
                 if ($bDate === $todayStr) {
                     $b['user_name'] = $userMap[(string)($b['user_id'] ?? '')] ?? ($b['author_name'] ?? 'Player');
@@ -2781,6 +2850,270 @@ class Database {
             }
             return $updated;
         }
+    }
+
+    /**
+     * Ends whichever real, timed booking is currently occupying a court,
+     * right now, without waiting for its original end time.
+     *
+     * getCourtsByFacilityUncached() derives "occupied" purely from a
+     * booking's own start/end time window on every read — toggling the
+     * court's own status row (the old "End Session Early" implementation)
+     * touched a field nothing here ever reads for this case, so the court
+     * silently went right back to "occupied" on the very next dashboard
+     * load. This instead flags the actual active booking itself
+     * (ended_early = 1, see the column's doc comment on the CREATE TABLE)
+     * so it's excluded from that time-window match from now on. Status,
+     * price, and the original time range are left untouched — the player
+     * paid for and was entitled to the full slot; this is not a
+     * cancellation and carries no refund.
+     *
+     * @return array{success:bool, message:string, booking?:array}
+     */
+    public function endCourtSessionEarly(int|string $facilityId, string $courtId, string $courtName): array {
+        $this->invalidateReadCache();
+        $todayStr = date('Y-m-d');
+        $nowMin = ((int)date('G') * 60) + (int)date('i');
+
+        $findActive = function (array $rows) use ($nowMin): ?array {
+            foreach ($rows as $row) {
+                $sMin = isset($row['start_min']) && $row['start_min'] !== null ? (int)$row['start_min'] : null;
+                $eMin = isset($row['end_min']) && $row['end_min'] !== null ? (int)$row['end_min'] : null;
+                if ($sMin === null || $eMin === null) {
+                    $range = $this->parseTimeRange((string)($row['time'] ?? ''));
+                    if ($range) {
+                        $sMin = $range[0];
+                        $eMin = $range[1];
+                    }
+                }
+                if ($sMin !== null && $eMin !== null && $nowMin >= $sMin && $nowMin < $eMin) {
+                    return $row;
+                }
+            }
+            return null;
+        };
+
+        if ($this->isMySQL) {
+            try {
+                $this->pdo->beginTransaction();
+                $stmt = $this->pdo->prepare(
+                    "SELECT * FROM bookings
+                     WHERE facility_id = ? AND booking_date = ? AND status = 'confirmed'
+                       AND (ended_early = 0 OR ended_early IS NULL)
+                       AND (court_id = ? OR court_name = ?)
+                     FOR UPDATE"
+                );
+                $stmt->execute([$facilityId, $todayStr, $courtId, $courtName]);
+                $target = $findActive($stmt->fetchAll());
+
+                if ($target === null) {
+                    $this->pdo->rollBack();
+                    return ['success' => false, 'message' => 'No active session found for this court right now.'];
+                }
+
+                $this->pdo->prepare("UPDATE bookings SET ended_early = 1 WHERE id = ?")->execute([$target['id']]);
+                $this->pdo->commit();
+            } catch (\Throwable $e) {
+                if ($this->pdo->inTransaction()) {
+                    $this->pdo->rollBack();
+                }
+                error_log('[DB Error] endCourtSessionEarly failed: ' . $e->getMessage());
+                return ['success' => false, 'message' => 'Could not end this session. Please try again.'];
+            }
+        } else {
+            $path = $this->dataDir . '/bookings.json';
+            $fp = fopen($path, 'c+');
+            if (!$fp || !flock($fp, LOCK_EX)) {
+                if ($fp) fclose($fp);
+                return ['success' => false, 'message' => 'System is busy. Please try again.'];
+            }
+            $target = null;
+            try {
+                $raw = stream_get_contents($fp);
+                $bookings = json_decode($raw ?: '[]', true) ?? [];
+
+                $candidates = [];
+                foreach ($bookings as $idx => $b) {
+                    if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
+                    if (($b['status'] ?? '') !== 'confirmed') continue;
+                    if (!empty($b['ended_early'])) continue;
+                    $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
+                    if ($bDate !== $todayStr) continue;
+                    $sameCourt = ($courtId !== '' && ($b['court_id'] ?? '') === $courtId) || (($b['court_name'] ?? '') === $courtName);
+                    if (!$sameCourt) continue;
+                    $b['_idx'] = $idx;
+                    $candidates[] = $b;
+                }
+
+                $target = $findActive($candidates);
+                if ($target === null) {
+                    return ['success' => false, 'message' => 'No active session found for this court right now.'];
+                }
+
+                $bookings[$target['_idx']]['ended_early'] = 1;
+                ftruncate($fp, 0);
+                rewind($fp);
+                fwrite($fp, json_encode(array_values($bookings), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            } finally {
+                if (is_resource($fp)) {
+                    flock($fp, LOCK_UN);
+                    fclose($fp);
+                }
+            }
+        }
+
+        $this->bumpSync('courts', 'bookings');
+        return [
+            'success' => true,
+            'message' => 'Session ended. Court is free for a new booking.',
+            'booking' => $target,
+        ];
+    }
+
+    /**
+     * Whether a booking's play window has already elapsed. Nothing in this
+     * codebase ever writes status='completed' on a booking — updateBookingStatus()
+     * is only ever called with 'confirmed' or 'cancelled' — so the player's own
+     * "Completed" Bookings tab (views/partials/app/_tab-bookings.php, filtering
+     * on that exact string) has always been empty, and a booking from weeks ago
+     * sits in "Upcoming" forever. This computes it the same way isMatchExpired()
+     * does for Open Play sessions, so a booking moves to Completed the moment
+     * its window ends — including immediately, for one flagged ended_early.
+     */
+    public function isBookingPast(array $booking): bool {
+        if (!empty($booking['ended_early'])) {
+            return true;
+        }
+        if (in_array((string)($booking['status'] ?? ''), ['cancelled', 'declined'], true)) {
+            return false; // its own bucket, not "past"
+        }
+
+        $dateStr = (string)($booking['booking_date'] ?? '');
+        if ($dateStr === '') {
+            $resolved = $this->resolveDisplayDate((string)($booking['date'] ?? ''));
+            $dateStr = $resolved ?? '';
+        }
+        if ($dateStr === '') {
+            return false; // can't tell — don't hide it
+        }
+
+        $todayStr = date('Y-m-d');
+        if ($dateStr < $todayStr) {
+            return true;
+        }
+        if ($dateStr > $todayStr) {
+            return false;
+        }
+
+        $endMin = isset($booking['end_min']) && $booking['end_min'] !== null ? (int)$booking['end_min'] : null;
+        if ($endMin === null) {
+            $range = $this->parseTimeRange((string)($booking['time'] ?? ''));
+            if ($range) {
+                $endMin = $range[1];
+            }
+        }
+        if ($endMin === null) {
+            return false;
+        }
+
+        $nowMin = ((int)date('G') * 60) + (int)date('i');
+        return $nowMin >= $endMin;
+    }
+
+    /**
+     * Real-time "your time is up" alert for one player.
+     *
+     * There is no cron/daemon in this app (see the class doc comment on
+     * dual-mode storage — it's a plain request/response PHP app), so this is
+     * checked on every 'sync' poll (see ApiController) for whichever player
+     * is actively polling. Since the player app polls every ~12s while open
+     * (ux-core.js's PickSync), this surfaces within seconds of a booking's
+     * actual end time without needing a scheduled task — as long as the
+     * player has the app open somewhere. A real background push (rings even
+     * with the app fully closed) needs Web Push infrastructure — HTTPS, a
+     * service worker, VAPID keys, and something to trigger it independent of
+     * any open tab — which is a separate, larger piece of work.
+     *
+     * Fires exactly once per booking (end_alert_sent), both as a normal
+     * notification (so it's there later even if missed) and as a returned
+     * payload the client uses to actually ring/vibrate/alert immediately —
+     * see 'ended_sessions' in the sync response and PickSync.onSessionEnded()
+     * in ux-core.js.
+     *
+     * Scoped to today's bookings only so shipping this feature doesn't
+     * suddenly "end-alert" every confirmed booking in history the first time
+     * an existing user polls.
+     *
+     * @return array<int,array{booking_id:string,court_name:string,facility_name:string}>
+     */
+    public function checkAndNotifySessionEnd(string $userId): array {
+        if ($userId === '') {
+            return [];
+        }
+        $todayStr = date('Y-m-d');
+        $alerts = [];
+
+        if ($this->isMySQL) {
+            $stmt = $this->pdo->prepare(
+                "SELECT * FROM bookings
+                 WHERE user_id = ? AND booking_date = ? AND status = 'confirmed'
+                   AND (end_alert_sent = 0 OR end_alert_sent IS NULL)"
+            );
+            $stmt->execute([$userId, $todayStr]);
+            $candidates = $stmt->fetchAll();
+        } else {
+            $candidates = [];
+            foreach ($this->getJSONData('bookings') as $b) {
+                if ((string)($b['user_id'] ?? '') !== $userId) continue;
+                if (($b['status'] ?? '') !== 'confirmed') continue;
+                if (!empty($b['end_alert_sent'])) continue;
+                $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
+                if ($bDate !== $todayStr) continue;
+                $candidates[] = $b;
+            }
+        }
+
+        foreach ($candidates as $b) {
+            if (!$this->isBookingPast($b)) {
+                continue;
+            }
+            $bookingId = (string)($b['id'] ?? '');
+            if ($bookingId === '') {
+                continue;
+            }
+
+            if ($this->isMySQL) {
+                $this->pdo->prepare("UPDATE bookings SET end_alert_sent = 1 WHERE id = ?")->execute([$bookingId]);
+            } else {
+                $this->lockedJSONUpdate('bookings', function (array $rows) use ($bookingId): array {
+                    foreach ($rows as &$row) {
+                        if ((string)($row['id'] ?? '') === $bookingId) {
+                            $row['end_alert_sent'] = 1;
+                            break;
+                        }
+                    }
+                    unset($row);
+                    return $rows;
+                });
+            }
+
+            $courtName = (string)($b['court_name'] ?? 'your court');
+            $facilityName = (string)($b['facility_name'] ?? 'the facility');
+            $this->addNotification(
+                $userId,
+                '⏰ Your Time Is Up!',
+                "Your session at {$courtName}, {$facilityName} has ended. Thanks for playing — see you again soon!",
+                'session_ended'
+            );
+
+            $alerts[] = [
+                'booking_id' => $bookingId,
+                'court_name' => $courtName,
+                'facility_name' => $facilityName,
+            ];
+        }
+
+        return $alerts;
     }
 
     public function insertCourt(array $courtData): array {
@@ -3240,9 +3573,9 @@ class Database {
 
         if ($this->isMySQL) {
             $stmt = $this->pdo->prepare(
-                "SELECT b.id, b.user_id, u.name, u.email, u.level, b.payment_method, b.price, b.created_at 
-                 FROM bookings b 
-                 LEFT JOIN users u ON b.user_id = u.id 
+                "SELECT b.id, b.user_id, u.name, u.email, u.level, b.payment_method, b.price, b.created_at
+                 FROM bookings b
+                 LEFT JOIN users u ON b.user_id = u.id
                  WHERE b.facility_id = ? AND (b.court_name = ? OR b.court_name LIKE ? OR (? != '' AND b.court_id = ?)) AND b.status != 'cancelled'
                  ORDER BY b.id DESC"
             );
@@ -3256,7 +3589,8 @@ class Database {
                     'level' => !empty($r['level']) ? $r['level'] : 'Intermediate 3.5',
                     'payment_status' => 'Paid via ' . ($r['payment_method'] ?? 'GCash'),
                     'fee' => (float)($r['price'] ?? 250),
-                    'time_ago' => !empty($r['created_at']) ? date('M j, g:i A', strtotime($r['created_at'])) : 'Recent'
+                    'time_ago' => !empty($r['created_at']) ? date('M j, g:i A', strtotime($r['created_at'])) : 'Recent',
+                    '_created_at' => $r['created_at'] ?? '',
                 ];
             }, $rows);
         } else {
@@ -3283,7 +3617,8 @@ class Database {
                         'level' => !empty($u['level']) ? $u['level'] : 'Intermediate 3.5',
                         'payment_status' => 'Paid via ' . ($b['payment_method'] ?? 'GCash'),
                         'fee' => (float)($b['price'] ?? 250),
-                        'time_ago' => !empty($b['created_at']) ? date('M j, g:i A', strtotime($b['created_at'])) : 'Recent'
+                        'time_ago' => !empty($b['created_at']) ? date('M j, g:i A', strtotime($b['created_at'])) : 'Recent',
+                        '_created_at' => $b['created_at'] ?? '',
                     ];
                 }
             }
@@ -3301,75 +3636,45 @@ class Database {
         }
         $roster = $uniqueRoster;
 
-        // Find matching Open Play session for facility to ensure roster matches joined players count
+        // A recurring ("Everyday"/"Daily") Open Play session is never recreated
+        // day to day, so nothing else ever clears out yesterday's joiners —
+        // without this, the roster for a recurring slot would accumulate every
+        // player who has EVER joined it, not just today's. A one-off, dated
+        // session doesn't have this problem (host_open_play() cancels the
+        // previous session's bookings before publishing a new one), so only
+        // recurring sessions get the extra "today only" filter.
         $facilityMatches = $this->getMatchesByFacility((int)$facilityId);
-        $matchedSession = null;
-
+        $isEveryday = false;
         foreach ($facilityMatches as $m) {
             if ($this->isMatchExpired($m)) continue;
             $mCourt = trim((string)($m['court_name'] ?? $m['type'] ?? ''));
             $mCourtId = trim((string)($m['court_id'] ?? ''));
-
-            if (($courtId !== '' && $mCourtId === $courtId) ||
-                ($courtName !== '' && (strcasecmp($mCourt, $courtName) === 0 || str_contains(strtolower($mCourt), strtolower($cleanCourtName)) || str_contains(strtolower($cleanCourtName), strtolower($mCourt))))) {
-                $matchedSession = $m;
+            $isThisCourt = ($courtId !== '' && $mCourtId === $courtId)
+                || ($courtName !== '' && (strcasecmp($mCourt, $courtName) === 0 || str_contains(strtolower($mCourt), strtolower($cleanCourtName))));
+            if ($isThisCourt) {
+                $mDate = strtolower(trim((string)($m['date'] ?? '')));
+                $isEveryday = ($mDate === 'everyday' || $mDate === 'daily');
                 break;
             }
         }
 
-        if (!$matchedSession && !empty($facilityMatches)) {
-            foreach ($facilityMatches as $m) {
-                if (!$this->isMatchExpired($m)) {
-                    $matchedSession = $m;
-                    break;
-                }
-            }
+        if ($isEveryday) {
+            $todayStr = date('Y-m-d');
+            $roster = array_values(array_filter($roster, function ($r) use ($todayStr) {
+                $created = (string)($r['_created_at'] ?? '');
+                if ($created === '') return true; // no timestamp to judge by — don't hide it
+                $ts = strtotime($created);
+                return $ts !== false && date('Y-m-d', $ts) === $todayStr;
+            }));
         }
 
-        if ($matchedSession) {
-            $joinedCount = (int)($matchedSession['current_players'] ?? $matchedSession['joined'] ?? 2);
-            if (count($roster) < $joinedCount) {
-                $hostName = !empty($matchedSession['host']) ? $matchedSession['host'] : 'Session Host';
-                $existingNames = array_column($roster, 'name');
-
-                if (!in_array($hostName, $existingNames, true)) {
-                    array_unshift($roster, [
-                        'id' => 'host_' . ($matchedSession['id'] ?? '1'),
-                        'name' => $hostName,
-                        'email' => strtolower(str_replace(' ', '', $hostName)) . '@picklers.ph',
-                        'level' => !empty($matchedSession['level']) ? $matchedSession['level'] : 'Intermediate 3.5',
-                        'payment_status' => 'Paid via GCash',
-                        'fee' => (float)($matchedSession['price'] ?? 250),
-                        'time_ago' => 'Session Host'
-                    ]);
-                    $existingNames[] = $hostName;
-                }
-
-                if (count($roster) < $joinedCount) {
-                    $allUsers = $this->isMySQL ? $this->getUsers() : $this->getJSONData('users');
-                    foreach ($allUsers as $u) {
-                        if (count($roster) >= $joinedCount) break;
-                        $uName = $u['name'] ?? '';
-                        if (!empty($uName) && !in_array($uName, $existingNames, true)) {
-                            $roster[] = [
-                                'id' => $u['id'] ?? ('p_' . count($roster)),
-                                'name' => $uName,
-                                'email' => $u['email'] ?? '',
-                                'level' => !empty($u['level']) ? $u['level'] : 'Advanced 4.0',
-                                'payment_status' => 'Paid via GCash',
-                                'fee' => (float)($matchedSession['price'] ?? 250),
-                                'time_ago' => 'Joined'
-                            ];
-                            $existingNames[] = $uName;
-                        }
-                    }
-                }
-            } elseif (count($roster) > $joinedCount && $joinedCount > 0) {
-                $roster = array_slice($roster, 0, $joinedCount);
-            }
+        // Strip the internal filtering field before handing the roster back.
+        foreach ($roster as &$r) {
+            unset($r['_created_at']);
         }
+        unset($r);
 
-        return $roster;
+        return array_values($roster);
     }
 
     public function verifyBookingOwner(string $bookingId, string $ownerUserId): bool {
@@ -3889,7 +4194,13 @@ class Database {
                     $this->pdo->rollBack();
                     return ['success' => false, 'message' => 'Match not found'];
                 }
-                if ($match['current_players'] >= $match['max_players']) {
+                // Gate on pending+confirmed requests, not just approved seats — the
+                // FOR UPDATE lock above serializes concurrent joinMatch() calls for
+                // this match, so this count is atomic relative to them. Previously
+                // this only checked current_players (which only counts *approved*
+                // seats), so pending join requests never counted against capacity
+                // and an owner could accept more players than max_players allowed.
+                if ($this->countActiveMatchBookings((string)$matchId) >= (int)$match['max_players']) {
                     $this->pdo->rollBack();
                     return ['success' => false, 'message' => 'This open play match is already full!'];
                 }
@@ -3992,7 +4303,8 @@ class Database {
                 foreach ($matches as &$m) {
                     if ((string)$m['id'] === (string)$matchId) {
                         $found = true;
-                        if ((int)$m['current_players'] >= (int)$m['max_players']) {
+                        // Same pending+confirmed capacity gate as the MySQL branch above.
+                        if ($this->countActiveMatchBookings((string)$matchId) >= (int)$m['max_players']) {
                             return ['success' => false, 'message' => 'This open play match is already full!'];
                         }
 
@@ -4065,11 +4377,13 @@ class Database {
             }
         }
 
-        // Notify user
+        // Notify user — this is a REQUEST, not a confirmed seat, until the
+        // facility owner approves it (see 'approve_booking' in ApiController,
+        // which sends the actual "Booking Confirmed!" notification).
         $this->addNotification(
             $userId,
-            'Joined Open Play! 🔥',
-            'You joined ' . ($match['type'] ?? 'Open Play') . ' at ' . ($match['facility_name'] ?? 'Facility') . '. See you on the court!',
+            'Open Play Request Sent 🔥',
+            'Your request to join ' . ($match['type'] ?? 'Open Play') . ' at ' . ($match['facility_name'] ?? 'Facility') . ' is awaiting the facility\'s confirmation. We\'ll notify you once it\'s approved.',
             'community'
         );
 
@@ -4078,6 +4392,30 @@ class Database {
             'message' => 'Join request sent to facility owner for approval!',
             'booking' => $booking
         ];
+    }
+
+    /**
+     * How many seats on this match are actually spoken for — pending requests
+     * included, not just owner-approved ones. This is the number joinMatch()
+     * must compare against max_players; current_players alone only tracks
+     * approved seats and under-counts demand while requests await review.
+     */
+    private function countActiveMatchBookings(string $matchId): int {
+        if ($this->isMySQL) {
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed')"
+            );
+            $stmt->execute([$matchId]);
+            return (int)$stmt->fetchColumn();
+        }
+
+        $count = 0;
+        foreach ($this->getJSONData('bookings') as $b) {
+            if ((string)($b['match_id'] ?? '') === $matchId && in_array($b['status'] ?? '', ['pending', 'confirmed'], true)) {
+                $count++;
+            }
+        }
+        return $count;
     }
 
     /**
@@ -4224,12 +4562,70 @@ class Database {
         }
     }
 
+    /**
+     * The owner Dashboard's "Requests" queue, shaped exactly as
+     * views/partials/owner/_tab-dashboard.php's request-card-v2 needs it.
+     * Shared by OwnerController::index() (first page render) and the
+     * 'get_pending_requests' API action (live re-render after a PickSync
+     * 'bookings' change) so the two can never drift apart.
+     */
+    public function getPendingBookingRequests(int|string $facilityId): array {
+        $facilityIdStr = (string)$facilityId;
+        $userMap = [];
+        foreach ($this->getAllUsers() as $u) {
+            $userMap[(string)($u['id'] ?? '')] = $u;
+        }
+
+        $requests = [];
+        foreach ($this->getBookings(null, 'pending') as $b) {
+            if ((string)($b['facility_id'] ?? '') !== $facilityIdStr) {
+                continue;
+            }
+            $playerUser = $userMap[(string)($b['user_id'] ?? '')] ?? null;
+            $playerName = $playerUser['name'] ?? ($b['author_name'] ?? 'Player ' . substr((string)($b['user_id'] ?? ''), -4));
+            $rawPm = trim((string)($b['payment_method'] ?? 'GCASH'));
+            if (strcasecmp($rawPm, 'Pay at Venue') === 0 || strcasecmp($rawPm, 'payatvenue') === 0) {
+                $badge = 'PAY AT VENUE';
+            } elseif (strcasecmp($rawPm, 'Pickle Credits') === 0 || strcasecmp($rawPm, 'picklecredits') === 0) {
+                $badge = 'CREDITS';
+            } else {
+                $badge = strtoupper($rawPm);
+            }
+            $feeNum = (float)($b['price'] ?? 0);
+            $dur = (string)($b['duration'] ?? '1');
+            $durFormatted = is_numeric($dur) ? ($dur . ' ' . ((int)$dur === 1 ? 'hr' : 'hrs')) : $dur;
+            $requests[] = [
+                'id' => (string)$b['id'],
+                'name' => $playerName,
+                'badge' => $badge,
+                'court_name' => (string)($b['court_name'] ?? 'Court 1'),
+                'schedule' => ($b['date'] ?? 'Upcoming') . ' at ' . ($b['time'] ?? 'TBD') . ' (' . $durFormatted . ')',
+                'fee' => '₱' . number_format($feeNum),
+                'fee_numeric' => $feeNum,
+            ];
+        }
+        return $requests;
+    }
+
     public function insertBooking($b) {
+        // Every other mutating method here invalidates the courts read-cache;
+        // this one didn't, so a request that reads court occupancy (it's
+        // computed live from each court's bookings — see
+        // getCourtsByFacilityUncached()) both before AND after inserting a
+        // booking within the same request could see the pre-insert, stale
+        // result the second time.
+        $this->invalidateReadCache();
         if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO bookings (id, user_id, facility_id, court_id, match_id, facility_name, court_name, date, time, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            // booking_date/start_min/end_min are optional here: joinMatch()'s Open
+            // Play bookings don't need them (that occupancy path is driven by the
+            // `matches` table, not a booking's own time window), but a caller
+            // constructing a real timed-slot booking outside createBooking()'s
+            // own validation (e.g. a test fixture) can supply them directly.
+            $stmt = $this->pdo->prepare("INSERT INTO bookings (id, user_id, facility_id, court_id, match_id, facility_name, court_name, date, time, booking_date, start_min, end_min, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
             $stmt->execute([
                 $b['id'], $b['user_id'], $b['facility_id'], $b['court_id'] ?? null, $b['match_id'] ?? null, $b['facility_name'], $b['court_name'],
-                $b['date'], $b['time'], $b['duration'], $b['price'], $b['payment_method'],
+                $b['date'], $b['time'], $b['booking_date'] ?? null, $b['start_min'] ?? null, $b['end_min'] ?? null,
+                $b['duration'], $b['price'], $b['payment_method'],
                 $b['status'], $b['is_new'] ?? 1, $b['created_at'] ?? date('Y-m-d H:i:s')
             ]);
         } else {
@@ -4670,7 +5066,12 @@ class Database {
                     'duration' => $duration,
                     'price' => (float)$price,
                     'payment_method' => $paymentMethod,
-                    'status' => 'upcoming',
+                    // Must match the MySQL branch's 'pending' status: a booking
+                    // isn't a confirmed reservation until the facility owner
+                    // approves it via approve_booking. Defaulting to 'upcoming'
+                    // here silently skipped the entire approval workflow
+                    // whenever the app was running on the JSON fallback store.
+                    'status' => 'pending',
                     'is_new' => 1,
                     'created_at' => date('Y-m-d H:i:s')
                 ];
@@ -4691,10 +5092,15 @@ class Database {
             }
         }
 
+        // This is a REQUEST awaiting the facility owner's approval, not a
+        // confirmed reservation yet — the actual "Booking Confirmed!"
+        // notification is sent from 'approve_booking' in ApiController once
+        // the owner accepts it. Telling the player it's "confirmed" here,
+        // before anyone at the facility has reviewed it, is misleading.
         $this->addNotification(
             $userId,
-            'Booking Confirmed! 🎾',
-            "Court reserved: $courtName at $facilityName for $date ($time). Enjoy your game!",
+            'Reservation Requested ⏳',
+            "Your request for $courtName at $facilityName on $date ($time) has been sent to the facility for confirmation. We'll notify you once it's approved.",
             'booking'
         );
 
@@ -5181,6 +5587,66 @@ class Database {
         }
     }
 
+    /**
+     * Toggle a player's favorite on a facility. Was previously a CSS class
+     * flip in the browser only (toggleFavoriteFacility() in app.js) — no
+     * backend at all, so it reset on every page load and meant nothing to
+     * anyone but that one browser tab. Mirrors toggleLikePost()'s shape.
+     */
+    public function toggleFavoriteFacility(string $userId, int|string $facilityId): array {
+        $facilityId = (int)$facilityId;
+        if ($this->isMySQL) {
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) as c FROM facility_favorites WHERE user_id = ? AND facility_id = ?");
+            $stmt->execute([$userId, $facilityId]);
+            $isFavorited = ((int)($stmt->fetch()['c'] ?? 0)) > 0;
+            if ($isFavorited) {
+                $this->pdo->prepare("DELETE FROM facility_favorites WHERE user_id = ? AND facility_id = ?")->execute([$userId, $facilityId]);
+                $favorited = false;
+            } else {
+                $this->pdo->prepare("INSERT INTO facility_favorites (user_id, facility_id) VALUES (?, ?)")->execute([$userId, $facilityId]);
+                $favorited = true;
+            }
+        } else {
+            $favorites = $this->getJSONData('facility_favorites');
+            $idx = -1;
+            foreach ($favorites as $k => $fav) {
+                if ((string)($fav['user_id'] ?? '') === $userId && (int)($fav['facility_id'] ?? 0) === $facilityId) {
+                    $idx = $k;
+                    break;
+                }
+            }
+            if ($idx !== -1) {
+                unset($favorites[$idx]);
+                $favorited = false;
+            } else {
+                $favorites[] = ['user_id' => $userId, 'facility_id' => $facilityId, 'created_at' => date('Y-m-d H:i:s')];
+                $favorited = true;
+            }
+            $this->saveJSONData('facility_favorites', array_values($favorites));
+        }
+        return ['success' => true, 'favorited' => $favorited];
+    }
+
+    /** @return array<int,int> facility ids this player has favorited */
+    public function getFavoriteFacilityIds(string $userId): array {
+        if ($userId === '') {
+            return [];
+        }
+        if ($this->isMySQL) {
+            $stmt = $this->pdo->prepare("SELECT facility_id FROM facility_favorites WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            return array_map('intval', array_column($stmt->fetchAll(), 'facility_id'));
+        }
+        $favorites = $this->getJSONData('facility_favorites');
+        $ids = [];
+        foreach ($favorites as $fav) {
+            if ((string)($fav['user_id'] ?? '') === $userId) {
+                $ids[] = (int)($fav['facility_id'] ?? 0);
+            }
+        }
+        return $ids;
+    }
+
     public function addComment($postId, $userId, $comment) {
         $user = $this->getUserById($userId);
         if (!$user) return ['success' => false, 'message' => 'User not found'];
@@ -5654,6 +6120,15 @@ class Database {
             $s->execute([$facilityId, $today]);
             $todayGross = (float)$s->fetchColumn();
 
+            // Today's session count (for the "X sessions" quick stat)
+            $s = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM bookings
+                 WHERE facility_id=? AND status IN ('confirmed','completed')
+                 AND DATE(created_at)=?"
+            );
+            $s->execute([$facilityId, $today]);
+            $todaySessionsCount = (int)$s->fetchColumn();
+
             // All-time gross (for payout totals)
             $s = $this->pdo->prepare(
                 "SELECT COALESCE(SUM(price),0) FROM bookings
@@ -5676,8 +6151,11 @@ class Database {
             $s->execute([$facilityId, $today]);
             $newPlayersToday = (int)$s->fetchColumn();
 
-            // Spark: daily revenue last 7 days (scaled to chart range)
+            // Spark: daily revenue last 7 days (scaled to chart range), plus the
+            // raw (unscaled) peso amounts for the hero card's Peak Day /
+            // Yesterday's Income quick stats.
             $spark = [];
+            $dailyRawArr = [];
             for ($i = 6; $i >= 0; $i--) {
                 $day = date('Y-m-d', strtotime("-{$i} days"));
                 $s = $this->pdo->prepare(
@@ -5685,7 +6163,9 @@ class Database {
                      WHERE facility_id=? AND status IN ('confirmed','completed') AND DATE(created_at)=?"
                 );
                 $s->execute([$facilityId, $day]);
-                $spark[] = max(0, (int)round((float)$s->fetchColumn() / 100));
+                $dayGross = (float)$s->fetchColumn();
+                $dailyRawArr[] = $dayGross;
+                $spark[] = max(0, (int)round($dayGross / 100));
             }
 
             // Ledger: last 10 confirmed bookings with player name
@@ -5722,6 +6202,7 @@ class Database {
 
             $monthlyGross = 0.0;
             $todayGross = 0.0;
+            $todaySessionsCount = 0;
             $allTimeGross = 0.0;
             $activeCount = 0;
             $newPlayerSet = [];
@@ -5738,7 +6219,10 @@ class Database {
                 if (in_array($status, ['confirmed', 'completed'], true)) {
                     $allTimeGross += $price;
                     if ($bDate >= $monthStart) $monthlyGross += $price;
-                    if ($bDate === $today)     $todayGross  += $price;
+                    if ($bDate === $today) {
+                        $todayGross += $price;
+                        $todaySessionsCount++;
+                    }
 
                     for ($i = 6; $i >= 0; $i--) {
                         if ($bDate === date('Y-m-d', strtotime("-{$i} days"))) {
@@ -5770,6 +6254,7 @@ class Database {
             usort($rawLedger, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
             $rawLedger = array_slice($rawLedger, 0, 10);
 
+            $dailyRawArr = $sparkArr;
             $spark = array_map(fn($v) => max(0, (int)round($v / 100)), $sparkArr);
 
             $newPlayersToday = count($newPlayerSet);
@@ -5814,12 +6299,27 @@ class Database {
             $spark = [0, 0, 0, 0, 0, 0, 0];
         }
 
+        // dailyRawArr runs oldest (index 0, 6 days ago) to newest (index 6, today),
+        // so index 5 is yesterday. Daily Avg is this month's gross spread over the
+        // days elapsed so far this month — the same quantity the Dashboard's hero
+        // card has always labelled "Daily Avg" next to "Monthly Revenue".
+        $yesterdayGross = $dailyRawArr[5] ?? 0.0;
+        $peakDayGross = !empty($dailyRawArr) ? max($dailyRawArr) : 0.0;
+        $daysElapsedThisMonth = max(1, (int)date('j'));
+        $dailyAvgGross = $monthlyGross / $daysElapsedThisMonth;
+
         return [
             'monthly_gross'    => $monthlyGross,
             'today_gross'      => $todayGross,
+            'today_sessions'   => $todaySessionsCount,
+            'yesterday_gross'  => $yesterdayGross,
+            'peak_day_gross'   => $peakDayGross,
+            'daily_avg_gross'  => $dailyAvgGross,
             'active_bookings'  => $activeCount,
             'new_players_today'=> $newPlayersToday,
             'repeater_rate'    => $repeaterRate,
+            'repeaters_count'  => $repeaters,
+            'repeat_eligible_count' => $totalUsers,
             'spark'            => $spark,
             'gross'            => $allTimeGross,
             'fee_pct'          => $FEE_PCT,
@@ -5830,7 +6330,7 @@ class Database {
         ];
     }
 
-    public function createPayoutRequest(string $ownerId, string $facilityId, float $amount, string $method): array {
+    public function createPayoutRequest(string $ownerId, string $facilityId, float $amount, string $method, ?string $notes = null): array {
         $id  = 'pay_' . bin2hex(random_bytes(6));
         $now = date('Y-m-d H:i:s');
         $record = [
@@ -5840,7 +6340,9 @@ class Database {
             'amount'      => round($amount, 2),
             'method'      => $method,
             'status'      => 'pending',
-            'notes'       => null,
+            // Destination account name/number, so whoever processes this
+            // payout manually knows where the money actually needs to go.
+            'notes'       => $notes,
             'created_at'  => $now,
             'updated_at'  => $now,
         ];
@@ -5848,8 +6350,8 @@ class Database {
         if ($this->isMySQL) {
             $this->pdo->prepare(
                 "INSERT INTO payout_requests (id, owner_id, facility_id, amount, method, status, notes, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, ?)"
-            )->execute([$id, $ownerId, $facilityId, $record['amount'], $method, $now, $now]);
+                 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)"
+            )->execute([$id, $ownerId, $facilityId, $record['amount'], $method, $notes, $now, $now]);
         } else {
             $this->lockedJSONUpdate('payout_requests', function (array $rows) use ($record): array {
                 $rows[] = $record;

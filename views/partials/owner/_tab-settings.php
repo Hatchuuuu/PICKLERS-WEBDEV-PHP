@@ -96,8 +96,26 @@ declare(strict_types=1);
                 <div style="font-size:11px; color:var(--pk-text-muted, #94A3B8); margin-top:1px;">Enable round-the-clock court booking availability for players</div>
               </div>
             </div>
+            <?php
+              // update_facility_settings() saves 'hours' as either the literal
+              // string 'Open 24 Hours' or "{open} – {close}" (see
+              // saveFacilitySettings() in owner.js) — this reads it back so the
+              // form shows what was actually saved instead of always resetting
+              // to the hardcoded 06:00 AM/10:00 PM defaults on every page load.
+              $savedHours = trim((string)($currentFacility['hours'] ?? ''));
+              $isOpen24 = strcasecmp($savedHours, 'Open 24 Hours') === 0;
+              $openTimeVal = '06:00 AM';
+              $closeTimeVal = '10:00 PM';
+              if (!$isOpen24 && $savedHours !== '') {
+                  $hourParts = preg_split('/\s*[–-]\s*/u', $savedHours);
+                  if (count($hourParts) === 2) {
+                      $openTimeVal = trim($hourParts[0]);
+                      $closeTimeVal = trim($hourParts[1]);
+                  }
+              }
+            ?>
             <label class="toggle-availability" style="margin-top:2px;">
-              <input type="checkbox" id="toggleOpen24" onchange="toggleHoursVisibility()">
+              <input type="checkbox" id="toggleOpen24" onchange="toggleHoursVisibility()" <?= $isOpen24 ? 'checked' : '' ?>>
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -107,19 +125,26 @@ declare(strict_types=1);
               <label class="settings-input-label">Opening Time</label>
               <div class="time-select-card">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <input type="text" id="openingTimeInput" class="time-input-box" value="06:00 AM" placeholder="06:00 AM">
+                <input type="text" id="openingTimeInput" class="time-input-box" value="<?= htmlspecialchars($openTimeVal) ?>" placeholder="06:00 AM">
               </div>
             </div>
             <div>
               <label class="settings-input-label">Closing Time</label>
               <div class="time-select-card">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F43F5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <input type="text" id="closingTimeInput" class="time-input-box" value="10:00 PM" placeholder="10:00 PM">
+                <input type="text" id="closingTimeInput" class="time-input-box" value="<?= htmlspecialchars($closeTimeVal) ?>" placeholder="10:00 PM">
               </div>
             </div>
           </div>
         </div>
       </div>
+      <?php if ($isOpen24): ?>
+      <script>
+        document.addEventListener('DOMContentLoaded', function () {
+          if (typeof toggleHoursVisibility === 'function') toggleHoursVisibility();
+        });
+      </script>
+      <?php endif; ?>
 
     </div>
 
@@ -155,7 +180,7 @@ declare(strict_types=1);
                 </div>
               </div>
               <label class="toggle-availability">
-                <input type="checkbox" id="gcashToggle" checked onchange="showToast('GCash payout channel toggled.')">
+                <input type="checkbox" id="gcashToggle" <?= (($currentFacility['gcash_enabled'] ?? 1) ? 'checked' : '') ?>>
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -164,7 +189,7 @@ declare(strict_types=1);
             <div class="form-group-field" style="margin-top:14px;">
               <label class="settings-input-label" style="margin-bottom:6px;">GCash Mobile Number</label>
               <div class="payout-input-inline-wrap" id="gcashInputWrap">
-                <input type="tel" id="gcashNumberInput" class="payout-inline-input" value="09123489758" maxlength="11" placeholder="09XXXXXXXXX" oninput="onPayoutNumberChange('gcash')">
+                <input type="tel" id="gcashNumberInput" class="payout-inline-input" value="<?= htmlspecialchars((string)($currentFacility['gcash_number'] ?? '')) ?>" maxlength="11" placeholder="09XXXXXXXXX" oninput="onPayoutNumberChange('gcash')">
                 <input type="text" id="gcashOtpCodeInput" class="payout-inline-input otp-code" maxlength="6" value="" placeholder="Enter 6-digit OTP" style="display:none;">
                 <button type="button" class="btn-payout-inline-action" id="btnGcashOtpAction" onclick="handlePayoutInlineOtp('gcash')">
                   <span>Send</span>
@@ -195,7 +220,7 @@ declare(strict_types=1);
                 </div>
               </div>
               <label class="toggle-availability">
-                <input type="checkbox" id="mayaToggle" checked onchange="showToast('Maya payout channel toggled.')">
+                <input type="checkbox" id="mayaToggle" <?= (($currentFacility['maya_enabled'] ?? 1) ? 'checked' : '') ?>>
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -204,7 +229,7 @@ declare(strict_types=1);
             <div class="form-group-field" style="margin-top:14px;">
               <label class="settings-input-label" style="margin-bottom:6px;">Maya Mobile / Account Number</label>
               <div class="payout-input-inline-wrap" id="mayaInputWrap">
-                <input type="tel" id="mayaNumberInput" class="payout-inline-input" value="09987654321" maxlength="11" placeholder="09XXXXXXXXX" oninput="onPayoutNumberChange('maya')">
+                <input type="tel" id="mayaNumberInput" class="payout-inline-input" value="<?= htmlspecialchars((string)($currentFacility['maya_number'] ?? '')) ?>" maxlength="11" placeholder="09XXXXXXXXX" oninput="onPayoutNumberChange('maya')">
                 <input type="text" id="mayaOtpCodeInput" class="payout-inline-input otp-code" maxlength="6" value="" placeholder="Enter 6-digit OTP" style="display:none;">
                 <button type="button" class="btn-payout-inline-action" id="btnMayaOtpAction" onclick="handlePayoutInlineOtp('maya')">
                   <span>Send</span>
@@ -227,7 +252,7 @@ declare(strict_types=1);
               </div>
             </div>
             <label class="toggle-availability">
-              <input type="checkbox" id="cashOnSiteToggle" checked onchange="showToast('Cash on site payment setting saved.')">
+              <input type="checkbox" id="cashOnSiteToggle" <?= (($currentFacility['cash_on_site'] ?? 1) ? 'checked' : '') ?>>
               <span class="toggle-slider"></span>
             </label>
           </div>

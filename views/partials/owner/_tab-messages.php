@@ -5,6 +5,13 @@
         </div>
       </div>
 
+      <?php if (empty($conversations)): ?>
+        <div style="text-align:center; padding:60px 20px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:16px;">
+          <div style="font-size:36px; margin-bottom:10px;">💬</div>
+          <p style="font-size:15px; font-weight:700; color:var(--pk-text-primary); margin:0 0 4px;">No conversations yet</p>
+          <p style="font-size:12.5px; color:var(--pk-text-muted); margin:0;">When a player messages your facility, it will show up here.</p>
+        </div>
+      <?php else: ?>
       <div class="messages-layout">
         <!-- Inbox Sidebar -->
         <div class="inbox-list-col">
@@ -12,8 +19,8 @@
             Player Conversations (<?php echo count($conversations); ?>)
           </div>
           <?php foreach ($conversations as $idx => $conv): ?>
-            <div class="inbox-item <?php echo $idx === 0 ? 'active' : ''; ?>" onclick="selectConversation('<?php echo htmlspecialchars(addslashes($conv['user_name'])); ?>')">
-              <img src="<?php echo $conv['user_avatar']; ?>" alt="Avatar" style="width:38px; height:38px; border-radius:50%; object-fit:cover;">
+            <div class="inbox-item <?php echo $idx === 0 ? 'active' : ''; ?>" id="inbox_item_<?php echo htmlspecialchars($conv['user_id']); ?>" onclick="selectConversation('<?php echo htmlspecialchars(addslashes($conv['user_id'])); ?>', '<?php echo htmlspecialchars(addslashes($conv['user_name'])); ?>', '<?php echo htmlspecialchars(addslashes($conv['user_avatar'])); ?>', this)">
+              <img src="<?php echo htmlspecialchars($conv['user_avatar']); ?>" alt="Avatar" style="width:38px; height:38px; border-radius:50%; object-fit:cover;">
               <div style="flex:1; overflow:hidden;">
                 <div style="font-size:14px; font-weight:700; color:#FFFFFF;"><?php echo htmlspecialchars($conv['user_name']); ?></div>
                 <div style="font-size:12px; color:#94A3B8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><?php echo htmlspecialchars($conv['last_message']); ?></div>
@@ -31,10 +38,9 @@
         <div class="chat-thread-col">
           <?php $activeConv = $conversations[0]; ?>
           <div class="chat-header">
-            <img src="<?php echo $activeConv['user_avatar']; ?>" alt="Avatar" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">
+            <img id="chatActiveAvatar" src="<?php echo htmlspecialchars($activeConv['user_avatar']); ?>" alt="Avatar" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">
             <div>
               <div style="font-size:14px; font-weight:800; color:#FFFFFF;" id="chatActiveUser"><?php echo htmlspecialchars($activeConv['user_name']); ?></div>
-              <div style="font-size:11px; color:#00D98B;">â— Online &bull; Booking Court 3 (Today)</div>
             </div>
           </div>
 
@@ -56,3 +62,11 @@
           </div>
         </div>
       </div>
+      <script>
+        // Real conversations only exist when $conversations isn't empty (see
+        // the guard above) — this tells owner.js's selectConversation()/
+        // sendChatMessage() which real player to load/reply to on first
+        // paint, matching the thread the server already rendered above.
+        window.__initialChatPartnerId = <?php echo json_encode($activeConv['user_id']); ?>;
+      </script>
+      <?php endif; ?>

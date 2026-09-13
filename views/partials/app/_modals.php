@@ -294,7 +294,7 @@
       <!-- Top Modal Header with Close Button -->
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <div style="display:flex; align-items:center; gap:6px;">
-          <span style="font-size:10px; font-weight:800; background:rgba(0,217,139,0.12); color:#00D98B; border:1px solid rgba(0,217,139,0.3); padding:3px 10px; border-radius:6px; letter-spacing:0.5px;">✓ OFFICIAL RECEIPT</span>
+          <span style="font-size:10px; font-weight:800; background:rgba(0,217,139,0.12); color:#00D98B; border:1px solid rgba(0,217,139,0.3); padding:3px 10px; border-radius:6px; letter-spacing:0.5px;">✓ REQUEST SUBMITTED</span>
         </div>
         <button type="button" class="modal-close-btn" onclick="closeBookingReceiptAndRedirect()" aria-label="Close" style="width:30px; height:30px; min-width:30px; min-height:30px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; font-size:14px; cursor:pointer; transition:all 0.2s;">✕</button>
       </div>
@@ -304,8 +304,8 @@
         <div class="receipt-success-badge" style="width:44px; height:44px; border-radius:50%; background:rgba(0,217,139,0.14); border:1px solid rgba(0,217,139,0.35); display:inline-flex; align-items:center; justify-content:center; color:#00D98B; margin-bottom:8px; box-shadow:0 0 18px rgba(0,217,139,0.3);">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
-        <h3 style="font-size:18px; font-weight:800; margin:0 0 3px; color:#FFFFFF; letter-spacing:-0.01em;">Booking &amp; Payment Confirmed</h3>
-        <div style="font-size:11.5px; color:#94A3B8; margin-bottom:6px;">Your court slot is held and confirmed in real-time.</div>
+        <h3 style="font-size:18px; font-weight:800; margin:0 0 3px; color:#FFFFFF; letter-spacing:-0.01em;">Reservation Request Sent</h3>
+        <div style="font-size:11.5px; color:#94A3B8; margin-bottom:6px;">Awaiting the facility's confirmation — we'll notify you the moment it's approved.</div>
         <div style="font-size:24px; font-weight:900; color:#FFFFFF; text-shadow:0 0 16px rgba(255,255,255,0.2);" id="receiptAmountPaid">₱518.00</div>
       </div>
 
@@ -317,8 +317,8 @@
             <div class="receipt-label">Booking Reference</div>
             <div class="receipt-code-badge" id="receiptRefCode">#PKL-8F92A1</div>
           </div>
-          <div style="background:rgba(0,217,139,0.14); color:#00D98B; font-size:10px; font-weight:700; padding:4px 10px; border-radius:6px; border:1px solid rgba(0,217,139,0.3); letter-spacing:0.3px;">
-            ✓ PAID &amp; CONFIRMED
+          <div style="background:rgba(255,184,0,0.14); color:#FFB800; font-size:10px; font-weight:700; padding:4px 10px; border-radius:6px; border:1px solid rgba(255,184,0,0.3); letter-spacing:0.3px;">
+            ⏳ PENDING CONFIRMATION
           </div>
         </div>
 

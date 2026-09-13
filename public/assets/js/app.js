@@ -681,7 +681,7 @@ function renderFacilitiesGrid(facilities) {
       <div class="app-facility-card facility-card-item" onclick="openFacilityDetail(${f.id})" style="cursor:pointer;" data-id="${f.id}" data-name="${escapeHtml(f.name)}" data-loc="${escapeHtml(f.location)}" data-lat="${f.latitude || 9.3065}" data-lng="${f.longitude || 123.3050}" data-type="${typeNormalized}" data-price="${minPrice}" data-price-max="${maxPrice}" data-rating="${ratingNum}">
         <div class="card-thumb-wrap">
           <img src="${escapeHtml(f.image)}" alt="${escapeHtml(f.name)}" class="card-thumb-img" loading="lazy" onerror="this.onerror=null; this.removeAttribute('src'); this.style.background='var(--pk-bg-card-hover, #162D4D)';">
-          <button type="button" class="card-heart-btn" onclick="event.stopPropagation(); toggleFavoriteFacility(this, '${escapeHtml(f.name).replace(/'/g, "\\'")}')" title="Add to favorites">
+          <button type="button" class="card-heart-btn${f.is_favorited ? ' favorited' : ''}" onclick="event.stopPropagation(); toggleFavoriteFacility(this, ${f.id}, '${escapeHtml(f.name).replace(/'/g, "\\'")}')" title="${f.is_favorited ? 'Remove from favorites' : 'Add to favorites'}">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
           </button>
         </div>
@@ -768,7 +768,110 @@ if (window.PickSync) {
   PickSync.on('facilities', silentRefreshDiscover);
   PickSync.on('courts', silentRefreshDiscover);
   PickSync.on('unread_notifications', count => syncNotifBellDot((count || 0) > 0));
+  PickSync.onSessionEnded(triggerSessionEndedAlert);
   PickSync.start();
+}
+
+// ========================================================================
+// Real-Time "Your Time Is Up" Alert
+//
+// The server (Database::checkAndNotifySessionEnd(), polled via 'sync' every
+// ~12s — see PickSync in ux-core.js) flags a booking the moment its end time
+// passes and hands it to whichever subscriber is listening. This is what
+// actually rings/vibrates/alerts the device — as long as the app is open
+// somewhere (foreground or a backgrounded-but-alive tab). A real push that
+// rings even with the browser fully closed needs Web Push infrastructure
+// (HTTPS, a service worker, VAPID keys, a way to trigger it with no tab
+// open at all) — a separate, larger piece of work than a plain web app's
+// existing poll loop can cover on its own.
+// ========================================================================
+
+/** Ask for OS-level notification permission at a real user gesture (right
+ *  after a booking is confirmed), not out of the blue on page load — most
+ *  browsers ignore or block a cold, gesture-less permission prompt anyway. */
+function ensureNotificationPermission() {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+/** Three sharp, rising beeps — loud and distinct from the single soft
+ *  confirmation chime used elsewhere, so it reads as "alarm", not "success". */
+function playTimeUpAlarm() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const freqs = [880, 987.77, 1174.66];
+    freqs.forEach((freq, i) => {
+      const start = ctx.currentTime + i * 0.35;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.exponentialRampToValueAtTime(0.35, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.32);
+    });
+  } catch (e) {
+    // AudioContext blocked (no user gesture yet on this page load) — the
+    // vibration, OS notification, and in-app modal below still fire.
+  }
+}
+
+function showTimeUpModal(session) {
+  let modal = document.getElementById('timeUpAlertModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'timeUpAlertModal';
+    modal.className = 'app-modal-overlay';
+    modal.style.zIndex = '99999';
+    modal.innerHTML = `
+      <div class="modal-box-card" style="text-align:center; max-width:360px;">
+        <div style="width:60px; height:60px; border-radius:50%; background:rgba(255,184,0,0.14); border:2px solid #FFB800; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:30px;">⏰</div>
+        <h3 style="font-size:19px; font-weight:900; margin:0 0 8px; color:var(--pk-text-primary, #FFFFFF);">Time's Up!</h3>
+        <p id="timeUpAlertBody" style="font-size:14px; color:var(--pk-text-muted, #94A3B8); margin:0 0 20px; line-height:1.5;"></p>
+        <button type="button" onclick="closeModal('timeUpAlertModal')" class="btn-walkin-open" style="width:100%; justify-content:center;">Got it, thanks!</button>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  const body = document.getElementById('timeUpAlertBody');
+  if (body) {
+    body.textContent = `Your session at ${session.court_name || 'your court'}, ${session.facility_name || 'the facility'} has ended. Thanks for playing!`;
+  }
+  if (window.UX) window.UX.openDialog('timeUpAlertModal');
+  else modal.style.display = 'flex';
+}
+
+function triggerSessionEndedAlert(session) {
+  playTimeUpAlarm();
+
+  if (navigator.vibrate) {
+    // Android Chrome rings/buzzes on this; iOS Safari and desktop silently
+    // ignore it (the Web Vibration API has no iOS support at all).
+    navigator.vibrate([400, 150, 400, 150, 400]);
+  }
+
+  // Shows even if this tab isn't the focused/foreground one, as long as the
+  // browser itself is still running — the closest a plain web page gets to
+  // "rings on the device" without installing Web Push.
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try {
+      new Notification("⏰ Time's Up!", {
+        body: `Your session at ${session.court_name || 'your court'} has ended.`,
+        tag: 'picklers-session-ended-' + (session.booking_id || ''),
+        requireInteraction: true
+      });
+    } catch (e) { /* unsupported in this context — modal below still shows */ }
+  }
+
+  showTimeUpModal(session);
+  showToast(`⏰ Your time is up! ${session.court_name || 'Session'} has ended.`, 'info');
 }
 
 // Dynamic Real Transit Calculation based on GPS / Haversine Distance
@@ -845,13 +948,45 @@ function detectLocation() {
 }
 
 // Favorites Toggle
-function toggleFavoriteFacility(btn, name) {
-  btn.classList.toggle('favorited');
-  if (btn.classList.contains('favorited')) {
-    showToast(`Added ${name} to Favorites ♡`, "success");
-  } else {
-    showToast(`Removed ${name} from Favorites`, "success");
-  }
+// Was a CSS class flip only — no backend at all, so it silently reset on
+// every reload and meant nothing outside that one browser tab. Now backed by
+// facility_favorites (Database::toggleFavoriteFacility()) via a real
+// action=toggle_favorite_facility call; the class only flips once the server
+// actually confirms the change, and reverts if the request fails.
+const favoriteToggleInFlight = new Set();
+function toggleFavoriteFacility(btn, facilityId, name) {
+  if (favoriteToggleInFlight.has(facilityId)) return;
+  favoriteToggleInFlight.add(facilityId);
+  btn.disabled = true;
+
+  fetch('api.php?action=toggle_favorite_facility', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': getCsrfToken()
+    },
+    body: JSON.stringify({
+      action: 'toggle_favorite_facility',
+      csrf_token: getCsrfToken(),
+      facility_id: facilityId
+    })
+  })
+    .then(r => r.json())
+    .then(res => {
+      favoriteToggleInFlight.delete(facilityId);
+      btn.disabled = false;
+      if (!res.success) {
+        showToast(res.message || 'Could not update favorites. Please try again.', 'error');
+        return;
+      }
+      btn.classList.toggle('favorited', !!res.favorited);
+      showToast(res.favorited ? `Added ${name} to Favorites ♡` : `Removed ${name} from Favorites`, 'success');
+    })
+    .catch(() => {
+      favoriteToggleInFlight.delete(facilityId);
+      btn.disabled = false;
+      showToast('Network error updating favorites. Please try again.', 'error');
+    });
 }
 
 // Notifications Management (§12.10)
@@ -3253,41 +3388,67 @@ function applyVoucherCode() {
     return;
   }
 
-  let discount = 0;
-  let label = 'Promo Code';
+  // This used to check the code against three hardcoded strings
+  // (WELCOME10/PICKLE50/DINKFREE) and compute the discount client-side. A
+  // real promo code an owner/admin actually created was rejected as
+  // "invalid" here, and one of the three fake codes showed a discount the
+  // server would never honor — book_court/join_match re-price from the real
+  // promo_codes store server-side regardless of what this screen displayed,
+  // so the amount actually charged could silently differ from what the
+  // player was just shown. This now asks for the same authoritative quote
+  // checkout itself will use.
+  const matchId = document.getElementById('finalMatchId')?.value || '';
+  const facilityId = document.getElementById('finalFacilityId')?.value || '';
+  const courtId = document.getElementById('finalCourtId')?.value || '';
+  const courtName = document.getElementById('finalCourtName')?.value || '';
+  const duration = document.getElementById('finalDuration')?.value || '1';
 
-  if (code === 'WELCOME10') {
-    discount = Math.round(currentBookingBaseTotal * 0.10);
-    label = 'WELCOME10 (10% Off)';
-  } else if (code === 'PICKLE50') {
-    discount = 50;
-    label = 'PICKLE50 (₱50 Off)';
-  } else if (code === 'DINKFREE') {
-    discount = 100;
-    label = 'DINKFREE (₱100 Off)';
+  const params = new URLSearchParams({ promo_code: code });
+  if (matchId) {
+    params.set('match_id', matchId);
   } else {
-    msg.style.display = 'block';
-    msg.style.color = '#EF4444';
-    msg.textContent = 'Invalid promo code. Try WELCOME10 or PICKLE50';
-    return;
+    params.set('facility_id', facilityId);
+    params.set('court_id', courtId);
+    params.set('court_name', courtName);
+    params.set('duration', duration);
   }
 
-  discount = Math.min(discount, currentBookingBaseTotal - 10);
-  currentBookingVoucherDiscount = discount;
-  currentBookingVoucherCode = code;
-  const finalPayable = Math.max(10, currentBookingBaseTotal - discount);
+  input.disabled = true;
+  fetch(`api.php?action=quote_booking&${params.toString()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(r => r.json())
+    .then(res => {
+      input.disabled = false;
+      if (!res.success || !res.promo_valid) {
+        msg.style.display = 'block';
+        msg.style.color = '#EF4444';
+        msg.textContent = (res && res.promo_message) || (res && res.message) || 'Invalid or expired promo code.';
+        return;
+      }
 
-  if (discRow) discRow.style.display = 'flex';
-  if (discLabel) discLabel.textContent = label;
-  if (discVal) discVal.textContent = `-₱${discount.toLocaleString()}`;
-  if (totalVal) totalVal.textContent = `₱${finalPayable.toLocaleString()}`;
-  if (btnTotal) btnTotal.textContent = `₱${finalPayable.toLocaleString()}`;
-  if (hiddenPrice) hiddenPrice.value = finalPayable;
-  if (hiddenDisc) hiddenDisc.value = discount;
+      const discount = Math.round(Number(res.quote.discount || 0));
+      const finalPayable = Number(res.quote.total || currentBookingBaseTotal);
 
-  msg.style.display = 'block';
-  msg.style.color = '#00D98B';
-  msg.textContent = `✓ Voucher applied! You saved ₱${discount.toLocaleString()}.`;
+      currentBookingVoucherDiscount = discount;
+      currentBookingVoucherCode = code;
+
+      if (discRow) discRow.style.display = 'flex';
+      if (discLabel) discLabel.textContent = res.quote.promo_label || `${code} Applied`;
+      if (discVal) discVal.textContent = `-₱${discount.toLocaleString()}`;
+      if (totalVal) totalVal.textContent = `₱${finalPayable.toLocaleString()}`;
+      if (btnTotal) btnTotal.textContent = `₱${finalPayable.toLocaleString()}`;
+      if (hiddenPrice) hiddenPrice.value = finalPayable;
+      if (hiddenDisc) hiddenDisc.value = discount;
+
+      msg.style.display = 'block';
+      msg.style.color = '#00D98B';
+      msg.textContent = res.promo_message || `✓ Voucher applied! You saved ₱${discount.toLocaleString()}.`;
+    })
+    .catch(() => {
+      input.disabled = false;
+      msg.style.display = 'block';
+      msg.style.color = '#EF4444';
+      msg.textContent = 'Could not validate that code right now. Please try again.';
+    });
 }
 
 function executeFinalBooking() {
@@ -3348,7 +3509,16 @@ function executeFinalBooking() {
             paymentMethod: paymentMethod,
             price: price
           });
-          showToast(`✓ Spot Confirmed! Code: #${cleanCode}`, 'success');
+          // The server hasn't approved this yet — joinMatch() returns it as a
+          // pending request (see Database::joinMatch()'s response message).
+          // Telling the player it's "confirmed" here was misleading; they get
+          // a real "Booking Confirmed!" notification once the facility approves it.
+          showToast(`✓ Request Sent! Code: #${cleanCode} — awaiting facility confirmation.`, 'success');
+          // Ask now, riding this click, so the "your time is up" alert
+          // (triggerSessionEndedAlert) can actually show as a device
+          // notification later — a cold, gesture-less prompt gets ignored by
+          // most browsers anyway.
+          ensureNotificationPermission();
 
           if (paymentMethod === 'Pickle Credits') {
             fetch('api.php?action=wallet')
@@ -3421,7 +3591,11 @@ function executeFinalBooking() {
           paymentMethod: paymentMethod,
           price: price
         });
-        showToast(`✓ Booking Confirmed! Code: #${cleanCode}`, 'success');
+        // Same reasoning as the Open Play join handler above: book_court()
+        // returns this as a pending request awaiting the facility owner's
+        // approval, not a done deal — see createBooking()'s 'pending' status.
+        showToast(`✓ Request Sent! Code: #${cleanCode} — awaiting facility confirmation.`, 'success');
+        ensureNotificationPermission();
 
         // If paid with Pickle Credits, dynamically update balances
         if (paymentMethod === 'Pickle Credits') {

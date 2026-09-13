@@ -148,7 +148,7 @@
       </div>
       <div style="background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); border-radius:12px; padding:12px 16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:13px;" class="modal-text-muted">Available Balance</span>
-        <span style="font-size:18px; font-weight:900; color: var(--pk-status-success);">₱14,800.00</span>
+        <span style="font-size:18px; font-weight:900; color: var(--pk-status-success);" id="payoutAvailableBalance">₱<?= number_format((float)($earnings['available'] ?? 0), 2) ?></span>
       </div>
       <form id="payoutForm" autocomplete="off" onsubmit="event.preventDefault(); dispatchPayout();">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken ?? ''); ?>">
@@ -164,15 +164,18 @@
           </div>
           <div>
             <label style="display:block; font-size:13px; font-weight:700; margin-bottom:6px;" class="modal-text-muted">Account Name</label>
-            <input type="text" id="payoutAccountName" value="Marcus Vance" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
+            <!-- No stand-in name here on purpose: this used to default to
+                 "Marcus Vance" (a demo value), which an owner could easily
+                 submit unnoticed — sending a real payout to the wrong name. -->
+            <input type="text" id="payoutAccountName" value="<?= htmlspecialchars((string)($currentUser['name'] ?? '')) ?>" placeholder="Name on the receiving account" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
           </div>
           <div>
             <label style="display:block; font-size:13px; font-weight:700; margin-bottom:6px;" class="modal-text-muted">Account / Mobile Number</label>
-            <input type="text" id="payoutAccountNumber" value="0917 888 2026" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
+            <input type="text" id="payoutAccountNumber" value="" placeholder="e.g. 0917 888 2026" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
           </div>
           <div>
             <label style="display:block; font-size:13px; font-weight:700; margin-bottom:6px;" class="modal-text-muted">Amount (PHP)</label>
-            <input type="number" id="payoutAmount" value="10000" min="100" max="1000000" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
+            <input type="number" id="payoutAmount" value="" placeholder="100.00" min="100" max="1000000" step="0.01" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
           </div>
           <button type="submit" class="btn-walkin-open" style="width:100%; justify-content:center; margin-top:6px;">Submit Withdrawal Request</button>
         </div>

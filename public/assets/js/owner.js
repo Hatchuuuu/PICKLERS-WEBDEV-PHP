@@ -154,23 +154,42 @@ function executeEndCourtSession() {
     }
   }
 
-  if (courtId) {
-    fetch('owner.php?action=toggle_court_status', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-CSRF-Token': getCsrfToken()
-      },
-      body: new URLSearchParams({
-        action: 'toggle_court_status',
-        csrf_token: getCsrfToken(),
-        court_id: courtId,
-        name: courtName,
-        active: '1'
-      })
-    }).catch(err => console.error('Error resetting court status:', err));
-  }
-  showToast('✓ ' + courtName + ' session ended. Court cleared and reset to available.', 'success');
+  // This used to call 'toggle_court_status', which only ever flips
+  // courts.status — a field the dashboard's dynamic occupancy calculation
+  // doesn't consult for a real, timed booking. The card looked cleared for
+  // this one page view, but the very next dashboard load recomputed
+  // "occupied" straight from the booking's own end time and showed it right
+  // back. 'end_court_session' actually flags the active booking itself
+  // (see Database::endCourtSessionEarly()) so it stays freed.
+  fetch('owner.php?action=end_court_session', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-CSRF-Token': getCsrfToken()
+    },
+    body: new URLSearchParams({
+      action: 'end_court_session',
+      csrf_token: getCsrfToken(),
+      court_id: courtId || '',
+      court_name: courtName
+    })
+  })
+    .then(r => r.json())
+    .then(res => {
+      if (res.success) {
+        showToast('✓ ' + courtName + ' session ended. Court cleared and reset to available.', 'success');
+      } else {
+        // The optimistic DOM update above was wrong — nothing was actually
+        // freed server-side, so reflect the real state instead of a page
+        // that quietly disagrees with the database until the next reload.
+        showToast(res.message || 'Could not end this session — refreshing.', 'error');
+        setTimeout(() => window.location.reload(), 1200);
+      }
+    })
+    .catch(() => {
+      showToast('Network error ending session — refreshing.', 'error');
+      setTimeout(() => window.location.reload(), 1200);
+    });
 }
 
 function endCourtSession(courtId, courtName) {
@@ -219,6 +238,82 @@ function removeRequestCard(reqId) {
   const pillBadge = document.getElementById('pillRequestBadge');
   if (pillBadge) pillBadge.innerText = currentCount;
   updateRequestsBreathingState(currentCount);
+}
+
+function escapeHtmlAttr(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderRequestCard(req) {
+  const id = escapeHtmlAttr(req.id);
+  const name = escapeHtmlAttr(req.name);
+  const nameJs = String(req.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return `<div class="request-card-v2" id="req_card_${id}">
+    <div class="req-card-top-row">
+      <span class="req-player-name">${name}</span>
+      <span class="req-payment-method-badge">${escapeHtmlAttr(req.badge || 'GCASH')}</span>
+    </div>
+    <div class="req-details-col">
+      <div class="req-court-title">${escapeHtmlAttr(req.court_name)}</div>
+      <div class="req-schedule-subtitle">${escapeHtmlAttr(req.schedule)}</div>
+    </div>
+    <div class="req-price-cyan">${escapeHtmlAttr(req.fee)}</div>
+    <div class="req-actions-row">
+      <button type="button" class="btn-req-accept-v2" onclick="acceptBooking('${id}', '${nameJs}')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Accept</span>
+      </button>
+      <button type="button" class="btn-req-decline-v2" onclick="openDeclineModal('${id}', '${nameJs}')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span>Decline</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+const REQUESTS_EMPTY_STATE_HTML = `<div style="text-align:center; padding:36px 20px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:16px;">
+  <svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--pk-text-muted)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:10px;"><path d="M20 6 9 17l-5-5"/></svg>
+  <p style="font-size:14px; font-weight:700; color:var(--pk-text-primary); margin:0 0 4px;">You're all caught up</p>
+  <p style="font-size:12.5px; color:var(--pk-text-muted); margin:0;">New reservations will appear here as players book your courts.</p>
+</div>`;
+
+// Re-renders the Requests queue from the server's current pending list — this
+// is what lets a new booking reach the owner without a manual page reload
+// (see PickSync.on('bookings', ...) below). Only the requests list re-renders;
+// the Live Courts grid still needs a reload to reflect a newly-approved
+// booking's occupancy, which is an acceptable gap since Accept/Decline here
+// already update that request's own card immediately.
+let requestsQueueRefreshInFlight = false;
+function refreshRequestsQueue() {
+  if (requestsQueueRefreshInFlight) return;
+  requestsQueueRefreshInFlight = true;
+
+  fetch('api.php?action=get_pending_requests', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(r => r.json())
+    .then(res => {
+      requestsQueueRefreshInFlight = false;
+      if (!res || !res.success || !Array.isArray(res.requests)) return;
+
+      const list = document.getElementById('requestsList');
+      if (!list) return;
+
+      const requests = res.requests;
+      list.innerHTML = requests.length
+        ? requests.map(renderRequestCard).join('')
+        : REQUESTS_EMPTY_STATE_HTML;
+
+      const count = requests.length;
+      const badge = document.getElementById('requestCountBadge');
+      if (badge) badge.innerText = count;
+      const pillBadge = document.getElementById('pillRequestBadge');
+      if (pillBadge) pillBadge.innerText = count;
+      updateRequestsBreathingState(count);
+    })
+    .catch(() => {
+      requestsQueueRefreshInFlight = false;
+    });
 }
 
 function acceptBooking(reqId, playerName) {
@@ -554,34 +649,62 @@ async function startScanningLoop() {
   tick();
 }
 
+let checkinVerifyInFlight = false;
+
+// This used to parse the scanned string CLIENT-SIDE ONLY and always show
+// "Pass Verified & Checked In!" — literally any QR code, or any text typed
+// into the manual box, "verified" successfully with no server involved.
+// This now asks the server (action=verify_checkin) whether the code maps to
+// a real, confirmed booking at this facility before claiming anything.
 function onQrCodeDetected(qrData) {
+  if (checkinVerifyInFlight) return;
+  checkinVerifyInFlight = true;
   stopQrCamera();
-  playSuccessChime();
-
-  let player = 'Player Pass Verified';
-  let court = 'Court 1';
-
-  if (qrData.startsWith('PICKLERS:')) {
-    const parts = qrData.split(':');
-    if (parts[3]) court = parts[3];
-    if (parts[2]) player = parts[2] + ' (' + (parts[1] || 'Pass') + ')';
-    else player = `Booking #${parts[1] || 'PASS'}`;
-  } else if (qrData.startsWith('BK-') || qrData.length > 3) {
-    player = `Check-In Pass: ${qrData}`;
-  }
 
   const successOverlay = document.getElementById('qrScanSuccessOverlay');
+  const iconEl = successOverlay ? successOverlay.querySelector('div') : null;
   const titleEl = document.getElementById('qrSuccessTitle');
   const playerEl = document.getElementById('qrSuccessPlayer');
   const detailsEl = document.getElementById('qrSuccessDetails');
 
-  if (titleEl) titleEl.innerText = 'Pass Verified & Checked In!';
-  if (playerEl) playerEl.innerText = player;
-  if (detailsEl) detailsEl.innerText = `${court} • Scanned at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  const renderResult = (ok, title, player, details) => {
+    if (iconEl) {
+      iconEl.style.background = ok ? 'var(--pk-status-success-bg)' : 'rgba(255,77,77,0.12)';
+      iconEl.style.borderColor = ok ? 'var(--pk-status-success)' : '#FF4D4D';
+      iconEl.style.color = ok ? 'var(--pk-status-success)' : '#FF4D4D';
+      iconEl.innerText = ok ? '✓' : '✕';
+    }
+    if (titleEl) titleEl.innerText = title;
+    if (playerEl) {
+      playerEl.innerText = player;
+      playerEl.style.color = ok ? 'var(--pk-status-success)' : '#FF4D4D';
+    }
+    if (detailsEl) detailsEl.innerText = details;
+    if (successOverlay) successOverlay.style.display = 'flex';
+  };
 
-  if (successOverlay) successOverlay.style.display = 'flex';
-
-  showToast(`QR Code Scanned! Verified pass for ${player}`);
+  fetch('api.php?action=verify_checkin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+    body: JSON.stringify({ action: 'verify_checkin', csrf_token: getCsrfToken(), code: qrData })
+  })
+    .then(r => r.json())
+    .then(res => {
+      checkinVerifyInFlight = false;
+      const b = res.booking || {};
+      if (res.success) {
+        playSuccessChime();
+        renderResult(true, 'Check-In Verified!', b.player_name || 'Registered Player', `${b.court_name || 'Court'} • ${b.date || ''} ${b.time || ''}`.trim());
+        showToast(`Checked in: ${b.player_name || 'Player'}`);
+      } else {
+        renderResult(false, 'Check-In Failed', b.player_name || qrData, res.message || 'This code could not be verified.');
+        showToast(res.message || 'This code could not be verified.');
+      }
+    })
+    .catch(() => {
+      checkinVerifyInFlight = false;
+      renderResult(false, 'Check-In Failed', qrData, 'Network error — please try scanning again.');
+    });
 }
 
 function resetQrScanner() {
@@ -599,11 +722,6 @@ function processManualQrInput() {
   }
   onQrCodeDetected(val);
   if (input) input.value = '';
-}
-
-function simulateScanSuccess() {
-  stopQrCamera();
-  onQrCodeDetected('PICKLERS:BK-2026-9901:Marcus Vance:Court 1');
 }
 
 function playSuccessChime() {
@@ -637,37 +755,159 @@ function switchOpenPlayTab(tab) {
 
 
 // Payout Request
+let payoutRequestInFlight = false;
 function dispatchPayout() {
+  if (payoutRequestInFlight) return;
+
   const amtInput = document.getElementById('payoutAmount');
-  const amtVal = amtInput ? parseFloat(amtInput.value || 10000) : 10000;
-  const formattedAmt = amtVal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const amount = amtInput ? parseFloat(amtInput.value) : NaN;
+  const method = document.getElementById('payoutMethod')?.value || 'GCash';
+  const accountName = document.getElementById('payoutAccountName')?.value.trim() || '';
+  const accountNumber = document.getElementById('payoutAccountNumber')?.value.trim() || '';
+
+  if (!amount || amount <= 0) {
+    showToast('Please enter a valid payout amount.');
+    return;
+  }
+  if (!accountName || !accountNumber) {
+    showToast('Please enter the receiving account name and number.');
+    return;
+  }
+
+  payoutRequestInFlight = true;
   const form = document.getElementById('payoutForm');
   const btn = form ? form.querySelector('button[type="submit"]') : null;
   if (btn) { btn.disabled = true; btn.innerText = 'Processing Request...'; }
-  setTimeout(() => {
-    if (btn) { btn.disabled = false; btn.innerText = 'Submit Withdrawal Request'; }
-    closeModal('payoutModal');
-    showToast('✓ Payout request of ₱' + formattedAmt + ' submitted for processing!', 'success');
-  }, 500);
+
+  // This used to be a setTimeout()-and-toast with no server call at all —
+  // the owner was told a real payout of their real earnings was "submitted"
+  // when nothing was ever recorded. request_payout() (OwnerController) has
+  // always existed and actually validates + persists the request; this just
+  // connects the button to it.
+  fetch('owner.php?action=request_payout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': getCsrfToken()
+    },
+    body: JSON.stringify({
+      action: 'request_payout',
+      csrf_token: getCsrfToken(),
+      amount: amount,
+      method: method,
+      account_name: accountName,
+      account_number: accountNumber
+    })
+  })
+    .then(r => r.json())
+    .then(res => {
+      payoutRequestInFlight = false;
+      if (btn) { btn.disabled = false; btn.innerText = 'Submit Withdrawal Request'; }
+      if (res.success) {
+        closeModal('payoutModal');
+        showToast('✓ ' + (res.message || 'Payout request submitted for processing!'), 'success');
+      } else {
+        showToast(res.message || 'Failed to submit payout request. Please try again.');
+      }
+    })
+    .catch(() => {
+      payoutRequestInFlight = false;
+      if (btn) { btn.disabled = false; btn.innerText = 'Submit Withdrawal Request'; }
+      showToast('Network error occurred while submitting your payout request. Please try again.');
+    });
 }
 
 // Chat Functions
-function selectConversation(name) {
-  document.getElementById('chatActiveUser').innerText = name;
-  showToast('Loaded thread with ' + name);
+// Direct Messages — was entirely local/decorative: selectConversation() only
+// changed the header name (the thread underneath kept showing whichever
+// conversation the server happened to render first) and sendChatMessage()
+// appended a DOM-only bubble that vanished on refresh and never reached the
+// player. Both now use the same 'messages'/'send_message' API actions
+// app.js's player-side chat already uses — a session-authenticated owner
+// account works with them identically, no backend changes needed.
+let activeChatPartnerId = window.__initialChatPartnerId || null;
+let chatThreadPollInterval = null;
+let chatSendInFlight = false;
+
+function renderChatThread(messages) {
+  const thread = document.getElementById('chatThreadContainer');
+  if (!thread) return;
+  // Every message here is strictly between the owner and activeChatPartnerId
+  // (see getMessages()'s WHERE clause) — anything not sent BY the partner
+  // was sent by the owner, no need to know the owner's own id client-side.
+  thread.innerHTML = (messages || []).map(m => {
+    const mine = String(m.sender_id || '') !== String(activeChatPartnerId || '');
+    const text = document.createElement('div');
+    text.textContent = m.content || '';
+    const safeText = text.innerHTML;
+    const when = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    return `<div class="chat-bubble ${mine ? 'from-owner' : 'from-user'}">${safeText}<div style="font-size:10px; opacity:0.7; margin-top:4px; text-align:right;">${when}</div></div>`;
+  }).join('');
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function loadChatThread(partnerId) {
+  fetch(`api.php?action=messages&partner_id=${encodeURIComponent(partnerId)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(r => r.json())
+    .then(res => {
+      if (res.success) renderChatThread(res.messages);
+    })
+    .catch(() => {});
+}
+
+function selectConversation(partnerId, name, avatarUrl, itemEl) {
+  activeChatPartnerId = partnerId;
+  const nameEl = document.getElementById('chatActiveUser');
+  if (nameEl) nameEl.innerText = name;
+  const avatarEl = document.getElementById('chatActiveAvatar');
+  if (avatarEl && avatarUrl) avatarEl.src = avatarUrl;
+
+  document.querySelectorAll('.inbox-item').forEach(el => el.classList.remove('active'));
+  if (itemEl) itemEl.classList.add('active');
+
+  loadChatThread(partnerId);
+
+  // Live-ish updates while this thread is open — matches the ~4-12s cadence
+  // already used elsewhere in the app (Open Play spot counts, PickSync).
+  if (chatThreadPollInterval) clearInterval(chatThreadPollInterval);
+  chatThreadPollInterval = setInterval(() => {
+    if (activeChatPartnerId === partnerId) loadChatThread(partnerId);
+  }, 5000);
 }
 
 function sendChatMessage() {
   const input = document.getElementById('chatMessageInput');
-  const text = input.value.trim();
-  if (!text) return;
-  const thread = document.getElementById('chatThreadContainer');
-  const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble from-owner';
-  bubble.innerHTML = text + '<div style="font-size:10px; opacity:0.7; margin-top:4px; text-align:right;">Just now</div>';
-  thread.appendChild(bubble);
-  input.value = '';
-  thread.scrollTop = thread.scrollHeight;
+  const text = input ? input.value.trim() : '';
+  if (!text || !activeChatPartnerId || chatSendInFlight) return;
+  chatSendInFlight = true;
+
+  fetch('api.php?action=send_message', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': getCsrfToken()
+    },
+    body: JSON.stringify({
+      action: 'send_message',
+      csrf_token: getCsrfToken(),
+      partner_id: activeChatPartnerId,
+      content: text
+    })
+  })
+    .then(r => r.json())
+    .then(res => {
+      chatSendInFlight = false;
+      if (res.success) {
+        input.value = '';
+        loadChatThread(activeChatPartnerId);
+      } else {
+        showToast(res.message || 'Failed to send message. Please try again.');
+      }
+    })
+    .catch(() => {
+      chatSendInFlight = false;
+      showToast('Network error sending message. Please try again.');
+    });
 }
 
 // Edit Court Modal Handlers
@@ -1776,8 +2016,16 @@ function onPayoutNumberChange(type) {
 function saveFacilitySettings(event, isSilent = false) {
   if (event) event.preventDefault();
 
-  const gcashNum = document.getElementById('gcashNumberInput')?.value?.trim() || '09123489758';
-  const mayaNum = document.getElementById('mayaNumberInput')?.value?.trim() || '09987654321';
+  // This used to save GCash/Maya numbers and the three payment toggles to
+  // localStorage ONLY — never sent to the server at all — so they vanished
+  // on a different device/browser or if site data was ever cleared, and
+  // nothing server-side could ever actually read them. It also defaulted a
+  // blank number field to a fake-looking placeholder number ('09123489758'/
+  // '09987654321') and submitted THAT as if it were the owner's real payout
+  // number. Both are fixed: everything below now goes to
+  // update_facility_settings() for real, and a blank field stays blank.
+  const gcashNum = document.getElementById('gcashNumberInput')?.value?.trim() || '';
+  const mayaNum = document.getElementById('mayaNumberInput')?.value?.trim() || '';
   const facName = document.getElementById('facilityNameInput')?.value?.trim() || '';
   const facLoc = document.getElementById('facilityLocationInput')?.value?.trim() || '';
   const open24 = document.getElementById('toggleOpen24')?.checked ?? false;
@@ -1794,31 +2042,20 @@ function saveFacilitySettings(event, isSilent = false) {
 
   const hoursStr = open24 ? 'Open 24 Hours' : `${openTime} – ${closeTime}`;
 
-  const payload = {
-    facilityName: facName,
-    facilityLocation: facLoc,
-    gcashNumber: gcashNum,
-    mayaNumber: mayaNum,
-    open24Hours: open24,
-    openingTime: openTime,
-    closingTime: closeTime,
-    cashOnSite: cashOnSite,
-    gcashEnabled: gcashEnabled,
-    mayaEnabled: mayaEnabled,
-    updatedAt: new Date().toISOString()
-  };
-
-  localStorage.setItem('picklers_owner_settings', JSON.stringify(payload));
-
   const formData = new FormData();
   formData.append('action', 'update_facility_settings');
   formData.append('facility_name', facName);
   formData.append('facility_location', facLoc);
   formData.append('hours', hoursStr);
+  formData.append('gcash_number', gcashNum);
+  formData.append('maya_number', mayaNum);
+  formData.append('gcash_enabled', gcashEnabled ? '1' : '0');
+  formData.append('maya_enabled', mayaEnabled ? '1' : '0');
+  formData.append('cash_on_site', cashOnSite ? '1' : '0');
   const csrfToken = getCsrfToken();
   if (csrfToken) formData.append('csrf_token', csrfToken);
 
-  fetch('owner.php', {
+  fetch('owner.php?action=update_facility_settings', {
     method: 'POST',
     body: formData,
     headers: {
@@ -1831,29 +2068,12 @@ function saveFacilitySettings(event, isSilent = false) {
       if (data && data.success) {
         if (!isSilent) showToast('Facility settings & payout numbers updated successfully!', 'success');
       } else {
-        if (!isSilent) showToast(data.message || 'Failed to update settings', 'error');
+        if (!isSilent) showToast((data && data.message) || 'Failed to update settings', 'error');
       }
     })
     .catch(() => {
-      if (!isSilent) showToast('Facility settings updated!', 'success');
+      if (!isSilent) showToast('Network error — settings may not have saved. Please try again.', 'error');
     });
-}
-
-function loadSavedFacilitySettings() {
-  try {
-    const raw = localStorage.getItem('picklers_owner_settings');
-    if (!raw) return;
-    const data = JSON.parse(raw);
-
-    if (data.gcashNumber && document.getElementById('gcashNumberInput')) {
-      document.getElementById('gcashNumberInput').value = data.gcashNumber;
-    }
-    if (data.mayaNumber && document.getElementById('mayaNumberInput')) {
-      document.getElementById('mayaNumberInput').value = data.mayaNumber;
-    }
-  } catch (e) {
-    console.error('Failed to load saved settings', e);
-  }
 }
 
 // Daily Revenue Breakdown Filter & Search Helpers
@@ -2041,33 +2261,18 @@ function syncNotifBellDot(hasUnread) {
 }
 
 // Cross-surface sync (see ux-core.js's PickSync): a player booking a court
-// reaches the owner here without a manual refresh. The pending-requests
-// queue itself still needs a page reload to show a genuinely new request —
-// it currently mixes real bookings with placeholder demo rows (tracked
-// separately for removal), and a live re-render of that queue belongs with
-// that cleanup rather than guessing at today's mixed shape. In the
-// meantime, a toast is real, immediate, and never wrong.
+// reaches the owner here without a manual refresh — the Requests queue
+// re-renders itself from the real pending list (see refreshRequestsQueue()
+// and Database::getPendingBookingRequests()) rather than just prompting the
+// owner to reload the page.
 if (window.PickSync) {
   PickSync.on('bookings', () => {
-    showToast('New booking activity — refresh to see the latest requests.');
+    refreshRequestsQueue();
+    showToast('New booking activity — your Requests queue just updated.');
   });
   PickSync.on('unread_notifications', count => syncNotifBellDot((count || 0) > 0));
   PickSync.start();
 }
-
-/** Default pre-registered players for instant autocomplete matching */
-const REGISTERED_PLAYERS_DB = [
-  { id: 'usr_d1', name: 'Daniel Alfeche', email: 'daniel.alfeche@gmail.com', role: 'PRO Player' },
-  { id: 'usr_d2', name: 'Daria Lopez', email: 'daria.lopez@gmail.com', role: 'Advanced Player' },
-  { id: 'usr_d3', name: 'Dominic Tan', email: 'dominic.tan@gmail.com', role: 'Intermediate' },
-  { id: 'usr_d4', name: 'Diego Ramirez', email: 'diego.ramirez@gmail.com', role: 'Coach / Staff' },
-  { id: 'usr_d5', name: 'David Santos', email: 'david.santos@gmail.com', role: 'Player' },
-  { id: 'usr_1', name: 'Marcus Vance', email: 'marcus@player.ph', role: 'PRO Player' },
-  { id: 'usr_2', name: 'Maria Santos', email: 'maria@facility.com', role: 'Front Desk' },
-  { id: 'usr_3', name: 'Carlos Reyes', email: 'carlos@reyes.ph', role: 'Intermediate' },
-  { id: 'usr_4', name: 'Juan dela Cruz', email: 'juan@delacruz.ph', role: 'Beginner' },
-  { id: 'usr_5', name: 'Sophia Chen', email: 'sophia@chen.ph', role: 'Advanced' }
-];
 
 function highlightMatchText(text, query) {
   if (!query) return text;
@@ -2134,43 +2339,22 @@ function renderPlayerAutocomplete(box, users, query, type = 'staff') {
 function searchPlayersLocalAndApi(query, callback) {
   const q = (query || '').trim().toLowerCase();
 
-  const sortUserMatches = (list) => {
-    if (!q || !Array.isArray(list)) return list;
-    return [...list].sort((a, b) => {
-      const aName = (a.name || '').toLowerCase();
-      const bName = (b.name || '').toLowerCase();
-      const aScore = aName.startsWith(q) ? 1 : (aName.split(/\s+/).some(w => w.startsWith(q)) ? 2 : 3);
-      const bScore = bName.startsWith(q) ? 1 : (bName.split(/\s+/).some(w => w.startsWith(q)) ? 2 : 3);
-      if (aScore !== bScore) return aScore - bScore;
-      return aName.localeCompare(bName);
-    });
-  };
-
-  // 1. Instant local filter
-  let localMatches = REGISTERED_PLAYERS_DB.filter(u => {
-    if (!q) return true;
-    return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-  });
-  localMatches = sortUserMatches(localMatches);
-
-  // Call immediately with local matches so UI feels zero-latency
-  callback(localMatches);
-
-  // 2. Async API search merge
+  // This used to show 10 hardcoded fake names ("Marcus Vance", "Maria
+  // Santos", ...) instantly, merged in with real accounts from
+  // action=search_players once that request resolved — indistinguishable
+  // from a real match. An owner adding staff or logging a walk-in could
+  // easily pick one of the fake entries, believing they'd found a real
+  // registered player. Real accounts only now.
   fetch('api.php?action=search_players&q=' + encodeURIComponent(q))
     .then(r => r.json())
     .then(data => {
       if (data && data.success && Array.isArray(data.users)) {
-        const merged = [...localMatches];
-        data.users.forEach(apiU => {
-          if (!merged.some(m => m.email.toLowerCase() === (apiU.email || '').toLowerCase() || m.name.toLowerCase() === (apiU.name || '').toLowerCase())) {
-            merged.push(apiU);
-          }
-        });
-        callback(sortUserMatches(merged));
+        callback(data.users);
+      } else {
+        callback([]);
       }
     })
-    .catch(() => { });
+    .catch(() => callback([]));
 }
 
 function onStaffNameInput(query) {
@@ -2210,7 +2394,6 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   initThemeToggle();
-  loadSavedFacilitySettings();
   initLiveCourtTimers();
 });
 

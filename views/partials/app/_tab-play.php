@@ -69,6 +69,7 @@
                   $minPrice = (float)($f['min_price'] ?? $f['price_numeric'] ?? 140);
                   $maxPrice = (float)($f['max_price'] ?? $f['price_numeric'] ?? $minPrice);
                   $ratingNum = (float)($f['rating'] ?? 4.8);
+                  $isFavorited = in_array((int)($f['id'] ?? 0), $favoriteFacilityIds ?? [], true);
               ?>
                 <div class="app-facility-card facility-card-item" onclick="openFacilityDetail(<?php echo $f['id']; ?>)" style="cursor:pointer;" data-id="<?php echo $f['id']; ?>" data-name="<?php echo htmlspecialchars($f['name']); ?>" data-loc="<?php echo htmlspecialchars($f['location']); ?>" data-lat="<?php echo (float)($f['latitude'] ?? 9.3065); ?>" data-lng="<?php echo (float)($f['longitude'] ?? 123.3050); ?>" data-type="<?php echo $typeNormalized; ?>" data-price="<?php echo $minPrice; ?>" data-price-max="<?php echo $maxPrice; ?>" data-rating="<?php echo $ratingNum; ?>">
                   <?php
@@ -76,7 +77,7 @@
                   ?>
                   <div class="card-thumb-wrap">
                     <img src="<?php echo htmlspecialchars($imgSrc); ?>" alt="<?php echo htmlspecialchars($f['name']); ?>" class="card-thumb-img" loading="lazy" onerror="this.onerror=null; this.src='assets/images/facilities/overhead_dumaguete.jpg';">
-                    <button type="button" class="card-heart-btn" onclick="event.stopPropagation(); toggleFavoriteFacility(this, '<?php echo htmlspecialchars(addslashes($f['name'])); ?>')" title="Add to favorites">
+                    <button type="button" class="card-heart-btn<?php echo $isFavorited ? ' favorited' : ''; ?>" onclick="event.stopPropagation(); toggleFavoriteFacility(this, <?php echo (int)$f['id']; ?>, '<?php echo htmlspecialchars(addslashes($f['name'])); ?>')" title="<?php echo $isFavorited ? 'Remove from favorites' : 'Add to favorites'; ?>">
                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
                     </button>
                   </div>

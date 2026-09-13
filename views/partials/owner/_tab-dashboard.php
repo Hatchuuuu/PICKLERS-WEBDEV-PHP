@@ -4,9 +4,11 @@ declare(strict_types=1);
  * Court Owner Portal - Facility Dashboard View
  * @var array $currentFacility
  * @var array $metrics
+ * @var array $financials
  * @var array $liveCourts
  * @var array $pendingRequests
  */
+$liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['status'] ?? '', ['occupied', 'open_play'], true)));
 ?>
 <div class="owner-topbar" style="align-items:center; justify-content:space-between;">
   <div class="owner-topbar-title-wrap">
@@ -39,7 +41,7 @@ declare(strict_types=1);
             <span class="kpi-label">MONTHLY REVENUE</span>
           </div>
           <div class="kpi-hero-val-wrap">
-            <span class="kpi-val kpi-hero-val">₱48,200</span>
+            <span class="kpi-val kpi-hero-val"><?= htmlspecialchars($metrics['monthly_revenue']['value']) ?></span>
           </div>
         </div>
       </div>
@@ -47,12 +49,12 @@ declare(strict_types=1);
       <div class="kpi-hero-quick-stats">
         <div class="quick-stat-item">
           <span class="quick-stat-label">Daily Avg</span>
-          <span class="quick-stat-num">₱1,606</span>
+          <span class="quick-stat-num">₱<?= number_format($financials['daily_avg_gross'] ?? 0) ?></span>
         </div>
         <div class="quick-stat-divider"></div>
         <div class="quick-stat-item">
           <span class="quick-stat-label">Peak Day</span>
-          <span class="quick-stat-num text-emerald">₱5,400</span>
+          <span class="quick-stat-num text-emerald">₱<?= number_format($financials['peak_day_gross'] ?? 0) ?></span>
         </div>
         <div class="quick-stat-divider"></div>
         <div class="quick-stat-item quick-stat-clickable" onclick="openModal('dailyRevenueModal')" title="Click to view September daily income breakdown" role="button" tabindex="0">
@@ -60,7 +62,7 @@ declare(strict_types=1);
             Yesterday's Income
             <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
           </span>
-          <span class="quick-stat-num text-cyan">₱2,800</span>
+          <span class="quick-stat-num text-cyan">₱<?= number_format($financials['yesterday_gross'] ?? 0) ?></span>
         </div>
       </div>
     </div>
@@ -76,14 +78,13 @@ declare(strict_types=1);
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </div>
         <span class="kpi-delta-pill delta-pill-red">
-          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          <span>-2.1%</span>
+          <span><?= htmlspecialchars($metrics['repeaters_rate']['delta']) ?></span>
         </span>
       </div>
       <div class="kpi-label">REPEATERS RATE</div>
       <div class="kpi-val-row">
-        <span class="kpi-val">45%</span>
-        <span class="kpi-sub-context">18 / 40 players</span>
+        <span class="kpi-val"><?= htmlspecialchars($metrics['repeaters_rate']['value']) ?></span>
+        <span class="kpi-sub-context"><?= (int)($financials['repeaters_count'] ?? 0) ?> / <?= (int)($financials['repeat_eligible_count'] ?? 0) ?> players</span>
       </div>
     </div>
 
@@ -94,14 +95,14 @@ declare(strict_types=1);
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
         </div>
         <span class="kpi-delta-pill delta-pill-cyan">
-          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-          <span>+5.4%</span>
+          <span><?= htmlspecialchars($metrics['today_revenue']['delta']) ?></span>
         </span>
       </div>
       <div class="kpi-label">TODAY'S REVENUE</div>
       <div class="kpi-val-row">
-        <span class="kpi-val">₱3,200</span>
-        <span class="kpi-sub-context">8 sessions</span>
+        <span class="kpi-val"><?= htmlspecialchars($metrics['today_revenue']['value']) ?></span>
+        <?php $todaySessions = (int)($financials['today_sessions'] ?? 0); ?>
+        <span class="kpi-sub-context"><?= $todaySessions ?> session<?= $todaySessions === 1 ? '' : 's' ?></span>
       </div>
     </div>
 
@@ -118,8 +119,8 @@ declare(strict_types=1);
       </div>
       <div class="kpi-label">ACTIVE BOOKINGS</div>
       <div class="kpi-val-row">
-        <span class="kpi-val">12</span>
-        <span class="kpi-sub-context">4 courts full</span>
+        <span class="kpi-val"><?= htmlspecialchars($metrics['active_bookings']['value']) ?></span>
+        <span class="kpi-sub-context"><?= $liveCourtsFullCount ?> court<?= $liveCourtsFullCount === 1 ? '' : 's' ?> full</span>
       </div>
     </div>
 
@@ -130,14 +131,13 @@ declare(strict_types=1);
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         </div>
         <span class="kpi-delta-pill delta-pill-purple">
-          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-          <span>+8 Today</span>
+          <span><?= htmlspecialchars($metrics['new_players']['delta']) ?></span>
         </span>
       </div>
       <div class="kpi-label">NEW PLAYERS</div>
       <div class="kpi-val-row">
-        <span class="kpi-val">8</span>
-        <span class="kpi-sub-context">6 reg · 2 walk-in</span>
+        <span class="kpi-val"><?= htmlspecialchars($metrics['new_players']['value']) ?></span>
+        <span class="kpi-sub-context"><?= (int)($financials['repeat_eligible_count'] ?? 0) ?> total players</span>
       </div>
     </div>
 
