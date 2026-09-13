@@ -328,7 +328,9 @@ class AdminController extends BaseController {
                     return;
 
                 case 'admin_delete_user':
-                    $targetId = (string)$request->input('user_id', '');
+                case 'admin_deactivate_user':
+                    $targetId    = (string)$request->input('user_id', '');
+                    $confirmText = strtoupper(trim((string)$request->input('confirm_text', '')));
                     if (empty($targetId)) {
                         $this->jsonError('Missing user_id.', 400);
                         return;
@@ -344,6 +346,11 @@ class AdminController extends BaseController {
                         $this->jsonError('User not found.', 404);
                         return;
                     }
+                    if ($confirmText === 'DELETE') {
+                        $this->authService->deleteUser($targetId);
+                        $this->jsonSuccess(['user_id' => $targetId], "User account has been permanently deleted.");
+                        return;
+                    }
                     // Soft-delete: mark as deleted role and strip sensitive data
                     $this->authService->updateUser($targetId, [
                         'role'                => 'deleted',
@@ -354,6 +361,31 @@ class AdminController extends BaseController {
                         'verification_status' => 'unverified',
                     ]);
                     $this->jsonSuccess(['user_id' => $targetId], "User account has been deactivated.");
+                    return;
+
+                case 'admin_hard_delete_user':
+                case 'admin_delete_account':
+                    $targetId    = (string)$request->input('user_id', '');
+                    $confirmText = strtoupper(trim((string)$request->input('confirm_text', '')));
+                    if (empty($targetId)) {
+                        $this->jsonError('Missing user_id.', 400);
+                        return;
+                    }
+                    if ($targetId === ($currentUser['id'] ?? '')) {
+                        $this->jsonError('You cannot delete your own admin account.', 400);
+                        return;
+                    }
+                    if ($confirmText !== 'DELETE') {
+                        $this->jsonError('You must type DELETE to confirm account deletion.', 400);
+                        return;
+                    }
+                    $user = $this->authService->getUserById($targetId);
+                    if (!$user) {
+                        $this->jsonError('User not found.', 404);
+                        return;
+                    }
+                    $this->authService->deleteUser($targetId);
+                    $this->jsonSuccess(['user_id' => $targetId], "User account has been permanently deleted.");
                     return;
 
                 case 'admin_reset_password':

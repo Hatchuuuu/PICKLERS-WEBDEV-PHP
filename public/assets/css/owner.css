@@ -1428,7 +1428,7 @@ html.light .owner-topbar-title-wrap p {
   background: #11233D;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
-  padding: 16px;
+  padding: 12px 16px 16px;
   display: flex;
   flex-direction: column;
   min-height: 175px;
@@ -1473,12 +1473,7 @@ html.light .owner-topbar-title-wrap p {
 }
 
 .court-status-dot-green {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #00D98B;
-  box-shadow: 0 0 10px #00D98B;
-  flex-shrink: 0;
+  display: none !important;
 }
 
 .court-status-dot-gray {

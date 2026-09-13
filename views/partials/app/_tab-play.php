@@ -89,15 +89,31 @@
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                       <span><?php echo htmlspecialchars($f['location']); ?></span>
                     </div>
-                    <div style="margin-top: 2px; margin-bottom: 3px;">
+                    <?php
+                      $rawHours = trim((string)($f['hours'] ?? '6am - 10pm'));
+                      if (empty($rawHours)) { $rawHours = '6am - 10pm'; }
+                      if (stripos($rawHours, '24') !== false) {
+                          $formattedHours = '24/hrs';
+                      } else {
+                          $hTemp = str_replace(['?', '–', '—'], '-', $rawHours);
+                          $hTemp = preg_replace('/0?([1-9]|1[0-2]):00\s*(AM|PM)/i', '$1$2', $hTemp);
+                          $hTemp = preg_replace('/\s*-\s*/', ' - ', $hTemp);
+                          $formattedHours = strtolower($hTemp);
+                      }
+                    ?>
+                    <div style="margin-top: 2px; margin-bottom: 2px;">
                       <span style="color:#FFFFFF; font-weight:800; font-size:12.5px;"><?php echo (int)($f['courts_count'] ?? 0); ?> Courts Listed</span>
                     </div>
-                    <div style="font-size:12px; color:#94A3B8; margin-bottom: 3px;">
-                      <span class="facility-transit-text"><?php echo htmlspecialchars($f['transit'] ?? '🛵 5 min · 🚗 10 min'); ?></span>
+                    <div style="font-size:12px; color:#94A3B8; margin-bottom: 3px; display:inline-flex; align-items:center; gap:5px;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span><?php echo htmlspecialchars($formattedHours); ?></span>
                     </div>
-                    <div style="font-size:12px; color:rgba(255,255,255,0.7); display:flex; align-items:center; gap:8px; margin-bottom: 6px; flex-wrap:wrap;">
-                      <span style="color:#F59E0B; font-weight:800;">★ <?php echo number_format($ratingNum, 1); ?></span>
-                      <span style="color:var(--pk-text-muted, #94A3B8);">(<?php echo $f['reviews'] ?? 100; ?> reviews)</span>
+                    <div style="font-size:12px; color:#94A3B8; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
+                      <span class="facility-transit-text"><?php echo htmlspecialchars($f['transit'] ?? '🛵 5 min · 🚗 10 min'); ?></span>
+                      <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
+                        <span style="color:#F59E0B; font-weight:800;">★ <?php echo number_format($ratingNum, 1); ?></span>
+                        <span style="color:var(--pk-text-muted, #94A3B8);">(<?php echo $f['reviews'] ?? 100; ?> reviews)</span>
+                      </div>
                     </div>
                     <div class="card-meta-row" style="margin-top:auto; gap: 8px;">
                       <div>

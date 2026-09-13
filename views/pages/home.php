@@ -266,11 +266,12 @@ $faqs = $faqs ?? [];
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
               <span><?php echo htmlspecialchars($f['location'] ?? ''); ?></span>
             </div>
-            <div style="font-size:12px; color:rgba(255,255,255,0.7); display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
-              <span style="color:#F59E0B; font-weight:800;">★ <?php echo number_format($ratingNum, 1); ?></span>
-              <span style="color:var(--ink-secondary);">(<?php echo $f['reviews'] ?? 100; ?> reviews)</span>
-              <span style="color:#475569;">•</span>
+            <div style="font-size:12px; color:#94A3B8; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center;">
               <span style="color:var(--ink-secondary);"><?php echo htmlspecialchars((string)($f['transit'] ?? '🚗 15 min')); ?></span>
+              <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
+                <span style="color:#F59E0B; font-weight:800;">★ <?php echo number_format($ratingNum, 1); ?></span>
+                <span style="color:var(--ink-secondary);">(<?php echo $f['reviews'] ?? 100; ?> reviews)</span>
+              </div>
             </div>
             <div class="card-meta-row" style="gap:8px;">
               <div>
@@ -320,29 +321,25 @@ $faqs = $faqs ?? [];
             </div>
           </div>
 
-            <!-- Details List -->
-            <div class="openplay-details-list" style="margin-top: 14px;">
-              <div class="openplay-detail-item loc">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-                <span><?php echo htmlspecialchars($locationName); ?></span>
-              </div>
-              <div class="openplay-detail-item date">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
-                <span><?php echo htmlspecialchars($dateVal); ?></span>
-              </div>
-              <div class="openplay-detail-item time">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <span><?php echo htmlspecialchars($timeVal); ?></span>
-              </div>
-              <div class="openplay-host-price-row">
-                <div class="openplay-detail-item host">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                  <span>Host: <strong><?php echo htmlspecialchars($hostName); ?></strong></span>
+            <!-- Details & Price Container -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 14px;">
+              <div class="openplay-details-list">
+                <div class="openplay-detail-item loc">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                  <span><?php echo htmlspecialchars($locationName); ?></span>
                 </div>
-                <div class="openplay-price-wrap">
-                  <span class="openplay-price-val">₱<?php echo number_format($priceVal, 0); ?></span>
-                  <span class="openplay-price-label">your share</span>
+                <div class="openplay-detail-item date">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                  <span><?php echo htmlspecialchars($dateVal); ?></span>
                 </div>
+                <div class="openplay-detail-item time">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <span><?php echo htmlspecialchars($timeVal); ?></span>
+                </div>
+              </div>
+              <div class="openplay-price-wrap" style="text-align: right; margin-bottom: 2px;">
+                <span class="openplay-price-val">₱<?php echo number_format($priceVal, 0); ?></span>
+                <span class="openplay-price-label">your share</span>
               </div>
             </div>
           </div>

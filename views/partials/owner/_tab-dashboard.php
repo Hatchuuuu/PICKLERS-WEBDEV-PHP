@@ -171,48 +171,43 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
     <div class="live-courts-grid">
       <?php foreach ($liveCourts as $court): ?>
         <div class="live-court-card-v2" id="card_<?= htmlspecialchars($court['id']) ?>">
-          <div class="court-card-header-row" style="position:relative;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <div class="court-name-text" title="<?= htmlspecialchars($court['name']) ?>"><?= htmlspecialchars($court['name']) ?></div>
-              <?php if (!empty($court['upcoming_bookings']) || !empty($court['completed_bookings'])): ?>
-                <div style="position:relative; display:inline-block;">
-                  <button type="button" onclick="event.stopPropagation(); toggleCourtDropdown('dd_<?= htmlspecialchars(addslashes($court['id'])) ?>')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#CBD5E1; padding:2px 6px; border-radius:6px; font-size:10.5px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:3px; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">
-                    <span>Schedule ▾</span>
-                  </button>
-                  <div class="court-schedule-dropdown" id="dd_<?= htmlspecialchars($court['id']) ?>" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; background:#0F172A; border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:10px; width:220px; z-index:100; box-shadow:0 12px 30px rgba(0,0,0,0.6); text-align:left;">
-                    <?php if (!empty($court['upcoming_bookings'])): ?>
-                      <div style="font-size:10px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">Upcoming Bookings</div>
-                      <?php foreach ($court['upcoming_bookings'] as $ub): ?>
-                        <div style="font-size:11.5px; color:#FFFFFF; font-weight:700; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:3px;">
-                          <span><?= htmlspecialchars($ub['user_name']) ?></span>
-                          <span style="color:#00D98B; font-weight:800;"><?= htmlspecialchars($ub['time']) ?></span>
-                        </div>
-                      <?php endforeach; ?>
-                    <?php endif; ?>
-                    <?php if (!empty($court['completed_bookings'])): ?>
-                      <div style="font-size:10px; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.04em; margin-top:8px; margin-bottom:4px;">Completed Today</div>
-                      <?php foreach ($court['completed_bookings'] as $cb): ?>
-                        <div style="font-size:11.5px; color:#94A3B8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
-                          <span><?= htmlspecialchars($cb['user_name']) ?></span>
-                          <span><?= htmlspecialchars($cb['time']) ?></span>
-                        </div>
-                      <?php endforeach; ?>
-                    <?php endif; ?>
-                  </div>
-                </div>
-              <?php endif; ?>
-            </div>
-            <?php if (($court['dot'] ?? '') === 'cyan'): ?>
-              <span class="court-status-dot-cyan"></span>
-            <?php elseif (($court['dot'] ?? '') === 'amber' || !empty($court['has_open_play'])): ?>
-              <button type="button" class="btn-court-players-trigger" onclick="openOpenPlayRosterModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', '<?= htmlspecialchars(addslashes($court['open_play_title'] ?? 'Open Play Session')) ?>')" title="View joined players list and profiles" style="background: transparent; border: none; color: #FFFFFF; padding: 2px 4px; font-size: 12px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+          <div class="court-card-header-row" style="position:relative; display:flex; justify-content:space-between; align-items:center; min-height:20px;">
+            <div class="court-name-text" title="<?= htmlspecialchars($court['name']) ?>"><?= htmlspecialchars($court['name']) ?></div>
+            
+            <?php if (($court['dot'] ?? '') === 'amber' || !empty($court['has_open_play'])): ?>
+              <button type="button" class="btn-court-players-trigger" onclick="openOpenPlayRosterModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', '<?= htmlspecialchars(addslashes($court['open_play_title'] ?? 'Open Play Session')) ?>')" title="View joined players list and profiles" style="background: transparent; border: none; color: #FFFFFF; padding: 0; font-size: 12px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1; transition: all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <span>Players ▾</span>
               </button>
-            <?php elseif (($court['dot'] ?? '') === 'green'): ?>
-              <span class="court-status-dot-green"></span>
             <?php else: ?>
-              <span class="court-status-dot-gray"></span>
+              <div style="position:relative; display:inline-block;">
+                <button type="button" onclick="event.stopPropagation(); toggleCourtDropdown('dd_<?= htmlspecialchars(addslashes($court['id'])) ?>')" style="background:transparent; border:none; color:#FFFFFF; padding:0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+                  <span>Schedule ▾</span>
+                </button>
+                <div class="court-schedule-dropdown" id="dd_<?= htmlspecialchars($court['id']) ?>" style="display:none; position:absolute; top:100%; right:0; margin-top:4px; background:#0F172A; border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:10px; width:220px; z-index:100; box-shadow:0 12px 30px rgba(0,0,0,0.6); text-align:left;">
+                  <?php if (!empty($court['upcoming_bookings'])): ?>
+                    <div style="font-size:10px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">Upcoming Bookings</div>
+                    <?php foreach ($court['upcoming_bookings'] as $ub): ?>
+                      <div style="font-size:11.5px; color:#FFFFFF; font-weight:700; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:3px;">
+                        <span><?= htmlspecialchars($ub['user_name']) ?></span>
+                        <span style="color:#00D98B; font-weight:800;"><?= htmlspecialchars($ub['time']) ?></span>
+                      </div>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                  <?php if (!empty($court['completed_bookings'])): ?>
+                    <div style="font-size:10px; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.04em; margin-top:8px; margin-bottom:4px;">Completed Today</div>
+                    <?php foreach ($court['completed_bookings'] as $cb): ?>
+                      <div style="font-size:11.5px; color:#94A3B8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
+                        <span><?= htmlspecialchars($cb['user_name']) ?></span>
+                        <span><?= htmlspecialchars($cb['time']) ?></span>
+                      </div>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                  <?php if (empty($court['upcoming_bookings']) && empty($court['completed_bookings'])): ?>
+                    <div style="font-size:11.5px; color:#94A3B8; text-align:center; padding:4px 0;">No bookings today</div>
+                  <?php endif; ?>
+                </div>
+              </div>
             <?php endif; ?>
           </div>
 

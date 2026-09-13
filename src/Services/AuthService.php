@@ -32,6 +32,10 @@ class AuthService {
         return $this->userRepo->all();
     }
 
+    public function deleteUser(string $id): bool {
+        return $this->userRepo->delete($id);
+    }
+
     public function authenticate(string $identifier, string $password): ?array {
         $user = $this->getUserByEmailOrPhone($identifier);
         $passwordHash = $user['password_hash'] ?? '$2y$10$invalid.hash.to.maintain.timing.consistency';

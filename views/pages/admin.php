@@ -69,6 +69,7 @@ function admin_icon(string $name, int $size = 18): string {
         'sparkle'       => '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
         'plug'          => '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
         'menu'          => '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
+        'trash'         => '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
     ];
     $path = $icons[$name] ?? $icons['grid'];
     return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . $path . '</svg>';
@@ -996,13 +997,14 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
             <?php else: ?>
               <?php foreach (array_slice($pendingApplications, 0, 4) as $app): ?>
                 <?php $applicant = $usersById[(string)($app['user_id'] ?? '')] ?? null; ?>
-                <div class="app-row">
+                <div class="app-row" style="cursor:pointer;" onclick="openApplicationDetails(<?php echo htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8'); ?>)">
                   <div class="app-avatar"><span><?php echo strtoupper(substr((string)($app['owner_name'] ?? 'A'), 0, 1)); ?></span></div>
                   <div class="app-info">
                     <div class="app-name"><?php echo htmlspecialchars($app['facility_name'] ?? 'Unnamed Facility'); ?></div>
                     <div class="app-meta"><?php echo htmlspecialchars($app['owner_name'] ?? 'Applicant'); ?> · <?php echo htmlspecialchars($app['address'] ?? '—'); ?></div>
                   </div>
-                  <div class="app-actions">
+                  <div class="app-actions" onclick="event.stopPropagation()">
+                    <button type="button" class="mini-btn" style="background:rgba(0, 217, 139, 0.15); border:1px solid rgba(0, 217, 139, 0.4); color:#00D98B; font-weight:800;" onclick="openApplicationDetails(<?php echo htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8'); ?>)">🔍 View Details</button>
                     <button type="button" class="mini-btn" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
                     <button type="button" class="mini-btn danger" onclick="rejectApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Reject</button>
                   </div>
@@ -1055,30 +1057,56 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
             <?php else: ?>
               <div class="table-wrap searchable">
                 <table class="admin-table">
-                  <thead><tr><th>Facility</th><th>Applicant</th><th>Entity</th><th>Courts</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
+                  <thead><tr><th>Facility</th><th>Applicant</th><th>Entity</th><th>Courts</th><th>Documents</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
                   <tbody>
                     <?php foreach ($ownerApplications as $app): ?>
-                      <?php $st = $app['status'] ?? 'pending_review'; ?>
-                      <tr>
-                        <td class="row-primary"><?php echo htmlspecialchars($app['facility_name'] ?? '—'); ?></td>
-                        <td><?php echo htmlspecialchars($app['owner_name'] ?? '—'); ?><br><span class="row-mono"><?php echo htmlspecialchars($app['business_email'] ?? ''); ?></span></td>
-                        <td><?php echo htmlspecialchars($app['entity_name'] ?? '—'); ?></td>
-                        <td><?php echo (int)($app['courts_count'] ?? 0); ?></td>
-                        <td><?php echo htmlspecialchars($app['created_at'] ?? '—'); ?></td>
+                      <?php
+                        $st = $app['status'] ?? 'pending_review';
+                        $hasPermit = !empty($app['permit_file']);
+                        $hasGovId = !empty($app['gov_id_file']);
+                        $jsonApp = htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8');
+                      ?>
+                      <tr style="cursor:pointer;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">
+                        <td class="row-primary">
+                          <div style="font-weight:800; color:#FFFFFF;"><?php echo htmlspecialchars($app['facility_name'] ?? '—'); ?></div>
+                          <div style="font-size:11px; color:#94A3B8; margin-top:2px;"><?php echo htmlspecialchars($app['address'] ?? '—'); ?></div>
+                        </td>
+                        <td>
+                          <div style="font-weight:700; color:#FFFFFF;"><?php echo htmlspecialchars($app['owner_name'] ?? '—'); ?></div>
+                          <span class="row-mono" style="font-size:11px; color:#38BDF8;"><?php echo htmlspecialchars($app['business_email'] ?? ''); ?></span>
+                        </td>
+                        <td>
+                          <div><?php echo htmlspecialchars($app['entity_name'] ?? '—'); ?></div>
+                          <span class="row-mono" style="font-size:10.5px; color:#64748B;">Reg: <?php echo htmlspecialchars($app['reg_number'] ?? '—'); ?></span>
+                        </td>
+                        <td>
+                          <div style="font-weight:700; color:#FFFFFF;"><?php echo (int)($app['courts_count'] ?? 0); ?> Courts</div>
+                          <span style="font-size:11px; color:#94A3B8;"><?php echo htmlspecialchars($app['court_surface'] ?? 'Standard'); ?></span>
+                        </td>
+                        <td>
+                          <div style="display:flex; flex-direction:column; gap:4px;">
+                            <span style="font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; background:<?php echo $hasPermit ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasPermit ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasPermit ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px;">
+                              📄 Permit <?php echo $hasPermit ? '✓' : '—'; ?>
+                            </span>
+                            <span style="font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; background:<?php echo $hasGovId ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasGovId ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasGovId ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px;">
+                              🪪 Gov ID <?php echo $hasGovId ? '✓' : '—'; ?>
+                            </span>
+                          </div>
+                        </td>
+                        <td style="font-size:12px; color:#94A3B8;"><?php echo htmlspecialchars($app['created_at'] ?? '—'); ?></td>
                         <td>
                           <span class="status-pill <?php echo $st === 'pending_review' ? 'pending' : htmlspecialchars($st); ?>">
                             <?php echo $st === 'pending_review' ? 'Pending' : htmlspecialchars(ucfirst($st)); ?>
                           </span>
                         </td>
-                        <td>
-                          <?php if ($st === 'pending_review'): ?>
-                            <div class="table-actions">
+                        <td onclick="event.stopPropagation()">
+                          <div class="table-actions">
+                            <button type="button" class="mini-btn" style="background:rgba(0, 217, 139, 0.15); border:1px solid rgba(0, 217, 139, 0.4); color:#00D98B; font-weight:800;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">🔍 View Details &amp; Photos</button>
+                            <?php if ($st === 'pending_review'): ?>
                               <button type="button" class="mini-btn" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
                               <button type="button" class="mini-btn danger" onclick="rejectApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Reject</button>
-                            </div>
-                          <?php else: ?>
-                            <span class="row-mono">—</span>
-                          <?php endif; ?>
+                            <?php endif; ?>
+                          </div>
                         </td>
                       </tr>
                     <?php endforeach; ?>
@@ -1310,6 +1338,11 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                                   <span>Deactivate / Block User</span>
                                 </button>
                               <?php endif; ?>
+
+                              <button type="button" class="action-dropdown-item item-danger" style="color:#F87171;" onclick="openDeleteUserModal('<?php echo htmlspecialchars($uid); ?>', '<?php echo htmlspecialchars(addslashes($u['name'] ?? 'User')); ?>'); closeAllUserActionMenus();">
+                                <?php echo admin_icon('trash', 15); ?>
+                                <span>Delete Account</span>
+                              </button>
                             <?php endif; ?>
                           </div>
                         </div>
@@ -1697,6 +1730,31 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     </div>
   </div>
 
+  <!-- ===== DELETE ACCOUNT MODAL ===== -->
+  <div class="modal-overlay" id="deleteUserModal">
+    <div class="modal-box" style="border:1px solid rgba(248, 113, 113, 0.3); max-width:440px;">
+      <div class="modal-title" style="color:#F87171; display:flex; align-items:center; gap:8px;">
+        <?php echo admin_icon('trash', 20); ?>
+        <span>Delete Account</span>
+      </div>
+      <div class="modal-sub" id="deleteUserModalSub" style="line-height:1.5;">
+        Are you sure you want to permanently delete this user account? This action <strong>cannot be undone</strong>.
+      </div>
+      
+      <div class="modal-field" style="margin-top:16px;">
+        <label style="color:var(--ink-secondary); font-size:12px; margin-bottom:8px; display:block;">
+          To confirm permanent deletion, type <strong style="color:#F87171; letter-spacing:0.5px;">DELETE</strong> below:
+        </label>
+        <input type="text" id="deleteUserConfirmInput" placeholder="Type DELETE to confirm" style="border:1px solid rgba(248, 113, 113, 0.4); font-weight:700; text-transform:uppercase; letter-spacing:1px;" oninput="validateDeleteInput()" onkeyup="if(event.key==='Enter') submitDeleteUser()">
+      </div>
+
+      <div class="modal-actions" style="margin-top:20px;">
+        <button type="button" class="btn-ghost-pill" onclick="closeModal('deleteUserModal')">Cancel</button>
+        <button type="button" class="btn-primary-pill" id="deleteUserConfirmBtn" style="background:#DC2626; color:#FFFFFF; border:none; opacity:0.4; cursor:not-allowed;" disabled onclick="submitDeleteUser()">Delete Account</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== CREATE PROMO CODE MODAL ===== -->
   <div class="modal-overlay" id="createPromoModal">
     <div class="modal-box" style="max-width:460px;">
@@ -1757,12 +1815,112 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     </div>
   </div>
 
+  <!-- ===== OWNER APPLICATION DETAILS INSPECTOR MODAL ===== -->
+  <div class="modal-overlay" id="appDetailsModal" style="z-index:9999;">
+    <div class="modal-box" style="max-width:780px; width:92%; max-height:90vh; overflow-y:auto; padding:28px; border-radius:20px; background:#0D1A2D; border:1px solid rgba(255,255,255,0.14); color:#FFFFFF; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
+      <!-- Header -->
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:22px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:18px;">
+        <div>
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; flex-wrap:wrap;">
+            <h2 id="appModalFacilityName" style="font-size:22px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.02em;">Facility Name</h2>
+            <span id="appModalStatusBadge" class="status-pill pending">Pending</span>
+          </div>
+          <div style="font-size:12.5px; color:#94A3B8; margin:0; display:flex; align-items:center; gap:8px;">
+            <span>Submitted on <strong id="appModalSubmittedAt" style="color:#FFFFFF;">—</strong></span>
+            <span>•</span>
+            <span>ID: <strong id="appModalAppId" style="font-family:monospace; color:#00D98B;">—</strong></span>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('appDetailsModal')" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; font-weight:800; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">✕</button>
+      </div>
+
+      <!-- Grid of Details -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:24px;">
+        <!-- Box 1: Applicant & Business Entity -->
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px;">
+          <div style="font-size:11.5px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Applicant &amp; Operating Entity
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Legal Applicant Name</span><strong id="appModalOwnerName" style="color:#FFFFFF; font-size:14px;">—</strong></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Business Email</span><a id="appModalEmail" href="#" style="color:#38BDF8; font-weight:700; text-decoration:none;">—</a></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Phone / Contact</span><span id="appModalPhone" style="color:#FFFFFF; font-weight:700;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Registered Entity Name</span><span id="appModalEntityName" style="color:#FFFFFF; font-weight:700;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">DTI / SEC Registration No.</span><span id="appModalRegNumber" style="font-family:monospace; color:#00D98B; font-weight:800; font-size:13.5px;">—</span></div>
+          </div>
+        </div>
+
+        <!-- Box 2: Facility & Court Operations -->
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px;">
+          <div style="font-size:11.5px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            Facility &amp; Court Specs
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Facility Brand Name</span><strong id="appModalFacilityNameSub" style="color:#FFFFFF; font-size:14px;">—</strong></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Physical Address</span><span id="appModalAddress" style="color:#E2E8F0; line-height:1.4; font-weight:600;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Courts &amp; Surface</span><span id="appModalCourtsSurface" style="color:#FFFFFF; font-weight:700;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Operating Schedule</span><span id="appModalHours" style="color:#00D98B; font-weight:800;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Map Coordinates</span><span id="appModalCoords" style="font-family:monospace; color:#94A3B8; font-size:12px;">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Uploaded Verification Documents & Photos -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px; font-weight:800; color:#FFFFFF; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Uploaded Verification Documents &amp; Photos
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+          <!-- Mayor's Permit / Business License Card -->
+          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:12.5px; font-weight:800; color:#FFFFFF; display:flex; align-items:center; gap:6px;">📄 Mayor's Permit / License</span>
+              <span id="appModalPermitBadge" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:9999px; background:rgba(0,217,139,0.15); color:#00D98B; border:1px solid rgba(0,217,139,0.3);">ATTACHED</span>
+            </div>
+            <div id="appModalPermitPreview" style="min-height:160px; background:rgba(0,0,0,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px dashed rgba(255,255,255,0.15);">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+
+          <!-- Government ID Card -->
+          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:12.5px; font-weight:800; color:#FFFFFF; display:flex; align-items:center; gap:6px;">🪪 Government Issued ID</span>
+              <span id="appModalGovIdBadge" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:9999px; background:rgba(0,217,139,0.15); color:#00D98B; border:1px solid rgba(0,217,139,0.3);">ATTACHED</span>
+            </div>
+            <div id="appModalGovIdPreview" style="min-height:160px; background:rgba(0,0,0,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px dashed rgba(255,255,255,0.15);">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Footer -->
+      <div id="appModalActionFooter" style="display:flex; justify-content:flex-end; align-items:center; gap:12px; border-top:1px solid rgba(255,255,255,0.08); padding-top:20px;">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== FULL RESOLUTION IMAGE LIGHTBOX MODAL ===== -->
+  <div class="modal-overlay" id="appImageLightboxModal" style="z-index:999999; background:rgba(5, 11, 20, 0.95); backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);">
+    <div style="position:relative; max-width:92vw; max-height:92vh; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+      <button type="button" onclick="closeModal('appImageLightboxModal')" style="position:absolute; top:-16px; right:-16px; background:#00D98B; color:#0A121F; border:none; width:38px; height:38px; border-radius:50%; font-weight:900; font-size:18px; cursor:pointer; box-shadow:0 4px 16px rgba(0,0,0,0.6); z-index:10; display:flex; align-items:center; justify-content:center;">✕</button>
+      <img id="appLightboxImg" src="" alt="Document Photo" style="max-width:100%; max-height:84vh; border-radius:14px; box-shadow:0 14px 50px rgba(0,0,0,0.9); border:2px solid rgba(255,255,255,0.25); object-fit:contain; background:#0F172A;">
+      <div id="appLightboxCaption" style="margin-top:14px; color:#FFFFFF; font-size:13.5px; font-weight:800; background:rgba(0,0,0,0.8); padding:8px 20px; border-radius:9999px; border:1px solid rgba(255,255,255,0.15); text-align:center;"></div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
 
   <script>
     const csrfToken = <?php echo json_encode($csrfToken); ?>;
     const currentAdminId = <?php echo json_encode((string)($currentUser['id'] ?? '')); ?>;
-    let walletTargetId = null, resetTargetId = null, notifTargetId = null;
+    let walletTargetId = null, resetTargetId = null, notifTargetId = null, deleteTargetId = null;
 
     // ---------- Toasts ----------
     let toastTimer = null;
@@ -1903,6 +2061,136 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     function reloadSoon(ms = 700) { setTimeout(() => window.location.reload(), ms); }
 
     // ---------- Owner applications ----------
+    function openApplicationDetails(app) {
+      if (!app) return;
+
+      document.getElementById('appModalFacilityName').textContent = app.facility_name || 'Unnamed Facility';
+      document.getElementById('appModalFacilityNameSub').textContent = app.facility_name || '—';
+      
+      const st = app.status || 'pending_review';
+      const badgeEl = document.getElementById('appModalStatusBadge');
+      badgeEl.className = `status-pill ${st === 'pending_review' ? 'pending' : st}`;
+      badgeEl.textContent = st === 'pending_review' ? 'Pending Review' : (st.charAt(0).toUpperCase() + st.slice(1));
+      
+      document.getElementById('appModalSubmittedAt').textContent = app.created_at || '—';
+      document.getElementById('appModalAppId').textContent = app.id || '—';
+
+      document.getElementById('appModalOwnerName').textContent = app.owner_name || '—';
+      const emailEl = document.getElementById('appModalEmail');
+      emailEl.textContent = app.business_email || '—';
+      emailEl.href = app.business_email ? `mailto:${app.business_email}` : '#';
+
+      document.getElementById('appModalPhone').textContent = app.phone || '—';
+      document.getElementById('appModalEntityName').textContent = app.entity_name || '—';
+      document.getElementById('appModalRegNumber').textContent = app.reg_number || '—';
+
+      document.getElementById('appModalAddress').textContent = app.address || '—';
+      const courts = parseInt(app.courts_count) || 0;
+      const surface = app.court_surface || 'Standard';
+      document.getElementById('appModalCourtsSurface').textContent = `${courts} Court${courts === 1 ? '' : 's'} (${surface})`;
+      document.getElementById('appModalHours').textContent = app.operating_hours || '6:00 AM – 10:00 PM';
+      
+      if (app.latitude && app.longitude) {
+        document.getElementById('appModalCoords').textContent = `${app.latitude}, ${app.longitude}`;
+      } else {
+        document.getElementById('appModalCoords').textContent = 'Coordinates not provided';
+      }
+
+      // Render Document & Picture Previews
+      renderDocPreview('appModalPermitPreview', 'appModalPermitBadge', app.permit_file, "Mayor's Permit / License");
+      renderDocPreview('appModalGovIdPreview', 'appModalGovIdBadge', app.gov_id_file, "Government Issued ID");
+
+      // Dynamic Action Footer
+      const footer = document.getElementById('appModalActionFooter');
+      if (st === 'pending_review') {
+        footer.innerHTML = `
+          <button type="button" class="btn-ghost-pill" onclick="closeModal('appDetailsModal')">Cancel</button>
+          <button type="button" class="mini-btn danger" style="padding:10px 20px; font-weight:800; font-size:13px; border-radius:12px;" onclick="rejectApplication('${app.user_id}', '${app.id}'); closeModal('appDetailsModal');">Reject Application</button>
+          <button type="button" class="mini-btn" style="padding:10px 22px; font-weight:800; font-size:13px; border-radius:12px; background:#00D98B; color:#0A121F; border:none;" onclick="approveApplication('${app.user_id}', '${app.id}'); closeModal('appDetailsModal');">✓ Approve Application</button>
+        `;
+      } else {
+        footer.innerHTML = `
+          <span style="font-size:12.5px; color:#94A3B8; margin-right:auto;">Application finalized as <strong style="color:#FFFFFF; text-transform:uppercase;">${st}</strong></span>
+          <button type="button" class="btn-ghost-pill" onclick="closeModal('appDetailsModal')">Close</button>
+        `;
+      }
+
+      openModal('appDetailsModal');
+    }
+
+    function renderDocPreview(containerId, badgeId, filename, docTitle) {
+      const container = document.getElementById(containerId);
+      const badge = document.getElementById(badgeId);
+      if (!container) return;
+
+      if (!filename || filename.trim() === '') {
+        if (badge) {
+          badge.textContent = 'NO FILE';
+          badge.style.background = 'rgba(239,68,68,0.15)';
+          badge.style.color = '#EF4444';
+          badge.style.borderColor = 'rgba(239,68,68,0.3)';
+        }
+        container.innerHTML = `<div style="font-size:12px; color:#64748B; text-align:center; padding:20px; font-weight:600;">No document attached</div>`;
+        return;
+      }
+
+      if (badge) {
+        badge.textContent = 'ATTACHED';
+        badge.style.background = 'rgba(0,217,139,0.15)';
+        badge.style.color = '#00D98B';
+        badge.style.borderColor = 'rgba(0,217,139,0.3)';
+      }
+
+      const cleanName = filename.trim();
+      const ext = cleanName.split('.').pop().toLowerCase();
+      const fileUrl = `uploads/permits/${encodeURIComponent(cleanName)}`;
+
+      if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+        container.innerHTML = `
+          <div style="position:relative; width:100%; height:100%; min-height:160px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:8px; cursor:pointer;" onclick="openImageLightbox('${fileUrl}', '${docTitle}: ${cleanName}')">
+            <img src="${fileUrl}" alt="${docTitle}" style="max-height:140px; width:auto; max-width:100%; object-fit:contain; border-radius:8px; border:1px solid rgba(255,255,255,0.15); box-shadow:0 4px 12px rgba(0,0,0,0.4);" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+            <div style="display:none; flex-direction:column; align-items:center; gap:6px; color:#94A3B8; font-size:12px; text-align:center; padding:16px;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span>${cleanName}</span>
+              <a href="${fileUrl}" target="_blank" style="color:#00D98B; font-weight:700; text-decoration:none;">View Image File →</a>
+            </div>
+            <div style="margin-top:6px; font-size:11px; font-weight:700; color:#38BDF8; display:inline-flex; align-items:center; gap:4px;">
+              🔍 Click photo to view full resolution
+            </div>
+          </div>
+        `;
+      } else if (ext === 'pdf') {
+        container.innerHTML = `
+          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:20px; text-align:center; width:100%;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <div style="font-size:12px; font-weight:700; color:#FFFFFF; word-break:break-all;">${cleanName}</div>
+            <a href="${fileUrl}" target="_blank" class="mini-btn" style="background:rgba(56, 189, 248, 0.15); border:1px solid rgba(56, 189, 248, 0.4); color:#38BDF8; font-weight:800; padding:6px 14px; margin-top:4px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+              📄 Open PDF Document →
+            </a>
+          </div>
+        `;
+      } else {
+        container.innerHTML = `
+          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:20px; text-align:center; width:100%;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+            <div style="font-size:12px; font-weight:700; color:#FFFFFF;">${cleanName}</div>
+            <a href="${fileUrl}" target="_blank" style="color:#00D98B; font-weight:700; font-size:12px; text-decoration:none;">Open File →</a>
+          </div>
+        `;
+      }
+    }
+
+    function openImageLightbox(src, caption) {
+      const modal = document.getElementById('appImageLightboxModal');
+      const img = document.getElementById('appLightboxImg');
+      const cap = document.getElementById('appLightboxCaption');
+      if (!modal || !img) return;
+
+      img.src = src;
+      cap.textContent = caption || 'Verification Document Photo';
+      openModal('appImageLightboxModal');
+    }
+
     async function approveApplication(userId, appId) {
       const data = await callAdmin('admin_approve_owner_application', { user_id: userId, application_id: appId }, 'Approve this owner application and grant Court Owner access?');
       if (data && data.success) reloadSoon();
@@ -1991,6 +2279,55 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
       if (!msg) { showToast('Please enter message content.', 'error'); return; }
       const data = await callAdmin('admin_send_notification', { user_id: notifTargetId, title, message: msg });
       if (data && data.success) { closeModal('notifModal'); }
+    }
+
+    // ---------- Delete Account Modal & Actions ----------
+    function openDeleteUserModal(userId, name) {
+      if (userId === currentAdminId) {
+        showToast('You cannot delete your own admin account.', 'error');
+        return;
+      }
+      deleteTargetId = userId;
+      const sub = document.getElementById('deleteUserModalSub');
+      const safeName = name ? name.replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'this user';
+      if (sub) {
+        sub.innerHTML = `Are you sure you want to permanently delete <strong>${safeName}</strong>? All user data will be removed. This action <strong>cannot be undone</strong>.`;
+      }
+      const input = document.getElementById('deleteUserConfirmInput');
+      if (input) { input.value = ''; }
+      validateDeleteInput();
+      openModal('deleteUserModal');
+      setTimeout(() => { if (input) input.focus(); }, 150);
+    }
+
+    function validateDeleteInput() {
+      const input = document.getElementById('deleteUserConfirmInput');
+      const btn = document.getElementById('deleteUserConfirmBtn');
+      if (!input || !btn) return;
+      const val = input.value.trim().toUpperCase();
+      if (val === 'DELETE') {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      } else {
+        btn.disabled = true;
+        btn.style.opacity = '0.4';
+        btn.style.cursor = 'not-allowed';
+      }
+    }
+
+    async function submitDeleteUser() {
+      const input = document.getElementById('deleteUserConfirmInput');
+      const val = input ? input.value.trim().toUpperCase() : '';
+      if (val !== 'DELETE') {
+        showToast('Please type DELETE to confirm deletion.', 'error');
+        return;
+      }
+      const data = await callAdmin('admin_hard_delete_user', { user_id: deleteTargetId, confirm_text: val });
+      if (data && data.success) {
+        closeModal('deleteUserModal');
+        reloadSoon();
+      }
     }
 
     async function impersonateUser(userId, name) {

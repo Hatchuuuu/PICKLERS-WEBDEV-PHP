@@ -18,13 +18,18 @@ final class OpenPlayAndSettingsSyncTest extends TestCase {
         $courtName = 'Court 1';
 
         // Host Open Play match
-        $db->occupyCourt($facilityId, $courtName, 'Hosted Open Play', '6:00 PM – 8:00 PM');
+        $now = time();
+        $startStr = date('g:i A', $now - 1800);
+        $endStr = date('g:i A', $now + 1800);
+        $timeStr = $startStr . ' – ' . $endStr;
+
+        $db->occupyCourt($facilityId, $courtName, 'Hosted Open Play', $timeStr);
         $db->insertMatch([
             'facility_id' => $facilityId,
             'facility_name' => 'Incredoball Sports Center',
             'location' => 'Barangay Daro, Dumaguete City',
             'date' => date('Y-m-d'),
-            'time' => '6:00 PM – 8:00 PM',
+            'time' => $timeStr,
             'level' => 'All Levels',
             'current_players' => 0,
             'max_players' => 12,

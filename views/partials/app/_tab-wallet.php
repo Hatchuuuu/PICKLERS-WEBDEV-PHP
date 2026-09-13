@@ -83,19 +83,24 @@
             $catType = $isRefund ? 'refunds' : ($isTopUp ? 'deposits' : 'bookings');
 
             // Format clean title based on transaction type
+            $facNameMatch = '';
+            if (preg_match('/at\s+([^(\n\v]+)/i', $rawLabel, $fMatch)) {
+                $facNameMatch = trim($fMatch[1]);
+            }
+
             if ($isOpenPlay) {
-                $cleanTitle = 'Open Play';
+                $cleanTitle = !empty($facNameMatch) ? "Open Play • $facNameMatch" : 'Open Play';
             } elseif ($isBooking) {
-                $cleanTitle = 'Booked';
+                $cleanTitle = !empty($facNameMatch) ? "Booked • $facNameMatch" : 'Booked';
             } elseif ($isRefund) {
                 $cleanTitle = 'Refund';
             } else {
-                // Payment method / Top Up name (e.g. GCash, Maya, BDO)
-                $cleanTitle = trim(preg_replace('/\s*(?:Wallet\s*)?Top[- ]?Up\b/i', '', $rawLabel));
-                $cleanTitle = trim(preg_replace('/\bWallet\s+/i', '', $cleanTitle));
-                if (empty($cleanTitle)) {
-                    $cleanTitle = 'GCash';
+                $methodStr = trim(preg_replace('/\s*(?:Wallet\s*)?Top[- ]?Up\b/i', '', $rawLabel));
+                $methodStr = trim(preg_replace('/\bWallet\s+/i', '', $methodStr));
+                if (empty($methodStr)) {
+                    $methodStr = 'GCash';
                 }
+                $cleanTitle = "$methodStr Top-Up";
             }
 
             // Extract booking code from label if present, otherwise generate stable code

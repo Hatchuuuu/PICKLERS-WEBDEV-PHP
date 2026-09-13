@@ -677,6 +677,14 @@ function renderFacilitiesGrid(facilities) {
       ? `₱${minPrice.toFixed(0)} - ₱${maxPrice.toFixed(0)}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span>`
       : `₱${minPrice.toFixed(0)}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span>`;
 
+    let rawHours = String(f.hours || '6am - 10pm').trim();
+    let formattedHours = '6am - 10pm';
+    if (rawHours.toLowerCase().includes('24')) {
+      formattedHours = '24/hrs';
+    } else {
+      formattedHours = rawHours.replace(/[?–—]/g, '-').replace(/0?([1-9]|1[0-2]):00\s*(AM|PM)/gi, '$1$2').replace(/\s*-\s*/g, ' - ').toLowerCase();
+    }
+
     return `
       <div class="app-facility-card facility-card-item" onclick="openFacilityDetail(${f.id})" style="cursor:pointer;" data-id="${f.id}" data-name="${escapeHtml(f.name)}" data-loc="${escapeHtml(f.location)}" data-lat="${f.latitude || 9.3065}" data-lng="${f.longitude || 123.3050}" data-type="${typeNormalized}" data-price="${minPrice}" data-price-max="${maxPrice}" data-rating="${ratingNum}">
         <div class="card-thumb-wrap">
@@ -693,15 +701,19 @@ function renderFacilitiesGrid(facilities) {
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
             <span>${escapeHtml(f.location)}</span>
           </div>
-          <div style="margin-top: 2px; margin-bottom: 3px;">
+          <div style="margin-top: 2px; margin-bottom: 2px;">
             <span style="color:#FFFFFF; font-weight:800; font-size:12.5px;">${parseInt(f.courts_count ?? 0, 10)} Courts Listed</span>
           </div>
-          <div style="font-size:12px; color:#94A3B8; margin-bottom: 3px;">
-            <span class="facility-transit-text">${escapeHtml(f.transit || '🛵 5 min · 🚗 10 min')}</span>
+          <div style="font-size:12px; color:#94A3B8; margin-bottom: 3px; display:inline-flex; align-items:center; gap:5px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>${escapeHtml(formattedHours)}</span>
           </div>
-          <div style="font-size:12px; color:rgba(255,255,255,0.7); display:flex; align-items:center; gap:8px; margin-bottom: 6px; flex-wrap:wrap;">
-            <span style="color:#F59E0B; font-weight:800;">★ ${ratingNum.toFixed(1)}</span>
-            <span style="color:var(--pk-text-muted, #94A3B8);">(${f.reviews ?? 100} reviews)</span>
+          <div style="font-size:12px; color:#94A3B8; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
+            <span class="facility-transit-text">${escapeHtml(f.transit || '🛵 5 min · 🚗 10 min')}</span>
+            <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
+              <span style="color:#F59E0B; font-weight:800;">★ ${ratingNum.toFixed(1)}</span>
+              <span style="color:var(--pk-text-muted, #94A3B8);">(${f.reviews ?? 100} reviews)</span>
+            </div>
           </div>
           <div class="card-meta-row" style="margin-top:auto; gap: 8px;">
             <div>
@@ -1098,6 +1110,46 @@ function toggleFollowFacility(btn, facilityName) {
   }
 }
 
+// Facility Operating Hours Validator (Real-Time Manila Time check)
+function isFacilityOpen(hoursStr) {
+  if (!hoursStr) return true;
+  let raw = String(hoursStr).trim().toLowerCase();
+  if (raw.includes('24')) return true;
+
+  raw = raw.replace(/[–—?]/g, '-');
+  const parts = raw.split('-');
+  if (parts.length < 2) return true;
+
+  function parseMinutes(s) {
+    s = s.trim();
+    if (!s) return null;
+    const isPM = s.includes('pm');
+    const isAM = s.includes('am');
+    const m = s.match(/(\d{1,2})(?::(\d{2}))?/);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    let mins = m[2] ? parseInt(m[2], 10) : 0;
+    if (isPM && h < 12) h += 12;
+    if (isAM && h === 12) h = 0;
+    return h * 60 + mins;
+  }
+
+  const openMin = parseMinutes(parts[0]);
+  const closeMin = parseMinutes(parts[1]);
+
+  if (openMin === null || closeMin === null) return true;
+
+  const now = new Date();
+  const currentMin = now.getHours() * 60 + now.getMinutes();
+
+  if (closeMin > openMin) {
+    return currentMin >= openMin && currentMin < closeMin;
+  } else if (closeMin < openMin) {
+    return currentMin >= openMin || currentMin < closeMin;
+  }
+  return true;
+}
+
 // Facility Detail View Transition (§8 Flowchart)
 function openFacilityDetail(facilityId) {
   const headerWrap = document.getElementById('facilityDetailHeaderWrap');
@@ -1141,6 +1193,16 @@ function openFacilityDetail(facilityId) {
   if (detailView) detailView.style.display = 'block';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
+  // Live timer for real-time operating hours check
+  if (!window._facilityHoursCheckInterval) {
+    window._facilityHoursCheckInterval = setInterval(() => {
+      const dv = document.getElementById('facilityDetailView');
+      if (dv && dv.style.display !== 'none' && currentSelectedFacility && cachedFacilityCourts) {
+        renderDetailCourtsList(cachedFacilityCourts, currentSelectedFacility);
+      }
+    }, 30000);
+  }
+
   fetch(`api.php?action=facility_detail&id=${encodeURIComponent(facilityId)}`)
     .then(r => r.json())
     .then(data => {
@@ -1180,7 +1242,11 @@ function openFacilityDetail(facilityId) {
           `;
         }
 
-        let amenitiesRowHtml = '';
+        const isOpen = isFacilityOpen(f.hours || '6am - 10pm');
+        const hoursDisplay = escapeHtml(f.hours || '6am - 10pm');
+        const hoursBadgeHtml = isOpen
+          ? `<span style="background:rgba(255,255,255,0.15); backdrop-filter:blur(6px); color:#FFFFFF; font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px;">🕒 ${hoursDisplay}</span>`
+          : `<span style="background:rgba(239, 68, 68, 0.22); backdrop-filter:blur(6px); color:#F87171; font-size:11px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid rgba(239, 68, 68, 0.4); display:inline-flex; align-items:center; gap:6px;">🕒 ${hoursDisplay} <strong style="color:#FCA5A5; text-transform:uppercase; letter-spacing:0.04em;">• CLOSED NOW</strong></span>`;
 
         headerWrap.innerHTML = `
               <div style="position:relative; height:240px; border-radius:22px; overflow:hidden; margin-bottom:12px;">
@@ -1189,7 +1255,7 @@ function openFacilityDetail(facilityId) {
                 <div style="position:absolute; bottom:20px; left:22px; right:22px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px;">
                   <div>
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-                      <span style="background:rgba(255,255,255,0.15); backdrop-filter:blur(6px); color:#FFFFFF; font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px;">🕒 ${escapeHtml(f.hours || '6am - 11pm')}</span>
+                      ${hoursBadgeHtml}
                     </div>
                     <h2 style="font-size:26px; font-weight:900; color:#FFFFFF; margin:0 0 4px;">${escapeHtml(f.name)}</h2>
                     <div style="font-size:13px; color:rgba(255,255,255,0.8); display:flex; align-items:center; gap:8px;">
@@ -1244,6 +1310,22 @@ function renderDetailCourtsList(courts, facility) {
   currentSelectedFacility = facility;
   cachedFacilityCourts = courts || [];
 
+  const isClosed = facility && facility.hours ? !isFacilityOpen(facility.hours) : false;
+
+  // Handle Quick Book button state when facility is closed
+  const quickBookBtn = document.querySelector('.btn-quick-book-gradient');
+  if (quickBookBtn) {
+    if (isClosed) {
+      quickBookBtn.style.opacity = '0.45';
+      quickBookBtn.style.cursor = 'not-allowed';
+      quickBookBtn.style.filter = 'grayscale(1)';
+    } else {
+      quickBookBtn.style.opacity = '1';
+      quickBookBtn.style.cursor = 'pointer';
+      quickBookBtn.style.filter = 'none';
+    }
+  }
+
   if (countEl) {
     countEl.textContent = `(${courts ? courts.length : 0})`;
   }
@@ -1258,9 +1340,9 @@ function renderDetailCourtsList(courts, facility) {
   }
 
   courtsList.innerHTML = courts.map(c => {
-    const isAvail = (c.status === 'available');
+    const isAvail = !isClosed && (c.status === 'available');
     const isOccupied = (c.status === 'occupied');
-    const isHostedOP = !!c.has_open_play || (c.occupied_by && (c.occupied_by.indexOf('Open Play') !== -1 || c.occupied_by.indexOf('Hosted') !== -1));
+    const isHostedOP = !isClosed && (!!c.has_open_play || (c.occupied_by && (c.occupied_by.indexOf('Open Play') !== -1 || c.occupied_by.indexOf('Hosted') !== -1)));
     const priceNum = parseFloat(c.price) || 180;
     const typeNormalized = (c.type || 'Indoor').toLowerCase();
 
@@ -1271,12 +1353,12 @@ function renderDetailCourtsList(courts, facility) {
       displayTitle = courtMatch ? courtMatch[0].replace(/^court\s*/i, 'Court ') : (c.name.replace(/\s*[\(–-].*$/, '').trim() || c.name);
     }
 
-    const dotClass = isAvail ? 'dot-available' : (isOccupied ? 'dot-occupied' : 'dot-maintenance');
+    const dotClass = isClosed ? '' : (isAvail ? 'dot-available' : (isOccupied ? 'dot-occupied' : 'dot-maintenance'));
+    const dotHtml = isClosed
+      ? `<span class="court-status-dot" style="background:#64748B; box-shadow:none;" title="Facility Closed"></span>`
+      : `<span class="court-status-dot ${dotClass}"></span>`;
 
-    // A real occupant/time is shown when the API actually reports one; a
-    // court simply marked unavailable (no live occupancy data) says so
-    // honestly rather than inventing a name and a time window nobody set.
-    const occupancyHtml = (!isAvail && !isHostedOP) ? (
+    const occupancyHtml = (!isAvail && !isHostedOP && !isClosed) ? (
       (c.occupied_by || c.occupied_time || c.occupied_until) ? `
         <div class="court-occupancy-info">
           <div class="court-occupancy-name">${escapeHtml(c.occupied_by || 'Reserved')}</div>
@@ -1285,18 +1367,32 @@ function renderDetailCourtsList(courts, facility) {
       ` : ''
     ) : '';
 
+    const cardClass = `ref-court-card detail-court-card ${isClosed ? 'court-closed-card' : (isAvail ? 'has-glow' : '')}`;
+    const cardStyle = isClosed
+      ? 'background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); opacity: 0.55; cursor: not-allowed; filter: grayscale(0.5);'
+      : (isAvail ? 'cursor:pointer;' : '');
+    const cardOnClick = isClosed
+      ? `onclick="event.stopPropagation(); showToast('Facility is currently closed (${escapeHtml(facility.hours || '6am - 10pm')}). Bookings unavailable after operating hours.', 'warning')"`
+      : (isAvail ? `onclick="bookCourtDirectToPayment(${facility.id}, '${escapeHtml(String(c.id || '')).replace(/'/g, "\\'")}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${priceNum}, '${escapeHtml(c.surface || 'Hard').replace(/'/g, "\\'")}', '${escapeHtml(c.type || 'Indoor').replace(/'/g, "\\'")}', '${escapeHtml(facility.name || '').replace(/'/g, "\\'")}')"` : '');
+
     return `
-          <div class="ref-court-card detail-court-card ${isAvail ? 'has-glow' : ''}" data-court-type="${escapeHtml(typeNormalized)}" ${isAvail ? `onclick="bookCourtDirectToPayment(${facility.id}, '${escapeHtml(String(c.id || '')).replace(/'/g, "\\'")}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${priceNum}, '${escapeHtml(c.surface || 'Hard').replace(/'/g, "\\'")}', '${escapeHtml(c.type || 'Indoor').replace(/'/g, "\\'")}', '${escapeHtml(facility.name || '').replace(/'/g, "\\'")}')" style="cursor:pointer;"` : ''}>
+          <div class="${cardClass}" data-court-type="${escapeHtml(typeNormalized)}" style="${cardStyle}" ${cardOnClick}>
             <div class="court-card-top-row">
               <h4 class="court-card-title">${escapeHtml(displayTitle)}</h4>
               <div style="display:flex; align-items:center; gap:8px;">
-                <span class="court-status-dot ${dotClass}"></span>
+                ${dotHtml}
               </div>
             </div>
 
             <div class="court-card-bottom-row">
               <div class="court-card-price">₱${priceNum.toFixed(0)}<span>/hr</span></div>
-              ${isAvail ? `
+              ${isClosed ? `
+                <div class="court-action-col">
+                  <button type="button" class="btn-court-occupied" style="background:#334155; color:#94A3B8; border:1px solid #475569; cursor:not-allowed; opacity:0.85;" disabled onclick="event.stopPropagation(); showToast('Facility is currently closed.', 'warning');">
+                    Closed
+                  </button>
+                </div>
+              ` : (isAvail ? `
                 <button type="button" class="btn-court-book-now" onclick="event.stopPropagation(); bookCourtDirectToPayment(${facility.id}, '${escapeHtml(String(c.id || '')).replace(/'/g, "\\'")}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${priceNum}, '${escapeHtml(c.surface || 'Hard').replace(/'/g, "\\'")}', '${escapeHtml(c.type || 'Indoor').replace(/'/g, "\\'")}', '${escapeHtml(facility.name || '').replace(/'/g, "\\'")}')">
                   Book Now
                 </button>
@@ -1311,7 +1407,7 @@ function renderDetailCourtsList(courts, facility) {
                     </button>
                   `}
                 </div>
-              `}
+              `)}
             </div>
           </div>
         `;
@@ -1645,6 +1741,10 @@ function selectConfirmBookingDate(btn, dateFull) {
 }
 
 function bookCourtDirectToPayment(facilityId, courtId = '', courtName = 'Court 1', price = 180, surface = 'Hard', type = 'Indoor', facilityName = '') {
+  if (currentSelectedFacility && !isFacilityOpen(currentSelectedFacility.hours)) {
+    showToast(`Facility is currently closed (${currentSelectedFacility.hours || '6am - 10pm'}). Bookings are unavailable after operating hours.`, 'warning');
+    return;
+  }
   const resolvedFacilityName = facilityName || document.getElementById('facilityDetailTitle')?.textContent || 'Pickleball Facility';
   const d = new Date();
   const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -1691,6 +1791,10 @@ function filterDetailCourts(surface, btn) {
 }
 
 function triggerQuickBookFirstAvailable() {
+  if (currentSelectedFacility && !isFacilityOpen(currentSelectedFacility.hours)) {
+    showToast(`Facility is currently closed (${currentSelectedFacility.hours || '6am - 10pm'}). Quick book is unavailable after operating hours.`, 'warning');
+    return;
+  }
   if (!cachedFacilityCourts || cachedFacilityCourts.length === 0) {
     showToast('No courts available for quick booking.', 'info');
     return;

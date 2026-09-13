@@ -51,8 +51,13 @@
         </a>
       <?php endif; ?>
 
-      <a href="owner.php" class="sidebar-signout-btn" title="Switch to Facility Owner Portal">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>
+      <?php
+        $appDb = $db ?? \Picklers\Core\Database::get();
+        $latestApp = $appDb->getLatestApplicationForUser((string)($currentUser['id'] ?? ''));
+        $isPendingOwner = $latestApp && in_array($latestApp['status'] ?? '', ['pending_review', 'pending'], true) && empty($currentUser['is_owner']) && ($currentUser['role'] ?? '') !== 'owner';
+      ?>
+      <a href="<?php echo $isPendingOwner ? 'owner-application.php?notice=pending' : 'owner.php'; ?>" class="sidebar-signout-btn" title="Switch to Facility Owner Portal">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>
         <span>Switch to Owner View</span>
       </a>
 

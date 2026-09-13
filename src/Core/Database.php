@@ -2286,6 +2286,25 @@ class Database {
         return $this->getUserById($id);
     }
 
+    public function deleteUser($id) {
+        if ($this->isMySQL) {
+            $stmt = $this->pdo->prepare("DELETE FROM users WHERE id = ?");
+            $stmt->execute([$id]);
+        } else {
+            $users = $this->getJSONData('users');
+            $users = array_values(array_filter($users, function($u) use ($id) {
+                return (string)($u['id'] ?? '') !== (string)$id;
+            }));
+            $this->saveJSONData('users', $users);
+        }
+
+        if (class_exists('\\Picklers\\Middleware\\AuthMiddleware')) {
+            \Picklers\Middleware\AuthMiddleware::clearMemoizedUser();
+        }
+
+        return true;
+    }
+
     public function getAllUsers() {
         if ($this->isMySQL) {
             $stmt = $this->pdo->query("SELECT id, name, email, phone, role, verification_status, avatar_url, level, wallet_balance, is_admin, is_dev, is_owner, created_at FROM users ORDER BY created_at DESC");
@@ -3297,6 +3316,67 @@ class Database {
         }
     }
 
+    public static function getMatchTargetDate(array $match): string {
+        $dateStr = trim((string)($match['date'] ?? ''));
+        $timeStr = trim((string)($match['time'] ?? ''));
+        $todayStr = date('Y-m-d');
+
+        $isEveryday = strcasecmp($dateStr, 'everyday') === 0 || strcasecmp($dateStr, 'daily') === 0
+            || str_contains(strtolower($dateStr), 'everyday') || str_contains(strtolower($dateStr), 'daily');
+
+        if (!$isEveryday) {
+            $ts = strtotime($dateStr);
+            return $ts !== false ? date('Y-m-d', $ts) : ($dateStr !== '' ? $dateStr : $todayStr);
+        }
+
+        $startTimeStr = '';
+        $endTimeStr = '';
+        if (str_contains($timeStr, '-')) {
+            $parts = explode('-', $timeStr);
+            $startTimeStr = trim($parts[0]);
+            $endTimeStr = trim(end($parts));
+        } elseif (str_contains($timeStr, '–')) {
+            $parts = explode('–', $timeStr);
+            $startTimeStr = trim($parts[0]);
+            $endTimeStr = trim(end($parts));
+        } elseif (str_contains($timeStr, 'to')) {
+            $parts = explode('to', $timeStr);
+            $startTimeStr = trim($parts[0]);
+            $endTimeStr = trim(end($parts));
+        } else {
+            $endTimeStr = $timeStr;
+        }
+
+        if ($endTimeStr !== '') {
+            $endTs = strtotime($todayStr . ' ' . $endTimeStr);
+            $startTs = $startTimeStr !== '' ? strtotime($todayStr . ' ' . $startTimeStr) : false;
+
+            if ($endTs !== false && $startTs !== false && $endTs <= $startTs) {
+                $endTs = strtotime('+1 day', $endTs);
+            }
+
+            if ($endTs !== false && time() >= $endTs) {
+                return date('Y-m-d', strtotime('+1 day'));
+            }
+        }
+
+        return $todayStr;
+    }
+
+    public static function getMatchDisplayDate(array $match): string {
+        $targetDate = self::getMatchTargetDate($match);
+        if (!empty($targetDate) && strtotime($targetDate) !== false) {
+            return date('F j, Y', strtotime($targetDate));
+        }
+
+        $dateStr = trim((string)($match['date'] ?? ''));
+        if (!empty($dateStr) && strtotime($dateStr) !== false) {
+            return date('F j, Y', strtotime($dateStr));
+        }
+
+        return $dateStr !== '' ? $dateStr : date('F j, Y');
+    }
+
     public static function isMatchExpired(array $match): bool {
         $dateStr = trim((string)($match['date'] ?? ''));
         $timeStr = trim((string)($match['time'] ?? ''));
@@ -3305,27 +3385,26 @@ class Database {
             return false;
         }
 
-        $isEveryday = strcasecmp($dateStr, 'everyday') === 0 || strcasecmp($dateStr, 'daily') === 0;
+        $isEveryday = strcasecmp($dateStr, 'everyday') === 0 || strcasecmp($dateStr, 'daily') === 0
+            || str_contains(strtolower($dateStr), 'everyday') || str_contains(strtolower($dateStr), 'daily');
+
+        if ($isEveryday) {
+            return false;
+        }
 
         $todayStr = date('Y-m-d');
         $nowTs = time();
 
         $sessionDateStr = null;
-        if ($isEveryday) {
-            $sessionDateStr = $todayStr;
-        } else {
-            $ts = strtotime($dateStr);
-            if ($ts !== false) {
-                $sessionDateStr = date('Y-m-d', $ts);
-            }
+        $ts = strtotime($dateStr);
+        if ($ts !== false) {
+            $sessionDateStr = date('Y-m-d', $ts);
         }
 
-        // If the date is explicitly in the past (e.g. Sep 7, 2026 when today is Sep 12), it's expired!
         if ($sessionDateStr !== null && $sessionDateStr < $todayStr) {
             return true;
         }
 
-        // Parse end time from time range e.g. "6:00 AM - 11:00 PM"
         $endTimeStr = '';
         if (str_contains($timeStr, '-')) {
             $parts = explode('-', $timeStr);
@@ -3342,10 +3421,8 @@ class Database {
 
         if ($endTimeStr !== '' && $sessionDateStr === $todayStr) {
             $endTs = strtotime($sessionDateStr . ' ' . $endTimeStr);
-            if ($endTs !== false) {
-                if ($nowTs >= $endTs) {
-                    return true;
-                }
+            if ($endTs !== false && $nowTs >= $endTs) {
+                return true;
             }
         }
 
@@ -3645,6 +3722,7 @@ class Database {
         // recurring sessions get the extra "today only" filter.
         $facilityMatches = $this->getMatchesByFacility((int)$facilityId);
         $isEveryday = false;
+        $matchedMatch = null;
         foreach ($facilityMatches as $m) {
             if ($this->isMatchExpired($m)) continue;
             $mCourt = trim((string)($m['court_name'] ?? $m['type'] ?? ''));
@@ -3654,17 +3732,18 @@ class Database {
             if ($isThisCourt) {
                 $mDate = strtolower(trim((string)($m['date'] ?? '')));
                 $isEveryday = ($mDate === 'everyday' || $mDate === 'daily');
+                $matchedMatch = $m;
                 break;
             }
         }
 
-        if ($isEveryday) {
-            $todayStr = date('Y-m-d');
-            $roster = array_values(array_filter($roster, function ($r) use ($todayStr) {
+        if ($isEveryday && !empty($matchedMatch)) {
+            $targetDate = self::getMatchTargetDate($matchedMatch);
+            $roster = array_values(array_filter($roster, function ($r) use ($targetDate) {
                 $created = (string)($r['_created_at'] ?? '');
                 if ($created === '') return true; // no timestamp to judge by — don't hide it
                 $ts = strtotime($created);
-                return $ts !== false && date('Y-m-d', $ts) === $todayStr;
+                return $ts !== false && date('Y-m-d', $ts) === $targetDate;
             }));
         }
 
@@ -4172,6 +4251,22 @@ class Database {
 
             if (!isset($seen[$key])) {
                 $seen[$key] = true;
+
+                $rawDate = trim((string)($m['date'] ?? ''));
+                $targetDate = self::getMatchTargetDate($m);
+                $displayDate = self::getMatchDisplayDate($m);
+                $m['date'] = $displayDate;
+                $m['target_date'] = $targetDate;
+
+                $isEveryday = strcasecmp($rawDate, 'everyday') === 0 || strcasecmp($rawDate, 'daily') === 0 || str_contains(strtolower($rawDate), 'everyday') || str_contains(strtolower($rawDate), 'daily');
+
+                $activeCount = $this->countActiveMatchBookings($mId, $targetDate);
+                if ($isEveryday) {
+                    $m['current_players'] = $activeCount;
+                } else {
+                    $m['current_players'] = max((int)($m['current_players'] ?? 0), $activeCount);
+                }
+
                 $unique[] = $m;
             }
         }
@@ -4200,13 +4295,14 @@ class Database {
                 // this only checked current_players (which only counts *approved*
                 // seats), so pending join requests never counted against capacity
                 // and an owner could accept more players than max_players allowed.
-                if ($this->countActiveMatchBookings((string)$matchId) >= (int)$match['max_players']) {
+                $targetDate = self::getMatchTargetDate($match);
+                if ($this->countActiveMatchBookings((string)$matchId, $targetDate) >= (int)$match['max_players']) {
                     $this->pdo->rollBack();
                     return ['success' => false, 'message' => 'This open play match is already full!'];
                 }
 
-                $alreadyChk = $this->pdo->prepare("SELECT id FROM bookings WHERE user_id = ? AND facility_id = ? AND court_name = ? AND date = ? AND time = ? AND status != 'cancelled'");
-                $alreadyChk->execute([$userId, $match['facility_id'], $match['type'], $match['date'], $match['time']]);
+                $alreadyChk = $this->pdo->prepare("SELECT id FROM bookings WHERE user_id = ? AND facility_id = ? AND court_name = ? AND (date = ? OR date LIKE ? OR booking_date = ?) AND time = ? AND status != 'cancelled'");
+                $alreadyChk->execute([$userId, $match['facility_id'], $match['type'], $targetDate, "%$targetDate%", $targetDate, $match['time']]);
                 if ($alreadyChk->fetch()) {
                     $this->pdo->rollBack();
                     return ['success' => false, 'message' => 'You have already joined this Open Play session!'];
@@ -4236,13 +4332,16 @@ class Database {
                 }
 
                 $bookingId = 'PKL-OP-' . strtoupper(bin2hex(random_bytes(3)));
+                $isEveryday = strcasecmp($match['date'] ?? '', 'everyday') === 0 || strcasecmp($match['date'] ?? '', 'daily') === 0;
+                $bookingDateDisplay = $isEveryday ? "Everyday ({$targetDate})" : $match['date'];
                 $booking = [
                     'id' => $bookingId,
                     'user_id' => $userId,
                     'facility_id' => $match['facility_id'],
                     'facility_name' => $match['facility_name'],
                     'court_name' => $match['type'] ?? 'Open Play Session',
-                    'date' => $match['date'],
+                    'date' => $bookingDateDisplay,
+                    'booking_date' => $targetDate,
                     'time' => $match['time'],
                     'duration' => '2 Hours',
                     'price' => $finalPrice,
@@ -4303,8 +4402,8 @@ class Database {
                 foreach ($matches as &$m) {
                     if ((string)$m['id'] === (string)$matchId) {
                         $found = true;
-                        // Same pending+confirmed capacity gate as the MySQL branch above.
-                        if ($this->countActiveMatchBookings((string)$matchId) >= (int)$m['max_players']) {
+                        $targetDate = self::getMatchTargetDate($m);
+                        if ($this->countActiveMatchBookings((string)$matchId, $targetDate) >= (int)$m['max_players']) {
                             return ['success' => false, 'message' => 'This open play match is already full!'];
                         }
 
@@ -4312,7 +4411,7 @@ class Database {
                             (string)($b['user_id'] ?? '') === (string)$userId &&
                             (string)($b['facility_id'] ?? '') === (string)($m['facility_id'] ?? '') &&
                             ($b['court_name'] ?? '') === ($m['type'] ?? '') &&
-                            ($b['date'] ?? '') === ($m['date'] ?? '') &&
+                            (($b['date'] ?? '') === $targetDate || str_contains($b['date'] ?? '', $targetDate) || ($b['booking_date'] ?? '') === $targetDate) &&
                             ($b['time'] ?? '') === ($m['time'] ?? '') &&
                             ($b['status'] ?? '') !== 'cancelled'
                         );
@@ -4348,14 +4447,18 @@ class Database {
                 $this->updateUser($userId, ['wallet_balance' => round($balance - $finalPrice, 2)]);
             }
 
+            $targetDate = self::getMatchTargetDate($match);
             $bookingId = 'PKL-OP-' . strtoupper(bin2hex(random_bytes(3)));
+            $isEveryday = strcasecmp($match['date'] ?? '', 'everyday') === 0 || strcasecmp($match['date'] ?? '', 'daily') === 0;
+            $bookingDateDisplay = $isEveryday ? "Everyday ({$targetDate})" : $match['date'];
             $booking = [
                 'id' => $bookingId,
                 'user_id' => $userId,
                 'facility_id' => $match['facility_id'],
                 'facility_name' => $match['facility_name'],
                 'court_name' => $match['type'] ?? 'Open Play Session',
-                'date' => $match['date'],
+                'date' => $bookingDateDisplay,
+                'booking_date' => $targetDate,
                 'time' => $match['time'],
                 'duration' => '2 Hours',
                 'price' => $finalPrice,
@@ -4400,7 +4503,30 @@ class Database {
      * must compare against max_players; current_players alone only tracks
      * approved seats and under-counts demand while requests await review.
      */
-    private function countActiveMatchBookings(string $matchId): int {
+    public function countActiveMatchBookings(string $matchId, ?string $targetDate = null): int {
+        if ($targetDate !== null && $targetDate !== '') {
+            if ($this->isMySQL) {
+                $stmt = $this->pdo->prepare(
+                    "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed') AND (date = ? OR date LIKE ? OR created_at LIKE ? OR booking_date = ?)"
+                );
+                $stmt->execute([$matchId, $targetDate, "%$targetDate%", "$targetDate%", $targetDate]);
+                return (int)$stmt->fetchColumn();
+            }
+
+            $count = 0;
+            foreach ($this->getJSONData('bookings') as $b) {
+                if ((string)($b['match_id'] ?? '') === $matchId && in_array($b['status'] ?? '', ['pending', 'confirmed'], true)) {
+                    $bDate = (string)($b['date'] ?? '');
+                    $bCreated = (string)($b['created_at'] ?? '');
+                    $bBookingDate = (string)($b['booking_date'] ?? '');
+                    if ($bDate === $targetDate || str_contains($bDate, $targetDate) || str_starts_with($bCreated, $targetDate) || $bBookingDate === $targetDate) {
+                        $count++;
+                    }
+                }
+            }
+            return $count;
+        }
+
         if ($this->isMySQL) {
             $stmt = $this->pdo->prepare(
                 "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed')"
@@ -4662,6 +4788,55 @@ class Database {
 
         $ts = strtotime($trimmed);
         return $ts !== false ? date('Y-m-d', $ts) : null;
+    }
+
+    public function isFacilityOpen(?string $hoursStr): bool {
+        if (empty($hoursStr)) {
+            return true;
+        }
+        $raw = strtolower(trim($hoursStr));
+        if (strpos($raw, '24') !== false) {
+            return true;
+        }
+
+        $raw = str_replace(['–', '—', '?'], '-', $raw);
+        $parts = explode('-', $raw);
+        if (count($parts) < 2) {
+            return true;
+        }
+
+        $parseMinutes = function(string $s): ?int {
+            $s = trim($s);
+            $isPM = (strpos($s, 'pm') !== false);
+            $isAM = (strpos($s, 'am') !== false);
+            if (!preg_match('/(\d{1,2})(?::(\d{2}))?/', $s, $m)) {
+                return null;
+            }
+            $h = (int)$m[1];
+            $mins = isset($m[2]) ? (int)$m[2] : 0;
+            if ($isPM && $h < 12) $h += 12;
+            if ($isAM && $h === 12) $h = 0;
+            return $h * 60 + $mins;
+        };
+
+        $openMin = $parseMinutes($parts[0]);
+        $closeMin = $parseMinutes($parts[1]);
+
+        if ($openMin === null || $closeMin === null) {
+            return true;
+        }
+
+        $nowH = (int)date('G');
+        $nowM = (int)date('i');
+        $currentMin = $nowH * 60 + $nowM;
+
+        if ($closeMin > $openMin) {
+            return $currentMin >= $openMin && $currentMin < $closeMin;
+        } elseif ($closeMin < $openMin) {
+            return $currentMin >= $openMin || $currentMin < $closeMin;
+        }
+
+        return true;
     }
 
     private function validateBookingSlot(string $date, string $time, int $duration): array {
@@ -5274,15 +5449,90 @@ class Database {
 
     // Wallet
     public function getWalletTransactions($userId) {
+        $rows = [];
         if ($this->isMySQL) {
             $stmt = $this->pdo->prepare("SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC");
             $stmt->execute([$userId]);
-            return $stmt->fetchAll();
+            $rows = $stmt->fetchAll();
         } else {
             $txs = $this->getJSONData('wallet_transactions');
-            $filtered = array_filter($txs, fn($t) => $t['user_id'] === $userId);
-            return array_values($filtered);
+            $filtered = array_filter($txs, fn($t) => (string)($t['user_id'] ?? '') === (string)$userId);
+            $rows = array_values($filtered);
         }
+
+        $user = $this->getUserById($userId);
+        if ($user) {
+            $bal = (float)($user['wallet_balance'] ?? 0);
+
+            // If user has a positive balance but no credit/top-up transactions recorded yet, synthesize an initial deposit transaction
+            $hasCreditTx = false;
+            foreach ($rows as $r) {
+                if (($r['type'] ?? '') === 'credit') {
+                    $hasCreditTx = true;
+                    break;
+                }
+            }
+
+            if (!$hasCreditTx && $bal > 0) {
+                $createdStr = $user['created_at'] ?? 'now';
+                $txDate = date('M j, Y', strtotime($createdStr));
+                $initTx = $this->addTransaction($userId, 'credit', $bal, 'GCash Top-Up');
+                $rows[] = $initTx;
+            }
+        }
+
+        // Also compile any court bookings / open play joins for this user
+        if ($user) {
+            $existingLabels = array_column($rows, 'label');
+            $bookings = [];
+            if ($this->isMySQL) {
+                $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE user_id = ? AND status != 'cancelled' ORDER BY created_at DESC");
+                $stmt->execute([$userId]);
+                $bookings = $stmt->fetchAll();
+            } else {
+                $allB = $this->getJSONData('bookings');
+                $bookings = array_values(array_filter($allB, fn($b) => (string)($b['user_id'] ?? '') === (string)$userId && ($b['status'] ?? '') !== 'cancelled'));
+            }
+
+            foreach ($bookings as $b) {
+                $bId = (string)($b['id'] ?? '');
+                $alreadyInTx = false;
+                foreach ($existingLabels as $lbl) {
+                    if (str_contains($lbl, $bId)) {
+                        $alreadyInTx = true;
+                        break;
+                    }
+                }
+                if (!$alreadyInTx && (float)($b['price'] ?? 0) > 0) {
+                    $payMethod = !empty($b['payment_method']) ? $b['payment_method'] : 'GCash';
+                    $facName = !empty($b['facility_name']) ? $b['facility_name'] : 'Pickleball Facility';
+                    $courtName = !empty($b['court_name']) ? $b['court_name'] : 'Court Reservation';
+                    $isOP = str_starts_with($bId, 'PKL-OP-') || stripos($courtName, 'open play') !== false;
+                    $labelPrefix = $isOP ? "Open Play #$bId at $facName" : "Booking #$bId at $facName ($courtName)";
+                    $bDate = !empty($b['created_at']) ? date('M j, Y', strtotime($b['created_at'])) : date('M j, Y');
+
+                    $bTx = [
+                        'id' => 'tx_b_' . strtolower(str_replace(['PKL-', '-'], '', $bId)),
+                        'user_id' => $userId,
+                        'type' => 'debit',
+                        'amount' => (float)$b['price'],
+                        'label' => $labelPrefix . " via $payMethod",
+                        'date' => $bDate,
+                        'created_at' => $b['created_at'] ?? date('Y-m-d H:i:s')
+                    ];
+                    $rows[] = $bTx;
+                }
+            }
+        }
+
+        // Sort all transactions by created_at DESC
+        usort($rows, function($a, $b) {
+            $tA = strtotime($a['created_at'] ?? $a['date'] ?? 'now');
+            $tB = strtotime($b['created_at'] ?? $b['date'] ?? 'now');
+            return $tB <=> $tA;
+        });
+
+        return array_values($rows);
     }
 
     public function addTransaction($userId, $type, $amount, $label) {

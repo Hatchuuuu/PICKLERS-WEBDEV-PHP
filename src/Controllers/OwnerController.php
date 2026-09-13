@@ -95,10 +95,15 @@ class OwnerController extends BaseController {
     public function application(Request $request) {
         $currentUser = AuthMiddleware::requireAuth();
         $notice = (string)$request->query('notice', '');
+        $db = Database::get();
+        $latestApp = $db->getLatestApplicationForUser((string)($currentUser['id'] ?? ''));
+        $hasPendingApp = $latestApp && in_array($latestApp['status'] ?? '', ['pending_review', 'pending'], true) && empty($currentUser['is_owner']) && ($currentUser['role'] ?? '') !== 'owner';
 
         return Response::view('pages/owner-application', [
             'currentUser' => $this->sanitizeUser($currentUser),
             'notice' => $notice,
+            'latestApp' => $latestApp,
+            'hasPendingApp' => $hasPendingApp,
             'csrfToken' => \Picklers\Middleware\CsrfMiddleware::getToken()
         ]);
     }

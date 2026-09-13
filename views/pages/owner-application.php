@@ -541,13 +541,13 @@ declare(strict_types=1);
     }
     .elevation-modal-card {
       background: var(--card-dark);
-      border: 1.5px solid var(--mint);
+      border: 1.5px solid #FFFFFF;
       border-radius: 24px;
       width: 100%;
       max-width: 480px;
       padding: 36px 32px;
       text-align: center;
-      box-shadow: 0 20px 50px rgba(0, 217, 139, 0.25);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 24px rgba(255, 255, 255, 0.12);
     }
     .elevation-icon-wrap {
       width: 68px;
@@ -880,18 +880,30 @@ declare(strict_types=1);
   </div>
 
   <!-- Application Submitted Modal -->
-  <div class="elevation-modal-overlay" id="elevationModal">
+  <?php
+    $appDb = $db ?? \Picklers\Core\Database::get();
+    $latestApp = $latestApp ?? ($currentUser ? $appDb->getLatestApplicationForUser((string)($currentUser['id'] ?? '')) : null);
+    $hasPendingApp = $hasPendingApp ?? ($latestApp && in_array($latestApp['status'] ?? '', ['pending_review', 'pending'], true) && empty($currentUser['is_owner']) && ($currentUser['role'] ?? '') !== 'owner');
+    $noticeStr = (string)($notice ?? '');
+    $shouldShowSubmittedModal = $hasPendingApp || $noticeStr === 'pending' || ($noticeStr === 'verification_required' && $hasPendingApp);
+    $rawStatus = (string)($latestApp['status'] ?? 'pending_review');
+    $formattedStatusText = ucwords(str_replace(['_', '-'], ' ', $rawStatus));
+  ?>
+  <div class="elevation-modal-overlay" id="elevationModal" style="<?php echo $shouldShowSubmittedModal ? 'display: flex;' : ''; ?>">
     <div class="elevation-modal-card">
-      <div class="elevation-icon-wrap">
-        <svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <div class="elevation-icon-wrap" style="background: rgba(255, 184, 0, 0.14); border: 1.5px solid rgba(255, 184, 0, 0.4); color: #FFB800; box-shadow: 0 0 20px rgba(255, 184, 0, 0.2);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       </div>
       <h2 style="font-size: 24px; font-weight: 900; color: #FFFFFF; margin-bottom: 8px;">Application Submitted!</h2>
-      <p style="font-size: 14px; color: #94A3B8; line-height: 1.5;">
+      <p style="font-size: 14px; color: #94A3B8; line-height: 1.55;">
         Thanks! Your facility application and documents are now with the Picklers team for review. We'll notify you as soon as a decision is made.
       </p>
 
       <div class="elevation-pill-row">
-        <div class="elevation-pill highlight">status: 'pending_review'</div>
+        <div class="elevation-pill highlight" style="display:inline-flex; align-items:center; gap:8px; padding:8px 18px; border-radius:9999px; font-size:13px; font-weight:800; background:transparent; border:1px solid #FFFFFF; color:#FFFFFF; box-shadow:none;">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#FFB800; box-shadow:0 0 8px #FFB800;"></span>
+          <span>Status: <?php echo htmlspecialchars($formattedStatusText); ?></span>
+        </div>
       </div>
 
       <a href="app.php?tab=settings" class="btn-launch-owner">

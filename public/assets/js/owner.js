@@ -1441,11 +1441,34 @@ window.submitAddCourtForm = submitAddCourtForm;
 
 
 
+function populateHostOpenPlayDates() {
+  const dateInput = document.getElementById('openPlayDateInput');
+  if (!dateInput) return;
+  dateInput.innerHTML = '';
+  const today = new Date();
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const formatted = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    let extra = '';
+    if (i === 0) extra = ' (Today)';
+    else if (i === 1) extra = ' (Tomorrow)';
+    const opt = document.createElement('option');
+    opt.value = formatted;
+    opt.textContent = formatted + extra;
+    opt.style.background = '#0F172A';
+    opt.style.color = '#FFFFFF';
+    if (i === 0) opt.selected = true;
+    dateInput.appendChild(opt);
+  }
+}
+
 function openHostOpenPlayForCourt(courtName, courtSpecs) {
   const nameEl = document.getElementById('modalTargetCourtName');
   const specsEl = document.getElementById('modalTargetCourtSpecs');
   if (nameEl && courtName) nameEl.textContent = courtName;
   if (specsEl) specsEl.textContent = '';
+  populateHostOpenPlayDates();
   openModal('hostOpenPlayModal');
 }
 
@@ -1486,8 +1509,9 @@ function submitHostOpenPlayForm(e) {
   if (hostOpenPlayInFlight) return;
   hostOpenPlayInFlight = true;
 
+  const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   const court = document.getElementById('modalTargetCourtName')?.textContent || 'Court 2';
-  const date = document.getElementById('openPlayDateInput')?.value || 'Mon, Sep 7, 2026';
+  const date = document.getElementById('openPlayDateInput')?.value || todayStr;
   const start = document.getElementById('openPlayStartTime')?.value || '6:00 AM';
   const end = document.getElementById('openPlayEndTime')?.value || '11:00 PM';
   const fee = document.getElementById('openPlayFee')?.value || '250';

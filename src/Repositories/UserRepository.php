@@ -31,4 +31,8 @@ class UserRepository {
     public function all(): array {
         return $this->db->getAllUsers();
     }
+
+    public function delete(string $id): bool {
+        return $this->db->deleteUser($id);
+    }
 }

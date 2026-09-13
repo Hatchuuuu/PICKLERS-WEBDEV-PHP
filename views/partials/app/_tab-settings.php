@@ -62,46 +62,19 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>
             </button>
           </div>
-
-          <!-- Verify Identity -->
-          <?php $isVerified = ($currentUser['verification_status'] ?? 'unverified') === 'verified'; ?>
-          <div class="settings-action-card" onclick="<?php echo $isVerified ? "showToast('Your account is fully verified! ✓', 'success')" : "verifyIdentityNow()"; ?>">
-            <div style="display:flex; align-items:center; gap:14px;">
-              <div class="settings-card-icon-box" style="background:rgba(0, 217, 139,0.1); border:1px solid rgba(0, 217, 139,0.25); color:#00D98B;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-              </div>
-              <div>
-                <div style="font-size:14px; font-weight:800; color:#FFFFFF; margin-bottom:2px;">Verify Identity</div>
-                <div style="font-size:11px; color:#94A3B8;">
-                  <?php echo $isVerified ? 'Your account is fully verified ✓' : 'Verify now to unlock all player features'; ?>
-                </div>
-              </div>
-            </div>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pk-text-muted, #94A3B8)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-          </div>
         </div>
 
         <!-- Portal & Console Switcher Stack -->
         <div class="settings-section-label">PORTAL & CONSOLE SWITCHER</div>
         <div class="settings-group-card">
-          <!-- Player App -->
-          <a href="app.php" class="settings-row-item" style="text-decoration:none;">
-            <div class="settings-row-left">
-              <div class="settings-icon-pill" style="background:rgba(0, 217, 139,0.15); color:#00D98B;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-              </div>
-              <div class="settings-row-text">
-                <div class="settings-row-title" style="color:#FFFFFF;">Player App</div>
-                <div class="settings-row-sub">Court booking, open matches & community hub</div>
-              </div>
-            </div>
-            <div class="settings-row-action">
-              <span class="settings-portal-tag active">ACTIVE</span>
-            </div>
-          </a>
 
           <!-- Court Owner Portal -->
-          <a href="owner.php" class="settings-row-item" style="text-decoration:none;">
+          <?php
+            $appDb = $db ?? \Picklers\Core\Database::get();
+            $latestApp = $appDb->getLatestApplicationForUser((string)($currentUser['id'] ?? ''));
+            $isPendingOwner = $latestApp && in_array($latestApp['status'] ?? '', ['pending_review', 'pending'], true) && empty($currentUser['is_owner']) && ($currentUser['role'] ?? '') !== 'owner';
+          ?>
+          <a href="<?php echo $isPendingOwner ? 'owner-application.php?notice=pending' : 'owner.php'; ?>" class="settings-row-item" style="text-decoration:none;">
             <div class="settings-row-left">
               <div class="settings-icon-pill" style="background:rgba(255,184,0,0.15); color:#FFB800;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
@@ -112,31 +85,40 @@
               </div>
             </div>
             <div class="settings-row-action">
-              <span class="settings-portal-launch launch-owner">
-                <span>Launch</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-              </span>
+              <?php if ($isPendingOwner): ?>
+                <span class="settings-portal-launch launch-owner" style="border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800; background: rgba(255, 184, 0, 0.14);">
+                  <span>Pending</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </span>
+              <?php else: ?>
+                <span class="settings-portal-launch launch-owner">
+                  <span>Launch</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </span>
+              <?php endif; ?>
             </div>
           </a>
 
-          <!-- Admin Console -->
-          <a href="admin.php" class="settings-row-item" style="text-decoration:none;">
-            <div class="settings-row-left">
-              <div class="settings-icon-pill" style="background:rgba(239,68,68,0.15); color:#EF4444;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <?php if (($currentUser['role'] ?? '') === 'admin' || !empty($currentUser['is_admin'])): ?>
+            <!-- Admin Console -->
+            <a href="admin.php" class="settings-row-item" style="text-decoration:none;">
+              <div class="settings-row-left">
+                <div class="settings-icon-pill" style="background:rgba(239,68,68,0.15); color:#EF4444;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <div class="settings-row-text">
+                  <div class="settings-row-title" style="color:#FFFFFF;">Admin Management Console</div>
+                  <div class="settings-row-sub">Platform audit, user roles, facility moderation & finance</div>
+                </div>
               </div>
-              <div class="settings-row-text">
-                <div class="settings-row-title" style="color:#FFFFFF;">Admin Management Console</div>
-                <div class="settings-row-sub">Platform audit, user roles, facility moderation & finance</div>
+              <div class="settings-row-action">
+                <span class="settings-portal-launch launch-admin">
+                  <span>Launch</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </span>
               </div>
-            </div>
-            <div class="settings-row-action">
-              <span class="settings-portal-launch launch-admin">
-                <span>Launch</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-              </span>
-            </div>
-          </a>
+            </a>
+          <?php endif; ?>
         </div>
 
       </div>

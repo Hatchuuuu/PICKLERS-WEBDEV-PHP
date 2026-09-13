@@ -426,7 +426,7 @@
             <div id="openPlayDatePickerWrap" style="position: relative;">
               <select id="openPlayDateInput" style="background: var(--pk-bg-card); border: 1px solid rgba(255, 255, 255, 0.1); padding: 9px 34px 9px 34px; border-radius: 10px; width: 100%; box-sizing: border-box; color: var(--pk-text-primary); font-size: 13px; font-weight: 700; appearance: none; -webkit-appearance: none; cursor: pointer;">
                 <?php
-                  $baseDate = new DateTime('2026-09-07');
+                  $baseDate = new DateTime('now');
                   for ($i = 0; $i < 30; $i++) {
                       $d = clone $baseDate;
                       if ($i > 0) $d->modify("+$i days");

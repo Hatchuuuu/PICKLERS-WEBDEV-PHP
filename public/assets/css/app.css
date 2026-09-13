@@ -3952,21 +3952,22 @@
       width: 28px;
       height: 28px;
       border-radius: 50%;
-      background: #00D98B;
-      border: 2px solid #0A121F;
-      color: #0A121F;
+      background: #11233D !important;
+      border: 2px solid #00D98B !important;
+      color: #FFFFFF !important;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 10px rgba(0, 217, 139, 0.3);
+      transition: all 0.2s ease;
     }
 
     .settings-avatar-camera-btn:hover {
-      background: #00E5FF;
-      transform: scale(1.1);
-      box-shadow: 0 0 12px rgba(0, 229, 255, 0.6);
+      background: #00D98B !important;
+      color: #0B182B !important;
+      transform: scale(1.12);
+      box-shadow: 0 0 14px rgba(0, 217, 139, 0.7);
     }
 
     .settings-avatar-camera-btn svg {
@@ -6165,22 +6166,36 @@
       background: transparent !important;
       border: none !important;
       border-radius: 0 !important;
-      padding: 10px 4px 14px !important;
+      padding: 10px 14px 14px !important;
       font-size: 14px;
-      font-weight: 600;
-      color: #94A3B8;
+      font-weight: 700;
+      color: #FFFFFF !important;
       cursor: pointer;
       position: relative;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      transition: color 0.2s ease;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: all 0.2s ease;
       text-decoration: none;
       white-space: nowrap;
       box-shadow: none !important;
-      flex: 0 0 calc((100% - 36px) / 3.5);
-      min-width: calc((100% - 36px) / 3.5);
+      flex: 0 0 auto;
+    }
+
+    .booking-subnav-btn .booking-subnav-label {
+      color: #FFFFFF !important;
+      font-family: 'Montserrat', var(--font-heading), sans-serif;
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      transition: color 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .booking-subnav-btn:not(.active) {
+      opacity: 0.7;
     }
 
     @media (min-width: 768px) {
@@ -6195,16 +6210,23 @@
     }
 
     .booking-subnav-btn:hover {
-      color: #FFFFFF;
+      color: #FFFFFF !important;
       background: transparent !important;
+      opacity: 1;
     }
 
     .booking-subnav-btn.active {
-      color: #00D98B !important;
+      color: #FFFFFF !important;
       background: transparent !important;
       border: none !important;
       font-weight: 800 !important;
       box-shadow: none !important;
+      opacity: 1;
+    }
+
+    .booking-subnav-btn.active .booking-subnav-label {
+      color: #FFFFFF !important;
+      font-weight: 800 !important;
     }
 
     .booking-subnav-btn.active::after {
@@ -6213,26 +6235,33 @@
       bottom: -1px;
       left: 0;
       right: 0;
-      height: 2.5px;
+      height: 3px;
       background: #00D98B;
       border-radius: 3px 3px 0 0;
-      box-shadow: 0 -2px 8px rgba(0, 217, 139, 0.4);
+      box-shadow: 0 -2px 10px rgba(0, 217, 139, 0.5);
     }
 
     .booking-badge-count {
-      background: rgba(255, 255, 255, 0.08);
-      color: #94A3B8;
-      padding: 2px 7px;
-      border-radius: 9999px;
-      font-size: 11px;
-      font-weight: 800;
-      transition: all 0.2s ease;
+      position: static;
+      background: transparent !important;
+      color: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0;
+      margin: 0;
+      display: inline;
+      line-height: inherit;
+      transition: color 0.2s ease;
     }
 
     .booking-subnav-btn.active .booking-badge-count {
-      background: rgba(0, 217, 139, 0.15);
-      color: #00D98B;
-      border: 1px solid rgba(0, 217, 139, 0.3);
+      background: transparent !important;
+      color: #00D98B !important;
+      border: none !important;
+      box-shadow: none !important;
+      font-weight: 800 !important;
     }
 
     /* ==========================================================================
