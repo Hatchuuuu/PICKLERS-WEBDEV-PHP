@@ -94,7 +94,7 @@ final class SlotCollisionTest extends TestCase {
             // seeded data or with a previous run of this same test.
             $court = $db->insertCourt([
                 'facility_id' => $facilityId,
-                'name'        => 'Regression Test Court ' . bin2hex(random_bytes(3)),
+                'name'        => 'Court ' . random_int(5000, 99999),
                 'price'       => 100.00,
                 'status'      => 'available',
             ]);
@@ -137,6 +137,33 @@ final class SlotCollisionTest extends TestCase {
             );
             $this->assertTrue((bool)($third['success'] ?? false),
                 'A genuinely free slot later the same day still books fine: ' . ($third['message'] ?? ''));
+
+            // ── Dynamic real-time court status verification ──────────────────────
+            $courtList = $db->getCourtsByFacility($facilityId);
+            $testCourtRow = null;
+            foreach ($courtList as $cRow) {
+                if ((string)($cRow['id'] ?? '') === (string)$court['id']) {
+                    $testCourtRow = $cRow;
+                    break;
+                }
+            }
+            $this->assertNotNull($testCourtRow, 'Test court exists in facility listing');
+            $this->assertSame('available', strtolower((string)($testCourtRow['status'] ?? '')),
+                'A court with a booking later in the day remains AVAILABLE at the current real time');
+
+            $slots = $db->getSlotAvailability($facilityId, (string)$court['id'], date('Y-m-d', strtotime('+1 day')));
+            $this->assertTrue(!empty($slots), 'getSlotAvailability returns slots for the court');
+            $bookedSlot = null;
+            foreach ($slots as $s) {
+                if (!$s['available'] && $s['reason'] === 'booked') {
+                    $bookedSlot = $s;
+                    break;
+                }
+            }
+            if ($bookedSlot) {
+                $this->assertFalse($bookedSlot['available'], 'The booked slot is correctly reported as unavailable');
+                $this->assertSame('booked', $bookedSlot['reason'], 'The reason for unavailability is booked');
+            }
 
             // Leave no state behind — the next run reuses a fresh random court.
             if (!empty($first['booking']['id']))  $db->cancelBooking($first['booking']['id'], $tester['id']);

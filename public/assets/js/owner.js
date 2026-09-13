@@ -16,6 +16,19 @@ function toggleRevenueStats() {
   }
 }
 
+function toggleCourtDropdown(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isHidden = el.style.display === 'none' || !el.style.display;
+  document.querySelectorAll('.court-schedule-dropdown').forEach(d => d.style.display = 'none');
+  el.style.display = isHidden ? 'block' : 'none';
+}
+document.addEventListener('click', function (e) {
+  if (!e.target.closest('.court-schedule-dropdown') && !e.target.closest('button')) {
+    document.querySelectorAll('.court-schedule-dropdown').forEach(d => d.style.display = 'none');
+  }
+});
+
 function getNextAvailableCourtNumber() {
   const existingNums = new Set();
   const cards = document.querySelectorAll('.court-item-card, .live-court-card-v2, [data-court-name]');
@@ -79,12 +92,13 @@ function toggleOwnerSidebar() {
 // Toast Helper
 let ownerToastTimer = null;
 function showToast(msg) {
-  // Mirror into the shared live region for screen-reader users.
-  if (window.UX) window.UX.announce(msg);
+  // Strip manual checkmark prefixes if present to prevent double checkmark icons
+  const cleanMsg = (msg || '').replace(/^[✓✔☑\s]+/, '');
+  if (window.UX) window.UX.announce(cleanMsg);
   const toast = document.getElementById('appToast');
   if (!toast) return;
   const msgEl = document.getElementById('toastMsg');
-  if (msgEl) msgEl.innerText = msg;
+  if (msgEl) msgEl.innerText = cleanMsg;
   if (ownerToastTimer) clearTimeout(ownerToastTimer);
   toast.style.display = 'flex';
   ownerToastTimer = setTimeout(() => { toast.style.display = 'none'; }, 3000);
@@ -995,18 +1009,18 @@ function executeDeleteCourt() {
       name: courtName
     })
   })
-  .then(r => r.json())
-  .then(res => {
-    if (res.success) {
-      showToast('✓ ' + (res.message || courtName + ' deleted permanently.'), 'success');
-      setTimeout(() => { window.location.reload(); }, 500);
-    } else {
-      showToast(res.message || 'Failed to delete court.', 'error');
-    }
-  })
-  .catch(() => {
-    showToast('Network error occurred while deleting court. Please try again.');
-  });
+    .then(r => r.json())
+    .then(res => {
+      if (res.success) {
+        showToast('✓ ' + (res.message || courtName + ' deleted permanently.'), 'success');
+        setTimeout(() => { window.location.reload(); }, 500);
+      } else {
+        showToast(res.message || 'Failed to delete court.', 'error');
+      }
+    })
+    .catch(() => {
+      showToast('Network error occurred while deleting court. Please try again.');
+    });
 }
 window.executeDeleteCourt = executeDeleteCourt;
 
@@ -1071,13 +1085,13 @@ function executeCancelOpenPlay() {
       court_name: courtName
     })
   })
-  .then(r => r.json())
-  .then(res => {
-    setTimeout(() => { window.location.reload(); }, 500);
-  })
-  .catch(() => {
-    setTimeout(() => { window.location.reload(); }, 500);
-  });
+    .then(r => r.json())
+    .then(res => {
+      setTimeout(() => { window.location.reload(); }, 500);
+    })
+    .catch(() => {
+      setTimeout(() => { window.location.reload(); }, 500);
+    });
 }
 window.executeCancelOpenPlay = executeCancelOpenPlay;
 
@@ -1801,27 +1815,28 @@ function saveFacilitySettings(event, isSilent = false) {
   formData.append('facility_name', facName);
   formData.append('facility_location', facLoc);
   formData.append('hours', hoursStr);
-  const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+  const csrfToken = getCsrfToken();
   if (csrfToken) formData.append('csrf_token', csrfToken);
 
   fetch('owner.php', {
     method: 'POST',
     body: formData,
     headers: {
-      'X-Requested-With': 'XMLHttpRequest'
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRF-Token': csrfToken
     }
   })
-  .then(r => r.json())
-  .then(data => {
-    if (data && data.success) {
-      if (!isSilent) showToast('✓ Facility settings & payout numbers updated successfully!', 'success');
-    } else {
-      if (!isSilent) showToast(data.message || 'Failed to update settings', 'error');
-    }
-  })
-  .catch(() => {
-    if (!isSilent) showToast('✓ Facility settings updated!', 'success');
-  });
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.success) {
+        if (!isSilent) showToast('Facility settings & payout numbers updated successfully!', 'success');
+      } else {
+        if (!isSilent) showToast(data.message || 'Failed to update settings', 'error');
+      }
+    })
+    .catch(() => {
+      if (!isSilent) showToast('Facility settings updated!', 'success');
+    });
 }
 
 function loadSavedFacilitySettings() {
@@ -1932,10 +1947,19 @@ function initLiveCourtTimers() {
       totalSeconds
     });
 
-    // Set formatted display & cyan glow matching reference design
+    // Set formatted display & initial color (White >= 10m, Red < 10m)
     el.textContent = formatCourtTime(secondsLeft);
-    el.style.color = '#00E5FF';
-    el.style.textShadow = '0 0 12px rgba(0, 229, 255, 0.65)';
+    if (secondsLeft < 600) {
+      el.style.color = '#EF4444';
+      el.style.textShadow = '0 0 12px rgba(239, 68, 68, 0.75)';
+      el.classList.add('court-timer--critical');
+      el.classList.remove('court-timer--normal');
+    } else {
+      el.style.color = '#FFFFFF';
+      el.style.textShadow = '0 0 10px rgba(255, 255, 255, 0.4)';
+      el.classList.add('court-timer--normal');
+      el.classList.remove('court-timer--critical');
+    }
   });
 
   if (activeCourtTimers.size === 0) return;
@@ -1959,20 +1983,32 @@ function initLiveCourtTimers() {
         if (data.pbar) {
           data.pbar.style.width = percent + '%';
 
-          if (percent <= 15 || left <= 300) {
+          if (percent <= 15 || left < 600) {
             data.pbar.className = 'court-timer-progress-bar-red';
           } else if (percent <= 35) {
             data.pbar.className = 'court-timer-progress-bar-amber';
           } else {
             data.pbar.className = 'court-timer-progress-bar-green';
           }
-          data.el.style.color = '#00E5FF';
-          data.el.style.textShadow = '0 0 12px rgba(0, 229, 255, 0.65)';
+        }
+
+        if (left < 600) {
+          data.el.style.color = '#EF4444';
+          data.el.style.textShadow = '0 0 12px rgba(239, 68, 68, 0.75)';
+          data.el.classList.add('court-timer--critical');
+          data.el.classList.remove('court-timer--normal');
+        } else {
+          data.el.style.color = '#FFFFFF';
+          data.el.style.textShadow = '0 0 10px rgba(255, 255, 255, 0.4)';
+          data.el.classList.add('court-timer--normal');
+          data.el.classList.remove('court-timer--critical');
         }
       } else {
         data.el.textContent = '00:00';
-        data.el.style.color = '#00E5FF';
-        data.el.style.textShadow = '0 0 12px rgba(0, 229, 255, 0.65)';
+        data.el.style.color = '#EF4444';
+        data.el.style.textShadow = '0 0 12px rgba(239, 68, 68, 0.75)';
+        data.el.classList.add('court-timer--critical');
+        data.el.classList.remove('court-timer--normal');
         if (data.pbar) {
           data.pbar.style.width = '0%';
           data.pbar.className = 'court-timer-progress-bar-red';
@@ -2026,11 +2062,11 @@ const REGISTERED_PLAYERS_DB = [
   { id: 'usr_d3', name: 'Dominic Tan', email: 'dominic.tan@gmail.com', role: 'Intermediate' },
   { id: 'usr_d4', name: 'Diego Ramirez', email: 'diego.ramirez@gmail.com', role: 'Coach / Staff' },
   { id: 'usr_d5', name: 'David Santos', email: 'david.santos@gmail.com', role: 'Player' },
-  { id: 'usr_1',  name: 'Marcus Vance', email: 'marcus@player.ph', role: 'PRO Player' },
-  { id: 'usr_2',  name: 'Maria Santos', email: 'maria@facility.com', role: 'Front Desk' },
-  { id: 'usr_3',  name: 'Carlos Reyes', email: 'carlos@reyes.ph', role: 'Intermediate' },
-  { id: 'usr_4',  name: 'Juan dela Cruz', email: 'juan@delacruz.ph', role: 'Beginner' },
-  { id: 'usr_5',  name: 'Sophia Chen', email: 'sophia@chen.ph', role: 'Advanced' }
+  { id: 'usr_1', name: 'Marcus Vance', email: 'marcus@player.ph', role: 'PRO Player' },
+  { id: 'usr_2', name: 'Maria Santos', email: 'maria@facility.com', role: 'Front Desk' },
+  { id: 'usr_3', name: 'Carlos Reyes', email: 'carlos@reyes.ph', role: 'Intermediate' },
+  { id: 'usr_4', name: 'Juan dela Cruz', email: 'juan@delacruz.ph', role: 'Beginner' },
+  { id: 'usr_5', name: 'Sophia Chen', email: 'sophia@chen.ph', role: 'Advanced' }
 ];
 
 function highlightMatchText(text, query) {
@@ -2134,7 +2170,7 @@ function searchPlayersLocalAndApi(query, callback) {
         callback(sortUserMatches(merged));
       }
     })
-    .catch(() => {});
+    .catch(() => { });
 }
 
 function onStaffNameInput(query) {
@@ -2270,9 +2306,9 @@ function renderTournRosterDraft() {
 
   host.innerHTML = tournRosterDraft.map((entry, i) =>
     '<span class="tb-pool-chip" style="--tb-delay:' + (i * 18) + 'ms">' +
-      escapeTournHtml(entry.label) +
-      '<button type="button" onclick="removeTournEntrantDraft(' + i + ')" ' +
-        'aria-label="Remove ' + escapeTournHtml(entry.label) + '">&times;</button>' +
+    escapeTournHtml(entry.label) +
+    '<button type="button" onclick="removeTournEntrantDraft(' + i + ')" ' +
+    'aria-label="Remove ' + escapeTournHtml(entry.label) + '">&times;</button>' +
     '</span>'
   ).join('');
 }
@@ -2595,14 +2631,47 @@ function submitCreateTournamentForm(event) {
 window.submitCreateTournamentForm = submitCreateTournamentForm;
 
 let deleteTournamentInFlight = false;
+let pendingDeleteTournamentId = '';
+let pendingDeleteTournamentTitle = '';
+
+function onDeleteTournamentConfirmInput(val) {
+  const btn = document.getElementById('btnConfirmDeleteTournament');
+  if (!btn) return;
+  const isMatch = (val || '').trim().toUpperCase() === 'DELETE';
+  btn.disabled = !isMatch;
+  btn.style.opacity = isMatch ? '1' : '0.4';
+  btn.style.cursor = isMatch ? 'pointer' : 'not-allowed';
+}
+window.onDeleteTournamentConfirmInput = onDeleteTournamentConfirmInput;
 
 function deleteTournament(tournamentId, title) {
   if (deleteTournamentInFlight) return;
-  if (!window.confirm('Delete "' + title + '"? Its roster and every reported result are removed permanently.')) {
+  pendingDeleteTournamentId = tournamentId || '';
+  pendingDeleteTournamentTitle = title || 'Tournament';
+
+  const nameEl = document.getElementById('deleteTournamentTargetName');
+  if (nameEl) nameEl.textContent = pendingDeleteTournamentTitle;
+
+  const input = document.getElementById('deleteTournamentConfirmInput');
+  if (input) input.value = '';
+  onDeleteTournamentConfirmInput('');
+
+  openModal('deleteTournamentModal');
+}
+window.deleteTournament = deleteTournament;
+
+function executeDeleteTournament() {
+  const input = document.getElementById('deleteTournamentConfirmInput');
+  if (input && input.value.trim().toUpperCase() !== 'DELETE') {
+    showToast('Type DELETE to confirm tournament removal.');
     return;
   }
 
+  const tournamentId = pendingDeleteTournamentId;
+  if (!tournamentId || deleteTournamentInFlight) return;
+
   deleteTournamentInFlight = true;
+  closeModal('deleteTournamentModal');
 
   fetch(apiUrl('delete_tournament'), {
     method: 'POST',
@@ -2637,7 +2706,7 @@ function deleteTournament(tournamentId, title) {
     .catch((err) => showToast('⚠ ' + (err.message || 'Could not delete the tournament.')))
     .finally(() => { deleteTournamentInFlight = false; });
 }
-window.deleteTournament = deleteTournament;
+window.executeDeleteTournament = executeDeleteTournament;
 
 // Close the roster suggestion lists on an outside click.
 document.addEventListener('click', (e) => {

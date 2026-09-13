@@ -461,6 +461,14 @@ class ApiController extends BaseController {
                         'amenities' => $amenities
                     ]);
 
+                case 'slot_availability':
+                    $facIdRaw = $request->query('facility_id', $request->query('id', ''));
+                    $facilityId = ctype_digit((string)$facIdRaw) ? (int)$facIdRaw : (string)$facIdRaw;
+                    $courtId = (string)$request->query('court_id', '');
+                    $dateStr = (string)$request->query('date', date('Y-m-d'));
+                    $slots = $this->bookingService->getSlotAvailability($facilityId, $courtId, $dateStr);
+                    return $this->json(['success' => true, 'slots' => $slots]);
+
                 // ----------------------------------------------------------------------
                 // Open Play Matches (Explore Tab)
                 // ----------------------------------------------------------------------
@@ -834,9 +842,8 @@ class ApiController extends BaseController {
                         $playerName = $playerUser['name'] ?? ($booking['author_name'] ?? 'Player');
                         $courtTarget = !empty($booking['court_id']) ? $booking['court_id'] : ($booking['court_name'] ?? null);
                         $facId = $booking['facility_id'] ?? null;
-                        if ($facId && $courtTarget) {
-                            $db->occupyCourt($facId, $courtTarget, $playerName, $booking['time'] ?? '36:20');
-                        }
+                        // Booking status is set to 'confirmed' above. Dynamic real-time court status
+                        // handles active occupancy during the booking's time window automatically.
 
                         // Increment match player count if this was an Open Play join request being approved
                         if ($prevStatus !== 'confirmed') {

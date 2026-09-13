@@ -15,6 +15,7 @@ declare(strict_types=1);
 </div>
 
 <form id="ownerSettingsForm" onsubmit="saveFacilitySettings(event)" style="margin-bottom:40px;">
+  <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken ?? \Picklers\Middleware\CsrfMiddleware::getToken()); ?>">
   <div class="owner-settings-grid">
     
     <!-- LEFT COLUMN: Identity & Operating Schedule -->

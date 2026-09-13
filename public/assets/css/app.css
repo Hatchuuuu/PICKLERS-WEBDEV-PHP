@@ -244,12 +244,13 @@
     .user-avatar-wrap::after {
       content: '' !important;
       position: absolute !important;
-      top: -1.5px !important;
-      left: -1.5px !important;
-      right: -1.5px !important;
-      bottom: -1.5px !important;
+      top: -2px !important;
+      left: -2px !important;
+      right: -2px !important;
+      bottom: -2px !important;
       border-radius: 50% !important;
-      background: conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) !important;
+      border: 2px solid transparent !important;
+      background: linear-gradient(#08101F, #08101F) padding-box, conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) border-box !important;
       animation: spinBrandRing 4s linear infinite !important;
       z-index: 1 !important;
       box-shadow: 0 0 8px rgba(0, 217, 139, 0.35) !important;

@@ -9,6 +9,7 @@ namespace Picklers\Core;
 
 class Autoloader {
     public static function register(string $prefix = 'Picklers\\', ?string $baseDir = null): void {
+        date_default_timezone_set('Asia/Manila');
         if ($baseDir === null) {
             $baseDir = defined('APP_PATH') ? APP_PATH : (defined('SRC_PATH') ? SRC_PATH : dirname(__DIR__));
         }

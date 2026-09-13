@@ -2459,16 +2459,132 @@ class Database {
             $courts = array_values(array_filter($courts, fn($c) => (int)$c['facility_id'] === (int)$facilityId));
         }
 
-        // Cross-reference active unexpired Open Play sessions to mark hosted courts as occupied
+        $todayStr = date('Y-m-d');
+        $nowMin = ((int)date('G') * 60) + (int)date('i');
+
+        // Fetch active non-cancelled bookings for this facility today
+        $activeBookingsToday = [];
+        if ($this->isMySQL) {
+            $bStmt = $this->pdo->prepare(
+                "SELECT b.*, u.name as user_name FROM bookings b
+                 LEFT JOIN users u ON b.user_id = u.id
+                 WHERE b.facility_id = ? AND b.booking_date = ?
+                   AND b.status NOT IN ('cancelled', 'declined')"
+            );
+            $bStmt->execute([$facilityId, $todayStr]);
+            $activeBookingsToday = $bStmt->fetchAll();
+        } else {
+            $bookings = $this->getJSONData('bookings');
+            $users = $this->getJSONData('users');
+            $userMap = [];
+            foreach ($users as $u) {
+                $userMap[(string)($u['id'] ?? '')] = $u['name'] ?? 'Player';
+            }
+            foreach ($bookings as $b) {
+                if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
+                $st = (string)($b['status'] ?? '');
+                if ($st === 'cancelled' || $st === 'declined') continue;
+                $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
+                if ($bDate === $todayStr) {
+                    $b['user_name'] = $userMap[(string)($b['user_id'] ?? '')] ?? ($b['author_name'] ?? 'Player');
+                    $activeBookingsToday[] = $b;
+                }
+            }
+        }
+
         $matches = $this->getMatchesByFacility($facilityId);
-        if (!empty($matches)) {
-            foreach ($courts as &$c) {
-                $cId = (string)($c['id'] ?? '');
-                $cName = trim((string)($c['name'] ?? ''));
-                foreach ($matches as $m) {
-                    if (self::isMatchExpired($m)) {
-                        continue;
+
+        foreach ($courts as &$c) {
+            $cId = (string)($c['id'] ?? '');
+            $cName = trim((string)($c['name'] ?? ''));
+            $cStatusInDb = strtolower(trim((string)($c['status'] ?? 'available')));
+
+            // Respect manual owner/admin overrides ('maintenance', 'unavailable')
+            if (in_array($cStatusInDb, ['maintenance', 'unavailable'], true)) {
+                $c['status'] = $cStatusInDb;
+                $c['occupied_by'] = null;
+                $c['occupied_until'] = null;
+                continue;
+            }
+
+            $currentBooking = null;
+            $nextBooking = null;
+            $nextBookingStart = 99999;
+            $upcomingList = [];
+            $completedList = [];
+
+            foreach ($activeBookingsToday as $b) {
+                $sameCourt = false;
+                if ($cId !== '' && !empty($b['court_id']) && (string)$b['court_id'] === $cId) {
+                    $sameCourt = true;
+                } elseif ($cName !== '' && !empty($b['court_name']) && strcasecmp(trim((string)$b['court_name']), $cName) === 0) {
+                    $sameCourt = true;
+                }
+
+                if ($sameCourt) {
+                    $sMin = isset($b['start_min']) && $b['start_min'] !== null ? (int)$b['start_min'] : null;
+                    $eMin = isset($b['end_min']) && $b['end_min'] !== null ? (int)$b['end_min'] : null;
+                    if ($sMin === null || $eMin === null) {
+                        $range = $this->parseTimeRange((string)($b['time'] ?? ''));
+                        if ($range) {
+                            $sMin = $range[0];
+                            $eMin = $range[1];
+                        }
                     }
+
+                    if ($sMin !== null && $eMin !== null) {
+                        if ($nowMin >= $sMin && $nowMin < $eMin) {
+                            $currentBooking = $b;
+                            $currentBooking['_start_min'] = $sMin;
+                            $currentBooking['_end_min'] = $eMin;
+                        } elseif ($sMin > $nowMin) {
+                            $upcomingList[] = [
+                                'user_name' => !empty($b['user_name']) ? $b['user_name'] : ($b['author_name'] ?? 'Player'),
+                                'time' => (string)($b['time'] ?? ''),
+                                'status' => (string)($b['status'] ?? 'confirmed')
+                            ];
+                            if ($sMin < $nextBookingStart) {
+                                $nextBooking = $b;
+                                $nextBookingStart = $sMin;
+                            }
+                        } elseif ($eMin <= $nowMin) {
+                            $completedList[] = [
+                                'user_name' => !empty($b['user_name']) ? $b['user_name'] : ($b['author_name'] ?? 'Player'),
+                                'time' => (string)($b['time'] ?? ''),
+                                'status' => 'completed'
+                            ];
+                        }
+                    }
+                }
+            }
+
+            $c['upcoming_bookings'] = $upcomingList;
+            $c['completed_bookings'] = $completedList;
+
+            if ($nextBooking) {
+                $c['next_booking'] = [
+                    'user_name' => !empty($nextBooking['user_name']) ? $nextBooking['user_name'] : ($nextBooking['author_name'] ?? 'Player'),
+                    'time' => (string)($nextBooking['time'] ?? ''),
+                    'status' => (string)($nextBooking['status'] ?? 'confirmed')
+                ];
+            } else {
+                $c['next_booking'] = null;
+            }
+
+            if ($currentBooking) {
+                $c['status'] = 'occupied';
+                $c['occupied_by'] = !empty($currentBooking['user_name']) ? $currentBooking['user_name'] : ($c['occupied_by'] ?? 'Reserved');
+                $c['occupied_until'] = (string)($currentBooking['time'] ?? $this->minutesToLabel($currentBooking['_end_min']));
+                $c['start_min'] = $currentBooking['_start_min'] ?? null;
+                $c['end_min'] = $currentBooking['_end_min'] ?? null;
+                continue;
+            }
+
+            // Check if there is an unexpired Open Play session active on this court
+            $currentMatch = null;
+            if (!empty($matches)) {
+                foreach ($matches as $m) {
+                    if (self::isMatchExpired($m)) continue;
                     $mType = trim((string)($m['type'] ?? ''));
                     $mCourtId = trim((string)($m['court_id'] ?? ''));
                     $mCourtName = trim((string)($m['court_name'] ?? ''));
@@ -2485,16 +2601,25 @@ class Database {
                     }
 
                     if ($isMatchForCourt) {
-                        if (($c['status'] ?? 'available') === 'available') {
-                            $c['status'] = 'occupied';
-                            $c['occupied_by'] = 'Hosted Open Play';
-                        }
+                        $currentMatch = $m;
                         break;
                     }
                 }
             }
-            unset($c);
+
+            if ($currentMatch) {
+                $c['status'] = 'occupied';
+                $c['occupied_by'] = 'Hosted Open Play';
+                $c['occupied_until'] = (string)($currentMatch['time'] ?? null);
+                continue;
+            }
+
+            // Default to available if no active booking or match applies at the current time
+            $c['status'] = 'available';
+            $c['occupied_by'] = null;
+            $c['occupied_until'] = null;
         }
+        unset($c);
 
         return $courts;
     }

@@ -1,7 +1,7 @@
 <div class="owner-topbar">
   <div class="owner-topbar-title-wrap">
     <h1 class="owner-page-title">Staff Management</h1>
-    <p class="owner-page-subtitle">Manage facility staff, roles, and permissions.</p>
+    <p class="owner-page-subtitle">Manage facility staff members and access.</p>
   </div>
   <button type="button" class="btn-walkin-open" onclick="openModal('addStaffModal')">+ Add Staff</button>
 </div>
@@ -25,7 +25,7 @@
       <div class="staff-member-card">
         <div class="staff-member-info">
           <div class="staff-avatar-box">
-            <?php echo strtoupper(substr($st['name'], 0, 1)); ?>
+            <span><?php echo strtoupper(substr($st['name'], 0, 1)); ?></span>
           </div>
           <div>
             <div class="staff-name-text"><?php echo htmlspecialchars($st['name']); ?></div>
@@ -36,13 +36,9 @@
         </div>
 
         <div class="staff-member-badges-actions">
-          <span class="staff-role-badge">
-            <?php echo htmlspecialchars($st['role']); ?>
-          </span>
           <span class="staff-status-badge">
             <?php echo htmlspecialchars($st['status'] ?? 'Active'); ?>
           </span>
-          <button type="button" class="staff-btn-edit" onclick="showToast('Staff permissions updated.')">Edit Role</button>
           <button type="button" class="staff-btn-revoke" onclick="promptRevokeStaff('<?php echo htmlspecialchars(addslashes((string)$st['id'])); ?>', '<?php echo htmlspecialchars(addslashes($st['name'])); ?>', this)">Revoke</button>
         </div>
       </div>

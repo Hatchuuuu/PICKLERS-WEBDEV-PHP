@@ -17,9 +17,9 @@
         "surface": "Hard Court Pro",
         "type": "Indoor",
         "price": 280,
-        "status": "occupied",
-        "occupied_by": "Dumaguete Dinkers Club",
-        "occupied_until": "7:00 PM"
+        "status": "available",
+        "occupied_by": null,
+        "occupied_until": null
     },
     {
         "id": "crt_1_3",

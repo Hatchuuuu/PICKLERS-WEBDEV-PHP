@@ -36,7 +36,7 @@ function showToast(message, type = 'success') {
 
   // Strip manual checkmark prefixes if present to prevent double icons
   let cleanMsg = (message || '')
-    .replace(/^✓\s*/, '')
+    .replace(/^[✓✔☑\s]+/, '')
     .replace(/^⚠️\s*/, '')
     .replace(/^📱\s*/, '')
     .replace(/^🌙\s*/, '')
@@ -1201,14 +1201,42 @@ const ALL_COURT_TIME_SLOTS = [
   '9:00 PM – 10:00 PM'
 ];
 
+let fetchedSlotAvailabilityMap = {};
+
+function fetchAndApplySlotAvailability(facilityId, courtId, dateStr, onComplete) {
+  const params = new URLSearchParams({
+    action: 'slot_availability',
+    facility_id: facilityId,
+    court_id: courtId || '',
+    date: dateStr || ''
+  });
+  fetch(`api.php?${params.toString()}`)
+    .then(r => r.json())
+    .then(res => {
+      fetchedSlotAvailabilityMap = {};
+      if (res && res.success && Array.isArray(res.slots)) {
+        res.slots.forEach(s => {
+          fetchedSlotAvailabilityMap[s.label] = s;
+        });
+      }
+      if (typeof onComplete === 'function') onComplete(res?.slots || []);
+      renderConfirmBookingTimes();
+    })
+    .catch(() => {
+      fetchedSlotAvailabilityMap = {};
+      if (typeof onComplete === 'function') onComplete([]);
+      renderConfirmBookingTimes();
+    });
+}
+
 function findNextFreeSlotForCourt(facilityId, courtName, dateStr) {
   const d = new Date();
   const currentH = d.getHours();
-  // 9:00 AM - 10:00 AM is a seed occupied slot on demo courts, so skip it to avoid collision
-  const occupiedSlots = ['9:00 AM – 10:00 AM', '9:00 AM - 10:00 AM'];
 
   for (const slot of ALL_COURT_TIME_SLOTS) {
-    if (occupiedSlots.includes(slot)) continue;
+    const slotInfo = fetchedSlotAvailabilityMap[slot];
+    if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') continue;
+
     const parts = slot.split('–')[0].trim().split(':');
     let slotH = parseInt(parts[0], 10);
     const isPm = slot.includes('PM') && !slot.startsWith('12');
@@ -1276,9 +1304,10 @@ function openConfirmBookingModal(data) {
     }
   } else {
     cbStartIdx = 1; // 7:00 AM
-    cbEndIdx = 6;   // 12:00 PM (5 hours)
+    cbEndIdx = 6;   // 12:00 PM
   }
 
+  fetchAndApplySlotAvailability(data.facilityId, data.courtId || '', cbSelectedDateStr);
   renderConfirmBookingTimes();
 
   const btnProceed = document.getElementById('btnConfirmProceedBooking');
@@ -1377,6 +1406,41 @@ function renderConfirmBookingTimes() {
   const dateSummaryEl = document.getElementById('cbSummaryDateText');
   if (dateSummaryEl) dateSummaryEl.textContent = cbSelectedDateStr;
 
+  // Conflict Check against fetchedSlotAvailabilityMap
+  const conflictNoticeEl = document.getElementById('cbConflictNotice');
+  const btnProceed = document.getElementById('btnConfirmProceedBooking');
+  let isBookedClash = false;
+
+  if (fetchedSlotAvailabilityMap && Object.keys(fetchedSlotAvailabilityMap).length > 0) {
+    for (let i = cbStartIdx; i < cbEndIdx; i++) {
+      const slotLabel = `${QB_TIMES[i]} – ${QB_TIMES[i+1]}`;
+      const slotInfo = fetchedSlotAvailabilityMap[slotLabel];
+      if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') {
+        isBookedClash = true;
+        break;
+      }
+    }
+  }
+
+  if (conflictNoticeEl) {
+    if (isBookedClash) {
+      conflictNoticeEl.innerHTML = `<div style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#FCA5A5; font-size:12px; font-weight:700; padding:8px 12px; border-radius:10px; text-align:center;">⚠️ That court is already booked for the selected time slot. Please choose another time.</div>`;
+      conflictNoticeEl.style.display = 'block';
+      if (btnProceed) {
+        btnProceed.disabled = true;
+        btnProceed.style.opacity = '0.4';
+        btnProceed.style.cursor = 'not-allowed';
+      }
+    } else {
+      conflictNoticeEl.style.display = 'none';
+      if (btnProceed) {
+        btnProceed.disabled = false;
+        btnProceed.style.opacity = '1';
+        btnProceed.style.cursor = 'pointer';
+      }
+    }
+  }
+
   // Update payment breakdown dynamically
   if (pendingCourtBookingData) {
     pendingCourtBookingData.dateStr = cbSelectedDateStr;
@@ -1438,7 +1502,11 @@ function selectConfirmBookingDate(btn, dateFull) {
     btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }
   cbSelectedDateStr = dateFull;
-  renderConfirmBookingTimes();
+  if (pendingCourtBookingData) {
+    fetchAndApplySlotAvailability(pendingCourtBookingData.facilityId, pendingCourtBookingData.courtId || '', cbSelectedDateStr);
+  } else {
+    renderConfirmBookingTimes();
+  }
 }
 
 function bookCourtDirectToPayment(facilityId, courtId = '', courtName = 'Court 1', price = 180, surface = 'Hard', type = 'Indoor', facilityName = '') {

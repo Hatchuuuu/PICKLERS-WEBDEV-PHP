@@ -586,7 +586,7 @@
         "id": "tourn_260912_7615407f",
         "facility_id": "1",
         "owner_id": "usr_owner",
-        "title": "Dumaguete Open Championship 1789210775",
+        "title": "Dumaguete Open Championship",
         "category": "Men's Doubles",
         "format": "single_elimination",
         "status": "upcoming",
@@ -657,7 +657,7 @@
         "id": "tourn_260912_a949b507",
         "facility_id": "1",
         "owner_id": "usr_owner",
-        "title": "Dumaguete Open Championship 1789210790",
+        "title": "Dumaguete Open Championship",
         "category": "Men's Doubles",
         "format": "single_elimination",
         "status": "upcoming",
@@ -741,7 +741,7 @@
         "id": "tourn_260912_97b0b0a3",
         "facility_id": "1",
         "owner_id": "usr_owner",
-        "title": "Dumaguete Open Championship 1789210811",
+        "title": "Dumaguete Open Championship",
         "category": "Men's Doubles",
         "format": "single_elimination",
         "status": "ongoing",
@@ -856,12 +856,12 @@
                 "team2": "tm_89d4c9d148",
                 "team1_source": null,
                 "team2_source": null,
-                "winner": null,
-                "loser": null,
+                "winner": "tm_89d4c9d148",
+                "loser": "tm_d39942c2a7",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "ready",
+                "status": "completed",
                 "next_win": {
                     "match": "W2-1",
                     "slot": 1
@@ -872,7 +872,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:47:15"
             },
             {
                 "id": "W1-2",
@@ -964,7 +964,7 @@
                 "round": 2,
                 "position": 1,
                 "name": "Semifinal",
-                "team1": null,
+                "team1": "tm_89d4c9d148",
                 "team2": null,
                 "team1_source": {
                     "type": "winner",
@@ -1064,16 +1064,16 @@
         "bracket_generated_at": "2026-09-12 11:00:11",
         "completed_at": null,
         "created_at": "2026-09-12 11:00:11",
-        "updated_at": "2026-09-12 11:00:11"
+        "updated_at": "2026-09-13 11:47:15"
     },
     {
         "id": "tourn_260912_0fa312e2",
         "facility_id": "1",
         "owner_id": "usr_owner",
-        "title": "Dumaguete Open Championship 1789210831",
+        "title": "Dumaguete Open Championship",
         "category": "Men's Doubles",
         "format": "single_elimination",
-        "status": "ongoing",
+        "status": "completed",
         "pairing_mode": "fixed",
         "date": "2026-09-17",
         "end_date": "2026-09-17",
@@ -1185,12 +1185,12 @@
                 "team2": "tm_5373036e2e",
                 "team1_source": null,
                 "team2_source": null,
-                "winner": null,
-                "loser": null,
+                "winner": "tm_5373036e2e",
+                "loser": "tm_6e621e1753",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "ready",
+                "status": "completed",
                 "next_win": {
                     "match": "W2-1",
                     "slot": 1
@@ -1201,7 +1201,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:28:50"
             },
             {
                 "id": "W1-2",
@@ -1213,12 +1213,12 @@
                 "team2": "tm_d66d923c68",
                 "team1_source": null,
                 "team2_source": null,
-                "winner": null,
-                "loser": null,
+                "winner": "tm_d66d923c68",
+                "loser": "tm_90f36c5466",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "ready",
+                "status": "completed",
                 "next_win": {
                     "match": "W2-1",
                     "slot": 2
@@ -1229,7 +1229,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:28:53"
             },
             {
                 "id": "W1-3",
@@ -1241,12 +1241,12 @@
                 "team2": "tm_88e7926f41",
                 "team1_source": null,
                 "team2_source": null,
-                "winner": null,
-                "loser": null,
+                "winner": "tm_88e7926f41",
+                "loser": "tm_74c2a27bd5",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "ready",
+                "status": "completed",
                 "next_win": {
                     "match": "W2-2",
                     "slot": 1
@@ -1257,7 +1257,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:29:07"
             },
             {
                 "id": "W1-4",
@@ -1269,12 +1269,12 @@
                 "team2": "tm_6175a310d5",
                 "team1_source": null,
                 "team2_source": null,
-                "winner": null,
-                "loser": null,
+                "winner": "tm_6175a310d5",
+                "loser": "tm_bb2622ec7b",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "ready",
+                "status": "completed",
                 "next_win": {
                     "match": "W2-2",
                     "slot": 2
@@ -1285,7 +1285,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:29:11"
             },
             {
                 "id": "W2-1",
@@ -1293,8 +1293,8 @@
                 "round": 2,
                 "position": 1,
                 "name": "Semifinal",
-                "team1": null,
-                "team2": null,
+                "team1": "tm_5373036e2e",
+                "team2": "tm_d66d923c68",
                 "team1_source": {
                     "type": "winner",
                     "match": "W1-1"
@@ -1303,12 +1303,12 @@
                     "type": "winner",
                     "match": "W1-2"
                 },
-                "winner": null,
-                "loser": null,
+                "winner": "tm_d66d923c68",
+                "loser": "tm_5373036e2e",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "pending",
+                "status": "completed",
                 "next_win": {
                     "match": "W3-1",
                     "slot": 1
@@ -1319,7 +1319,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:28:56"
             },
             {
                 "id": "W2-2",
@@ -1327,8 +1327,8 @@
                 "round": 2,
                 "position": 2,
                 "name": "Semifinal",
-                "team1": null,
-                "team2": null,
+                "team1": "tm_88e7926f41",
+                "team2": "tm_6175a310d5",
                 "team1_source": {
                     "type": "winner",
                     "match": "W1-3"
@@ -1337,12 +1337,12 @@
                     "type": "winner",
                     "match": "W1-4"
                 },
-                "winner": null,
-                "loser": null,
+                "winner": "tm_6175a310d5",
+                "loser": "tm_88e7926f41",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "pending",
+                "status": "completed",
                 "next_win": {
                     "match": "W3-1",
                     "slot": 2
@@ -1353,7 +1353,7 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:29:19"
             },
             {
                 "id": "W3-1",
@@ -1361,8 +1361,8 @@
                 "round": 3,
                 "position": 1,
                 "name": "Final",
-                "team1": null,
-                "team2": null,
+                "team1": "tm_d66d923c68",
+                "team2": "tm_6175a310d5",
                 "team1_source": {
                     "type": "winner",
                     "match": "W2-1"
@@ -1371,12 +1371,12 @@
                     "type": "winner",
                     "match": "W2-2"
                 },
-                "winner": null,
-                "loser": null,
+                "winner": "tm_d66d923c68",
+                "loser": "tm_6175a310d5",
                 "score1": null,
                 "score2": null,
                 "score": "",
-                "status": "pending",
+                "status": "completed",
                 "next_win": null,
                 "next_lose": null,
                 "is_final": true,
@@ -1384,15 +1384,15 @@
                 "active": true,
                 "court": null,
                 "scheduled_at": null,
-                "completed_at": null
+                "completed_at": "2026-09-13 11:29:23"
             }
         ],
         "unpaired_players": [],
-        "champion_team_id": null,
-        "runner_up_team_id": null,
+        "champion_team_id": "tm_d66d923c68",
+        "runner_up_team_id": "tm_6175a310d5",
         "bracket_generated_at": "2026-09-12 11:00:31",
-        "completed_at": null,
+        "completed_at": "2026-09-13 11:29:23",
         "created_at": "2026-09-12 11:00:31",
-        "updated_at": "2026-09-12 11:00:31"
+        "updated_at": "2026-09-13 11:29:23"
     }
 ]

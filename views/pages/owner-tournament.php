@@ -66,9 +66,34 @@ $pageTitle = $tournament ? $tournament['title'] . ' — Bracket' : 'Tournament N
 <?php
   $isElimination = $tournament['format'] !== BracketEngine::FORMAT_ROUND_ROBIN;
   $hasLosers = !empty($tournament['rounds']['L']);
-  $dateLabel = trim((string)$tournament['date']);
-  if ($dateLabel !== '' && $tournament['end_date'] !== '' && $tournament['end_date'] !== $tournament['date']) {
-      $dateLabel .= ' – ' . $tournament['end_date'];
+
+  $formatDate = static function (string $d): string {
+      $d = trim($d);
+      if ($d === '') return '';
+      $ts = strtotime($d);
+      if (!$ts) return $d;
+      return date('F, j Y', $ts);
+  };
+
+  $startDate = $formatDate((string)($tournament['date'] ?? ''));
+  $endDate = !empty($tournament['end_date']) && $tournament['end_date'] !== $tournament['date'] ? $formatDate((string)$tournament['end_date']) : '';
+  $dateLabel = $startDate;
+  if ($startDate !== '' && $endDate !== '') {
+      $dateLabel .= ' – ' . $endDate;
+  }
+  $rawTitle = (string)($tournament['title'] ?? '');
+  $displayTitle = $rawTitle;
+  $rawId = (string)($tournament['id'] ?? '');
+  $numSuffix = '';
+  if (preg_match('/^(.*?)\s+(\d{6,})$/', $rawTitle, $matches)) {
+      $displayTitle = trim($matches[1]);
+      $numSuffix = $matches[2];
+  }
+  if (!empty($numSuffix)) {
+      $refCode = '#PKLT' . $numSuffix;
+  } else {
+      $cleanId = strtoupper(str_replace(['tourn_', '_'], '', $rawId));
+      $refCode = '#' . (str_starts_with($cleanId, 'PKLT') ? $cleanId : 'PKLT' . substr($cleanId, 0, 8));
   }
 ?>
 
@@ -81,7 +106,7 @@ $pageTitle = $tournament ? $tournament['title'] . ' — Bracket' : 'Tournament N
       <span>Back</span>
     </a>
 
-    <h1 class="tb-title"><?= htmlspecialchars($tournament['title']) ?></h1>
+    <h1 class="tb-title"><?= htmlspecialchars($displayTitle) ?></h1>
 
     <span class="tb-status-pill" id="tbStatusPill" data-status="<?= htmlspecialchars($tournament['status']) ?>"></span>
 
@@ -115,23 +140,31 @@ $pageTitle = $tournament ? $tournament['title'] . ' — Bracket' : 'Tournament N
   </header>
 
   <!-- Meta strip -->
-  <div class="tb-metabar">
-    <span class="tb-chip tb-chip--accent"><?= htmlspecialchars($tournament['format_label']) ?></span>
-    <span class="tb-chip"><?= htmlspecialchars($tournament['category']) ?></span>
-    <?php if ($tournament['pairing_mode'] === 'mix'): ?>
-      <span class="tb-chip tb-chip--mix">🎲 Mix / Partner Draw</span>
-    <?php elseif (!$tournament['is_singles']): ?>
-      <span class="tb-chip">⚡ Fixed Teammates</span>
+  <div class="tb-metabar" style="flex-wrap:wrap;">
+    <?php if ($refCode !== ''): ?>
+      <div class="tt-ref-code" style="width:100%; margin-bottom:4px;">
+        <?= htmlspecialchars($refCode) ?>
+      </div>
     <?php endif; ?>
+
     <?php if ($dateLabel !== ''): ?>
-      <span class="tb-chip"><?= htmlspecialchars($dateLabel) ?></span>
+      <div style="width:100%; font-size:13px; color:var(--pk-text-muted); margin-bottom:6px;">
+        <?= htmlspecialchars($dateLabel) ?>
+      </div>
     <?php endif; ?>
-    <?php if ($tournament['prize_pool'] !== ''): ?>
-      <span class="tb-chip tb-chip--gold">🏆 <?= htmlspecialchars($tournament['prize_pool']) ?></span>
-    <?php endif; ?>
-    <?php if ($tournament['entry_fee'] !== ''): ?>
-      <span class="tb-chip">Entry: <?= htmlspecialchars($tournament['entry_fee']) ?></span>
-    <?php endif; ?>
+
+    <div class="tt-details" style="width:100%;">
+      <span><?= htmlspecialchars($tournament['category']) ?></span>
+      <span class="tt-details-sep">•</span>
+      <span><?= htmlspecialchars($tournament['format_label']) ?></span>
+      <?php if ($tournament['pairing_mode'] === 'mix'): ?>
+        <span class="tt-details-sep">•</span>
+        <span>🎲 Mix / Partner Draw</span>
+      <?php elseif (!$tournament['is_singles']): ?>
+        <span class="tt-details-sep">•</span>
+        <span>Fixed Teammates</span>
+      <?php endif; ?>
+    </div>
 
     <div class="tb-progress-wrap">
       <span id="tbProgressText">Bracket not drawn yet</span>

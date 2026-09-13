@@ -241,9 +241,10 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     .sidebar-user-avatar::after {
       content: '' !important;
       position: absolute !important;
-      top: -1.5px !important; left: -1.5px !important; right: -1.5px !important; bottom: -1.5px !important;
+      top: -2px !important; left: -2px !important; right: -2px !important; bottom: -2px !important;
       border-radius: 50% !important;
-      background: conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) !important;
+      border: 2px solid transparent !important;
+      background: linear-gradient(#08101F, #08101F) padding-box, conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) border-box !important;
       animation: spinBrandRing 4s linear infinite !important;
       z-index: 1 !important;
       box-shadow: 0 0 8px rgba(0, 217, 139, 0.35) !important;
@@ -472,9 +473,10 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     .cell-avatar-wrap::after {
       content: '' !important;
       position: absolute !important;
-      top: -1.5px !important; left: -1.5px !important; right: -1.5px !important; bottom: -1.5px !important;
+      top: -2px !important; left: -2px !important; right: -2px !important; bottom: -2px !important;
       border-radius: 50% !important;
-      background: conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) !important;
+      border: 2px solid transparent !important;
+      background: linear-gradient(#08101F, #08101F) padding-box, conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) border-box !important;
       animation: spinBrandRing 4s linear infinite !important;
       z-index: 1 !important;
       box-shadow: 0 0 8px rgba(0, 217, 139, 0.35) !important;
@@ -995,7 +997,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
               <?php foreach (array_slice($pendingApplications, 0, 4) as $app): ?>
                 <?php $applicant = $usersById[(string)($app['user_id'] ?? '')] ?? null; ?>
                 <div class="app-row">
-                  <div class="app-avatar"><?php echo strtoupper(substr((string)($app['owner_name'] ?? 'A'), 0, 1)); ?></div>
+                  <div class="app-avatar"><span><?php echo strtoupper(substr((string)($app['owner_name'] ?? 'A'), 0, 1)); ?></span></div>
                   <div class="app-info">
                     <div class="app-name"><?php echo htmlspecialchars($app['facility_name'] ?? 'Unnamed Facility'); ?></div>
                     <div class="app-meta"><?php echo htmlspecialchars($app['owner_name'] ?? 'Applicant'); ?> · <?php echo htmlspecialchars($app['address'] ?? '—'); ?></div>

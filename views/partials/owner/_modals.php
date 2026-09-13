@@ -629,6 +629,39 @@
     </div>
   </div>
 
+  <!-- 11.5. Delete Tournament Confirmation Modal -->
+  <div class="app-modal-overlay" id="deleteTournamentModal">
+    <div class="modal-box-card" style="max-width:420px; text-align:center;">
+      <div style="padding:12px 6px;">
+        <div class="confirm-modal-icon red">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </div>
+        <h3 class="confirm-modal-title">Delete Tournament Permanently?</h3>
+        <p class="confirm-modal-desc">
+          Are you sure you want to permanently delete <strong id="deleteTournamentTargetName">Tournament</strong>? Its roster, bracket draw, and all reported match results will be removed permanently.
+        </p>
+
+        <div style="margin: 14px 0 16px; text-align: left;">
+          <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px; text-align: center;">
+            Type <strong style="color: #EF4444; font-weight: 800;">DELETE</strong> below to confirm:
+          </label>
+          <input type="text" id="deleteTournamentConfirmInput" class="tb-input" placeholder="DELETE" autocomplete="off"
+                 oninput="onDeleteTournamentConfirmInput(this.value)"
+                 style="text-align: center; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(15, 23, 42, 0.6); padding: 10px; width: 100%; border-radius: 10px; color: #FFFFFF;">
+        </div>
+
+        <div style="display:flex; gap:12px;">
+          <button type="button" onclick="closeModal('deleteTournamentModal')" class="btn-modal-cancel">
+            Cancel
+          </button>
+          <button type="button" id="btnConfirmDeleteTournament" onclick="executeDeleteTournament()" class="btn-modal-danger" disabled style="opacity: 0.4; cursor: not-allowed;">
+            Yes, Delete Tournament
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 12. Cancel Open Play Confirmation Modal -->
   <div class="app-modal-overlay" id="cancelOpenPlayModal">
     <div class="modal-box-card" style="max-width:420px; text-align:center;">
@@ -918,7 +951,7 @@
 
   <!-- Add Staff Member Modal -->
   <div class="app-modal-overlay" id="addStaffModal">
-    <div class="modal-box-card" style="max-width: 480px; width: 92%; padding: 26px 28px; border-radius: 20px;">
+    <div class="modal-box-card" style="max-width: 480px; width: 92%; padding: 26px 28px; border-radius: 20px; overflow: visible;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px;">
         <div style="display: flex; align-items: center; gap: 12px;">
           <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.3); display: flex; align-items: center; justify-content: center; color: #00D98B; flex-shrink: 0;">
@@ -947,14 +980,6 @@
             <label style="display: block; font-size: 12px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px;">Email Address</label>
             <input type="email" id="staffEmailInput" required placeholder="e.g. maria@bgcpickle.ph" style="background: var(--pk-bg-card); border: 1px solid rgba(255, 255, 255, 0.1); padding: 10px 14px; border-radius: 10px; width: 100%; color: var(--pk-text-primary); font-size: 13px;">
           </div>
-          <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px;">Staff Role</label>
-            <select id="staffRoleInput" style="background: var(--pk-bg-card); border: 1px solid rgba(255, 255, 255, 0.1); padding: 10px 14px; border-radius: 10px; width: 100%; color: var(--pk-text-primary); font-size: 13px;">
-              <option value="Front Desk Receptionist">Front Desk Receptionist</option>
-              <option value="Court Manager">Court Manager</option>
-              <option value="Tournament Coordinator">Tournament Coordinator</option>
-              <option value="Head Coach / Trainer">Head Coach / Trainer</option>
-            </select>
           </div>
           <button type="submit" class="btn-walkin-open" style="width: 100%; justify-content: center; margin-top: 8px; font-weight: 800;">
             <span>Grant Staff Access</span>

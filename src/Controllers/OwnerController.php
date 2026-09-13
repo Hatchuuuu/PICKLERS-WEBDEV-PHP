@@ -420,7 +420,12 @@ class OwnerController extends BaseController {
                 'attributes' => $c['attributes'] ?? [],
                 'attribute_slugs' => $c['attribute_slugs'] ?? [],
                 'has_open_play' => $hasOpenPlay,
-                'open_play_match' => $openPlayMatch
+                'open_play_match' => $openPlayMatch,
+                'next_booking' => $c['next_booking'] ?? null,
+                'upcoming_bookings' => $c['upcoming_bookings'] ?? [],
+                'completed_bookings' => $c['completed_bookings'] ?? [],
+                'start_min' => $c['start_min'] ?? null,
+                'end_min' => $c['end_min'] ?? null
             ];
         }, $courts);
 
@@ -449,21 +454,45 @@ class OwnerController extends BaseController {
                     'joined_players' => (int)($opMatch['current_players'] ?? $opMatch['joined'] ?? 0),
                     'max_players' => (int)($opMatch['max_players'] ?? $opMatch['capacity'] ?? 12),
                     'time_range' => $timeFormatted,
-                    'is_everyday' => $isEveryday
+                    'is_everyday' => $isEveryday,
+                    'upcoming_bookings' => $rc['upcoming_bookings'] ?? [],
+                    'completed_bookings' => $rc['completed_bookings'] ?? []
                 ];
             } elseif ($isRealPlayerBooking) {
+                $sMin = isset($rc['start_min']) ? (int)$rc['start_min'] : 660;
+                $eMin = isset($rc['end_min']) ? (int)$rc['end_min'] : ($sMin + 60);
+                if ($eMin <= $sMin) { $eMin = $sMin + 60; }
+
+                $nowSec = (int)date('H') * 3600 + (int)date('i') * 60 + (int)date('s');
+                $startSec = $sMin * 60;
+                $endSec = $eMin * 60;
+
+                $totalSec = max(60, $endSec - $startSec);
+                $secLeft = max(0, $endSec - $nowSec);
+                $pct = (int)min(100, max(0, round((($totalSec - $secLeft) / $totalSec) * 100)));
+
+                $mL = floor($secLeft / 60);
+                $sL = $secLeft % 60;
+                $timerFormatted = sprintf('%02d:%02d', $mL, $sL);
+
+                $pColor = 'green';
+                if ($pct >= 85) { $pColor = 'red'; }
+                elseif ($pct >= 65) { $pColor = 'amber'; }
+
                 $liveCourts[] = [
                     'id' => $rc['id'],
                     'name' => $rc['name'],
                     'dot' => 'cyan',
                     'player_name' => $rc['player'],
                     'status' => 'occupied',
-                    'timer' => $rc['player_time'] ?? '00:00',
-                    'seconds_left' => 1800,
-                    'total_seconds' => 3600,
-                    'progress_percent' => 50,
-                    'progress_color' => 'green',
-                    'has_open_play' => false
+                    'timer' => $timerFormatted,
+                    'seconds_left' => $secLeft,
+                    'total_seconds' => $totalSec,
+                    'progress_percent' => $pct,
+                    'progress_color' => $pColor,
+                    'has_open_play' => false,
+                    'upcoming_bookings' => $rc['upcoming_bookings'] ?? [],
+                    'completed_bookings' => $rc['completed_bookings'] ?? []
                 ];
             } elseif ($statusNorm === 'UNAVAILABLE') {
                 $liveCourts[] = [
@@ -473,17 +502,22 @@ class OwnerController extends BaseController {
                     'player_name' => null,
                     'status' => 'maintenance',
                     'timer' => null,
-                    'has_open_play' => false
+                    'has_open_play' => false,
+                    'upcoming_bookings' => $rc['upcoming_bookings'] ?? [],
+                    'completed_bookings' => $rc['completed_bookings'] ?? []
                 ];
             } else {
                 $liveCourts[] = [
                     'id' => $rc['id'],
                     'name' => $rc['name'],
-                    'dot' => 'green',
+                    'dot' => !empty($rc['next_booking']) ? 'cyan' : 'green',
                     'player_name' => null,
                     'status' => 'waiting',
                     'timer' => null,
-                    'has_open_play' => false
+                    'has_open_play' => false,
+                    'next_booking' => $rc['next_booking'] ?? null,
+                    'upcoming_bookings' => $rc['upcoming_bookings'] ?? [],
+                    'completed_bookings' => $rc['completed_bookings'] ?? []
                 ];
             }
         }
@@ -993,6 +1027,7 @@ class OwnerController extends BaseController {
                 $facName = trim((string)$request->input('facility_name', $request->input('name', '')));
                 $facLoc = trim((string)$request->input('facility_location', $request->input('location', '')));
                 $hoursStr = trim((string)$request->input('hours', ''));
+                $facImage = trim((string)$request->input('image', $request->input('facility_image', $request->input('logo', ''))));
 
                 if ($facName === '') {
                     return $this->jsonError('Facility name cannot be empty.', 400);
@@ -1004,6 +1039,9 @@ class OwnerController extends BaseController {
                 }
                 if ($hoursStr !== '') {
                     $updateData['hours'] = $hoursStr;
+                }
+                if ($facImage !== '') {
+                    $updateData['image'] = $facImage;
                 }
 
                 $db = Database::get();

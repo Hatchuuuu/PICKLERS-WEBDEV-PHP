@@ -18,90 +18,77 @@ $renderTournamentCard = static function (array $t): void {
     $capacity = max(1, (int)$t['max_teams']);
     $fillPct = min(100, (int)round(((int)$t['teams_registered'] / $capacity) * 100));
 
-    $dateLabel = trim((string)$t['date']);
-    if ($dateLabel !== '' && !empty($t['end_date']) && $t['end_date'] !== $t['date']) {
-        $dateLabel .= ' – ' . $t['end_date'];
+    $formatDate = static function (string $d): string {
+        $d = trim($d);
+        if ($d === '') return '';
+        $ts = strtotime($d);
+        if (!$ts) return $d;
+        return date('F, j Y', $ts);
+    };
+
+    $startDate = $formatDate((string)$t['date']);
+    $endDate = !empty($t['end_date']) && $t['end_date'] !== $t['date'] ? $formatDate((string)$t['end_date']) : '';
+    $dateLabel = $startDate;
+    if ($startDate !== '' && $endDate !== '') {
+        $dateLabel .= ' – ' . $endDate;
+    }
+    $rawTitle = (string)($t['title'] ?? '');
+    $displayTitle = $rawTitle;
+    $rawId = (string)($t['id'] ?? '');
+    $numSuffix = '';
+    if (preg_match('/^(.*?)\s+(\d{6,})$/', $rawTitle, $matches)) {
+        $displayTitle = trim($matches[1]);
+        $numSuffix = $matches[2];
+    }
+    if (!empty($numSuffix)) {
+        $refCode = '#PKLT' . $numSuffix;
+    } else {
+        $cleanId = strtoupper(str_replace(['tourn_', '_'], '', $rawId));
+        $refCode = '#' . (str_starts_with($cleanId, 'PKLT') ? $cleanId : 'PKLT' . substr($cleanId, 0, 8));
     }
     ?>
     <article class="tt-card" data-tournament="<?= htmlspecialchars((string)$t['id']) ?>">
       <div class="tt-card-head">
         <div class="tt-card-heading">
-          <div class="tt-chips">
-            <span class="tt-chip tt-chip--<?= htmlspecialchars($t['status']) ?>">
-              <?php if ($t['status'] === 'ongoing'): ?><span class="tt-dot"></span><?php endif; ?>
-              <?= htmlspecialchars(match ($t['status']) {
-                  'ongoing' => 'Live Bracket',
-                  'completed' => 'Completed',
-                  'cancelled' => 'Cancelled',
-                  default => 'Registration Open',
-              }) ?>
-            </span>
-            <span class="tt-chip tt-chip--cyan"><?= htmlspecialchars($t['category']) ?></span>
-            <span class="tt-chip tt-chip--amber"><?= htmlspecialchars($t['format_label']) ?></span>
+          <h3 class="tt-title"><?= htmlspecialchars($displayTitle) ?></h3>
+
+          <?php if ($refCode !== ''): ?>
+            <div class="tt-ref-code" style="margin-top:2px; margin-bottom:6px;">
+              <?= htmlspecialchars($refCode) ?>
+            </div>
+          <?php endif; ?>
+
+          <p class="tt-meta" style="margin-bottom:6px;">
+            <?php if ($dateLabel !== ''): ?><span><?= htmlspecialchars($dateLabel) ?></span><?php endif; ?>
+          </p>
+
+          <div class="tt-details" style="margin-top:2px;">
+            <span><?= htmlspecialchars($t['category']) ?></span>
+            <span class="tt-details-sep">•</span>
+            <span><?= htmlspecialchars($t['format_label']) ?></span>
             <?php if ($t['pairing_mode'] === 'mix'): ?>
-              <span class="tt-chip tt-chip--violet">🎲 Mix / Partner Draw</span>
+              <span class="tt-details-sep">•</span>
+              <span>🎲 Mix / Partner Draw</span>
             <?php elseif (empty($t['is_singles'])): ?>
-              <span class="tt-chip tt-chip--emerald">⚡ Fixed Teammates</span>
+              <span class="tt-details-sep">•</span>
+              <span>Fixed Teammates</span>
             <?php endif; ?>
           </div>
-
-          <h3 class="tt-title"><?= htmlspecialchars($t['title']) ?></h3>
-
-          <p class="tt-meta">
-            <?php if ($dateLabel !== ''): ?><span><?= htmlspecialchars($dateLabel) ?></span><?php endif; ?>
-            <?php if ($t['entry_fee'] !== ''): ?><span>Entry <?= htmlspecialchars($t['entry_fee']) ?></span><?php endif; ?>
-            <?php if ($t['prize_pool'] !== ''): ?><span class="tt-prize">🏆 <?= htmlspecialchars($t['prize_pool']) ?></span><?php endif; ?>
-          </p>
         </div>
 
-        <div class="tt-card-actions">
-          <a class="tt-btn tt-btn--primary" href="<?= htmlspecialchars($detailUrl) ?>">
-            <?= $t['has_bracket'] ? 'Open Bracket' : 'Set Up Bracket' ?>
-          </a>
           <button type="button" class="tt-btn tt-btn--icon" title="Delete tournament"
                   aria-label="Delete <?= htmlspecialchars($t['title']) ?>"
                   onclick="deleteTournament('<?= htmlspecialchars((string)$t['id'], ENT_QUOTES) ?>', '<?= htmlspecialchars(addslashes($t['title']), ENT_QUOTES) ?>')">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
-        </div>
       </div>
 
-      <div class="tt-stats">
-        <div class="tt-stat">
-          <span class="tt-stat-label"><?= $t['pairing_mode'] === 'mix' && (int)$t['teams_registered'] === 0 ? 'Draw Pool' : 'Teams' ?></span>
-          <span class="tt-stat-value">
-            <?php if ($t['pairing_mode'] === 'mix' && (int)$t['teams_registered'] === 0): ?>
-              <?= (int)$t['pool_size'] ?> players
-            <?php else: ?>
-              <?= (int)$t['teams_registered'] ?> / <?= (int)$t['max_teams'] ?>
-            <?php endif; ?>
-          </span>
-          <span class="tt-bar"><span class="tt-bar-fill" style="width: <?= $fillPct ?>%"></span></span>
-        </div>
-
-        <div class="tt-stat">
-          <span class="tt-stat-label">Bracket Progress</span>
-          <span class="tt-stat-value">
-            <?= $progress['total'] ? ((int)$progress['completed'] . ' / ' . (int)$progress['total'] . ' matches') : 'Not drawn' ?>
-          </span>
-          <span class="tt-bar"><span class="tt-bar-fill tt-bar-fill--cyan" style="width: <?= (int)$progress['percent'] ?>%"></span></span>
-        </div>
-
-        <div class="tt-stat">
-          <span class="tt-stat-label"><?= $t['status'] === 'completed' ? 'Champion' : 'Next Up' ?></span>
-          <span class="tt-stat-value <?= $t['status'] === 'completed' ? 'tt-stat-value--gold' : '' ?>">
-            <?php if (!empty($t['champion'])): ?>
-              🥇 <?= htmlspecialchars($t['champion']) ?>
-            <?php elseif ($t['has_bracket']): ?>
-              <?= (int)$progress['total'] - (int)$progress['completed'] ?> matches remaining
-            <?php elseif ((int)$t['teams_registered'] >= 2): ?>
-              Ready to draw
-            <?php else: ?>
-              Awaiting teams
-            <?php endif; ?>
-          </span>
-        </div>
+      <div class="tt-card-foot">
+        <a class="tt-btn tt-btn--primary" href="<?= htmlspecialchars($detailUrl) ?>">
+          <?= $t['has_bracket'] ? 'Open Bracket' : 'Set Up Bracket' ?>
+        </a>
       </div>
+
     </article>
     <?php
 };

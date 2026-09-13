@@ -171,8 +171,37 @@ declare(strict_types=1);
     <div class="live-courts-grid">
       <?php foreach ($liveCourts as $court): ?>
         <div class="live-court-card-v2" id="card_<?= htmlspecialchars($court['id']) ?>">
-          <div class="court-card-header-row">
-            <div class="court-name-text" title="<?= htmlspecialchars($court['name']) ?>"><?= htmlspecialchars($court['name']) ?></div>
+          <div class="court-card-header-row" style="position:relative;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <div class="court-name-text" title="<?= htmlspecialchars($court['name']) ?>"><?= htmlspecialchars($court['name']) ?></div>
+              <?php if (!empty($court['upcoming_bookings']) || !empty($court['completed_bookings'])): ?>
+                <div style="position:relative; display:inline-block;">
+                  <button type="button" onclick="event.stopPropagation(); toggleCourtDropdown('dd_<?= htmlspecialchars(addslashes($court['id'])) ?>')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#CBD5E1; padding:2px 6px; border-radius:6px; font-size:10.5px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:3px; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">
+                    <span>Schedule ▾</span>
+                  </button>
+                  <div class="court-schedule-dropdown" id="dd_<?= htmlspecialchars($court['id']) ?>" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; background:#0F172A; border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:10px; width:220px; z-index:100; box-shadow:0 12px 30px rgba(0,0,0,0.6); text-align:left;">
+                    <?php if (!empty($court['upcoming_bookings'])): ?>
+                      <div style="font-size:10px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">Upcoming Bookings</div>
+                      <?php foreach ($court['upcoming_bookings'] as $ub): ?>
+                        <div style="font-size:11.5px; color:#FFFFFF; font-weight:700; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:3px;">
+                          <span><?= htmlspecialchars($ub['user_name']) ?></span>
+                          <span style="color:#00D98B; font-weight:800;"><?= htmlspecialchars($ub['time']) ?></span>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                    <?php if (!empty($court['completed_bookings'])): ?>
+                      <div style="font-size:10px; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.04em; margin-top:8px; margin-bottom:4px;">Completed Today</div>
+                      <?php foreach ($court['completed_bookings'] as $cb): ?>
+                        <div style="font-size:11.5px; color:#94A3B8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
+                          <span><?= htmlspecialchars($cb['user_name']) ?></span>
+                          <span><?= htmlspecialchars($cb['time']) ?></span>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              <?php endif; ?>
+            </div>
             <?php if (($court['dot'] ?? '') === 'cyan'): ?>
               <span class="court-status-dot-cyan"></span>
             <?php elseif (($court['dot'] ?? '') === 'amber' || !empty($court['has_open_play'])): ?>
@@ -188,11 +217,8 @@ declare(strict_types=1);
           </div>
 
           <?php if ($court['status'] === 'occupied'):
-            $pColor = $court['progress_color'] ?? 'green';
-            $timerClass = '';
-            if ($pColor === 'red') { $timerClass = 'court-timer--critical'; }
-            elseif ($pColor === 'amber') { $timerClass = 'court-timer--warning'; }
-            else { $timerClass = 'court-timer--normal'; }
+            $secLeftVal = (int)($court['seconds_left'] ?? 3600);
+            $timerClass = ($secLeftVal < 600) ? 'court-timer--critical' : 'court-timer--normal';
           ?>
             <div class="court-player-sub"><?= htmlspecialchars($court['player_name'] ?? 'Player') ?></div>
             <div class="court-digital-timer-glow <?= $timerClass ?>"
@@ -222,8 +248,17 @@ declare(strict_types=1);
               <span style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800; font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;">HOSTED OPEN PLAY</span>
             </div>
           <?php elseif ($court['status'] === 'waiting'): ?>
-            <div class="court-waiting-pill-wrap">
-              <span class="court-waiting-pill">Waiting for players</span>
+            <div class="court-waiting-pill-wrap" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; margin-top:8px; margin-bottom:8px;">
+              <?php if (!empty($court['next_booking'])): ?>
+                <span style="background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.4); color: #00D98B; font-weight: 800; font-size: 11.5px; padding: 6px 14px; border-radius: 9999px; letter-spacing: 0.01em; display: inline-block;">
+                  Booked <?= htmlspecialchars($court['next_booking']['time']) ?>
+                </span>
+                <div style="font-size: 12.5px; color: #CBD5E1; font-weight: 600; text-align: center; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <?= htmlspecialchars($court['next_booking']['user_name']) ?>
+                </div>
+              <?php else: ?>
+                <span class="court-waiting-pill">Waiting for players</span>
+              <?php endif; ?>
             </div>
           <?php elseif ($court['status'] === 'maintenance'): ?>
             <div class="court-maintenance-wrap">

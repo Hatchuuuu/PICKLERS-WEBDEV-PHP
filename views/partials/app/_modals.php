@@ -122,6 +122,8 @@
             
             <div id="confirmBookPrice" style="display:none;"></div>
           </div>
+          <div id="cbConflictNotice" style="display:none; margin-top: 10px;"></div>
+        </div>
         </div>
 
         <!-- Modal Actions -->

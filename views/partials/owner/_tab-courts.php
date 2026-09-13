@@ -81,7 +81,17 @@ declare(strict_types=1);
               <?php endif; ?>
             </div>
             <div class="player-avatar-circle">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span><?php echo htmlspecialchars(strtoupper(substr(trim((string)$player), 0, 1))); ?></span>
+            </div>
+          </div>
+        <?php elseif (!empty($c['next_booking'])): ?>
+          <div class="court-item-player">
+            <div>
+              <div style="font-size:11.5px; font-weight:800; color:#00D98B; text-align:right;">Booked <?php echo htmlspecialchars((string)$c['next_booking']['time']); ?></div>
+              <div style="font-size:11px; font-weight:600; color:#CBD5E1; text-align:right;"><?php echo htmlspecialchars((string)$c['next_booking']['user_name']); ?></div>
+            </div>
+            <div class="player-avatar-circle">
+              <span><?php echo htmlspecialchars(strtoupper(substr(trim((string)($c['next_booking']['user_name'] ?? 'B')), 0, 1))); ?></span>
             </div>
           </div>
         <?php endif; ?>

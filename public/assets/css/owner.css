@@ -172,12 +172,13 @@ body {
 .autocomplete-avatar::after {
   content: '' !important;
   position: absolute !important;
-  top: -1.5px !important;
-  left: -1.5px !important;
-  right: -1.5px !important;
-  bottom: -1.5px !important;
+  top: -2px !important;
+  left: -2px !important;
+  right: -2px !important;
+  bottom: -2px !important;
   border-radius: 50% !important;
-  background: conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) !important;
+  border: 2px solid transparent !important;
+  background: linear-gradient(#08101F, #08101F) padding-box, conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) border-box !important;
   animation: spinBrandRing 4s linear infinite !important;
   z-index: 1 !important;
   box-shadow: 0 0 8px rgba(0, 217, 139, 0.35) !important;
@@ -491,12 +492,13 @@ body {
 .user-avatar-circle-sm::after {
   content: '' !important;
   position: absolute !important;
-  top: -1.5px !important;
-  left: -1.5px !important;
-  right: -1.5px !important;
-  bottom: -1.5px !important;
+  top: -2px !important;
+  left: -2px !important;
+  right: -2px !important;
+  bottom: -2px !important;
   border-radius: 50% !important;
-  background: conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) !important;
+  border: 2px solid transparent !important;
+  background: linear-gradient(#08101F, #08101F) padding-box, conic-gradient(from 0deg, #00D98B 0%, #00E5FF 35%, #007DFE 70%, #00D98B 100%) border-box !important;
   animation: spinBrandRing 4s linear infinite !important;
   z-index: 1 !important;
   box-shadow: 0 0 8px rgba(0, 217, 139, 0.35) !important;
@@ -1511,26 +1513,28 @@ html.light .owner-topbar-title-wrap p {
   font-feature-settings: "tnum";
   font-size: 24px;
   font-weight: 800;
-  color: #00E5FF;
-  text-shadow: 0 0 12px rgba(0, 229, 255, 0.65);
+  color: #FFFFFF;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
   letter-spacing: 0.04em;
   margin: 10px 0 6px 0;
 }
 
 /* Court Timer Status Modifier Classes */
-.court-timer--critical {
-  color: #FF4D4D;
-  text-shadow: 0 0 12px rgba(255, 77, 77, 0.75);
+.court-timer--critical,
+.court-digital-timer-glow.timer-red {
+  color: #EF4444 !important;
+  text-shadow: 0 0 12px rgba(239, 68, 68, 0.75) !important;
 }
 
 .court-timer--warning {
-  color: #F59E0B;
-  text-shadow: 0 0 12px rgba(245, 158, 11, 0.75);
+  color: #F59E0B !important;
+  text-shadow: 0 0 12px rgba(245, 158, 11, 0.75) !important;
 }
 
-.court-timer--normal {
-  color: #00E5FF;
-  text-shadow: 0 0 12px rgba(0, 229, 255, 0.65);
+.court-timer--normal,
+.court-digital-timer-glow.timer-white {
+  color: #FFFFFF !important;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4) !important;
 }
 
 /* Light mode overrides for court timer status */
@@ -3799,8 +3803,8 @@ select:disabled {
 .court-digital-timer-glow {
   font-size: 24px;
   font-weight: 800;
-  color: #00E5FF;
-  text-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+  color: #FFFFFF;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
   font-family: 'Inter', 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
@@ -4030,14 +4034,19 @@ select:disabled {
 }
 
 .player-avatar-circle {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative !important;
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 50% !important;
+  background: #08101F !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #00D98B !important;
+  font-weight: 900 !important;
+  font-size: 15px !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
 }
 
 .court-action-row-1 {
@@ -4930,18 +4939,19 @@ select:disabled {
 }
 
 .staff-avatar-box {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #1C3258, #0A121F);
-  border: 1px solid rgba(0, 217, 139, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #00D98B;
-  font-weight: 800;
-  font-size: 17px;
-  flex-shrink: 0;
+  position: relative !important;
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 50% !important;
+  background: #08101F !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #00D98B !important;
+  font-weight: 900 !important;
+  font-size: 15px !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
 }
 
 .staff-name-text {
@@ -6086,14 +6096,35 @@ input[type="password"]::-ms-clear {
 /* ==========================================================================
    Player Search Autocomplete Dropdown
    ========================================================================== */
+#addStaffModal .modal-box-card,
+#walkInModal .modal-box-card {
+  overflow: visible !important;
+}
+
 .autocomplete-dropdown-menu {
   background: #0B1728 !important;
   border: 1px solid rgba(0, 229, 255, 0.35) !important;
   border-radius: 12px !important;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.75), 0 0 15px rgba(0, 229, 255, 0.15) !important;
-  max-height: 240px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.85), 0 0 15px rgba(0, 229, 255, 0.2) !important;
+  max-height: 220px;
   overflow-y: auto;
   z-index: 9999;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 229, 255, 0.4) transparent;
+}
+
+.autocomplete-dropdown-menu::-webkit-scrollbar {
+  width: 5px;
+}
+.autocomplete-dropdown-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+.autocomplete-dropdown-menu::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 255, 0.35);
+  border-radius: 10px;
+}
+.autocomplete-dropdown-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.6);
 }
 
 .autocomplete-item {

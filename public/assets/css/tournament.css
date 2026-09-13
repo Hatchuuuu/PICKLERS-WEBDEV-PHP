@@ -1530,6 +1530,12 @@ html.light .tb-crown-name {
   flex-wrap: wrap;
 }
 
+.tt-card-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 .tt-card-heading { min-width: 0; flex: 1 1 320px; }
 
 .tt-chips {
@@ -1589,6 +1595,29 @@ html.light .tb-crown-name {
 }
 
 .tt-prize { color: var(--tb-gold); font-weight: 700; }
+
+.tt-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--pk-text-muted);
+}
+
+.tt-details-sep {
+  color: var(--pk-text-muted);
+  opacity: 0.5;
+  font-size: 11px;
+}
+
+.tt-ref-code {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--pk-text-muted);
+}
 
 .tt-card-actions {
   display: flex;

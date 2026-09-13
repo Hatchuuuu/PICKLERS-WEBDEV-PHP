@@ -101,8 +101,26 @@ final class OwnerProvisioningTest extends TestCase {
             'id' => $otherOwnerId, 'name' => 'Unrelated Owner',
             'email' => $otherOwnerId . '@example.test', 'password_hash' => password_hash('x', PASSWORD_DEFAULT),
         ]);
-        $this->assertFalse($db->verifyCourtOwner((string)$newCourt['id'], $otherOwnerId),
-            'A DIFFERENT owner is never verified as owning this court');
+        // ── Staff Member Provisioning & Verification ──────────────────────────
+        $stf = $db->insertStaff([
+            'facility_id' => $facilityId,
+            'name' => 'Maria Santos',
+            'email' => 'maria@bgcpickle.ph',
+            'phone' => '+63 917 555 0192',
+            'shift' => 'Morning Shift (6:00 AM - 2:00 PM)',
+            'access_level' => 'Standard Operations Access (Court & Walk-in Bookings)'
+        ]);
+        $this->assertTrue(!empty($stf['id']), 'insertStaff returns a generated staff ID');
+        $this->assertSame('Maria Santos', $stf['name'], 'Staff member name matches input');
+        $this->assertTrue($db->verifyStaffOwner((string)$stf['id'], $ownerId), 'Facility owner is verified for added staff member');
+        $this->assertFalse($db->verifyStaffOwner((string)$stf['id'], $otherOwnerId), 'Unrelated owner cannot manage staff member');
+
+        $staffList = $db->getStaffByFacility($facilityId);
+        $this->assertTrue(count($staffList) >= 1, 'Staff list includes the newly added staff member');
+
+        $db->deleteStaff((string)$stf['id']);
+        $staffAfterDelete = $db->getStaffByFacility($facilityId);
+        $this->assertSame(0, count(array_filter($staffAfterDelete, fn($s) => (string)$s['id'] === (string)$stf['id'])), 'Revoking staff member removes them from facility roster');
 
         // Test users/facilities/courts are left in place, same as the rest of
         // this suite (see PricingServiceTest's usr_test_promo_cap_* users) —
