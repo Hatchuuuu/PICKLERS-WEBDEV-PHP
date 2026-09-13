@@ -728,14 +728,15 @@ declare(strict_types=1);
           </div>
 
           <div class="form-group">
-            <label class="form-label">Primary Court Surface *</label>
-            <input type="hidden" id="court_surface" name="court_surface" value="Indoor Hard">
-            <div class="surface-selector-wrap">
-              <div class="surface-pill-option active" onclick="selectSurface(this, 'Indoor Hard')">Indoor Hard</div>
-              <div class="surface-pill-option" onclick="selectSurface(this, 'Outdoor Acrylic')">Outdoor Acrylic</div>
-              <div class="surface-pill-option" onclick="selectSurface(this, 'Pro Synthetic')">Pro Synthetic</div>
-              <div class="surface-pill-option" onclick="selectSurface(this, 'Covered Wood')">Covered Wood</div>
-            </div>
+            <label class="form-label" for="court_surface">Primary Court Surface *</label>
+            <select id="court_surface" name="court_surface" class="input-field" required>
+              <option value="Indoor Hard" selected>Indoor Hard</option>
+              <option value="Outdoor Acrylic">Outdoor Acrylic</option>
+              <option value="Pro Synthetic">Pro Synthetic</option>
+              <option value="Covered Wood">Covered Wood</option>
+              <option value="Cushioned Acrylic">Cushioned Acrylic</option>
+              <option value="Concrete / Asphalt">Concrete / Asphalt</option>
+            </select>
           </div>
 
           <div class="wizard-footer-actions">
