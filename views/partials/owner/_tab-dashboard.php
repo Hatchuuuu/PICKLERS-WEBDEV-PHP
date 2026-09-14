@@ -180,8 +180,12 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
                 <span>Players ▾</span>
               </button>
             <?php else: ?>
-              <button type="button" class="btn-court-players-trigger" onclick="openCourtScheduleModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', <?= htmlspecialchars(json_encode($court['upcoming_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($court['completed_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>)" title="View court schedule roster" style="background:transparent; border:none; color:#FFFFFF; padding:0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+              <?php $schedCount = count($court['upcoming_bookings'] ?? []); ?>
+              <button type="button" class="btn-court-players-trigger" onclick="openCourtScheduleModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', <?= htmlspecialchars(json_encode($court['upcoming_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($court['completed_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>)" title="View court schedule roster" style="position:relative; background:transparent; border:none; color:#FFFFFF; padding:0 8px 0 0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 <span>Schedule ▾</span>
+                <span style="position:absolute; top:-7px; right:-6px; background:#00D98B; color:#05111E; font-size:10px; font-weight:900; min-width:16px; height:16px; border-radius:9999px; display:inline-flex; align-items:center; justify-content:center; padding:0 4px; box-shadow:0 0 8px rgba(0,217,139,0.5); border:1px solid #08101F; line-height:1; pointer-events:none;">
+                  <?= $schedCount ?>
+                </span>
               </button>
             <?php endif; ?>
           </div>
