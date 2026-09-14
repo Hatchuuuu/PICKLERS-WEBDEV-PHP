@@ -2072,6 +2072,10 @@ class Database {
         }
         unset($c);
 
+        usort($courts, function($a, $b) {
+            return strnatcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+        });
+
         return $courts;
     }
 
@@ -2760,6 +2764,10 @@ class Database {
             $c['occupied_until'] = null;
         }
         unset($c);
+
+        usort($courts, function($a, $b) {
+            return strnatcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+        });
 
         return $courts;
     }

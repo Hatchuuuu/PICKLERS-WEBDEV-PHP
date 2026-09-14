@@ -578,6 +578,10 @@ class OwnerController extends BaseController {
             ];
         }, $courts);
 
+        usort($realCourts, function ($a, $b) {
+            return strnatcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+        });
+
         // Section 1: Live Courts Grid (Built dynamically from real facility courts)
         $liveCourts = [];
         foreach ($realCourts as $rc) {

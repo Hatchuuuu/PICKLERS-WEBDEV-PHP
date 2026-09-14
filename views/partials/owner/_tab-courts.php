@@ -31,8 +31,11 @@ declare(strict_types=1);
     <p style="font-size:14px; font-weight:600;">No courts added yet.</p>
     <p style="font-size:13px; margin-top:4px;">Click "List Court" above to add your first court.</p>
   </div>
-  <?php else: ?>
-  <?php foreach ($courts as $idx => $c):
+  <?php else:
+    usort($courts, function($a, $b) {
+      return strnatcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+    });
+    foreach ($courts as $idx => $c):
     $isActive = ($c['active'] ?? true);
     $hasOpenPlay = !empty($c['has_open_play']);
     $statusText = $c['status'] ?? (!$isActive ? 'UNAVAILABLE' : 'AVAILABLE');
