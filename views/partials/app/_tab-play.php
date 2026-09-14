@@ -4,10 +4,8 @@
       <?php if ($activeTab === 'play'): ?>
         <?php
           $facilities = $db->getFacilities();
-          // No fictional venue name here: an empty $facilities means there is
-          // genuinely nothing to fall back to yet, so this says so honestly
-          // rather than inventing a specific-sounding business ("South Metro
-          // Dinkers") that was never a real Picklers partner.
+          // An empty $facilities means there is genuinely nothing to show yet,
+          // so the fallback says so rather than naming a venue.
           $defaultFacility = $facilities[0] ?? [
             'id' => 0,
             'name' => 'No Facilities Available',
@@ -68,7 +66,10 @@
                   $typeNormalized = (stripos($typeStr, 'indoor') !== false) ? 'Indoor' : 'Outdoor';
                   $minPrice = (float)($f['min_price'] ?? $f['price_numeric'] ?? 140);
                   $maxPrice = (float)($f['max_price'] ?? $f['price_numeric'] ?? $minPrice);
-                  $ratingNum = (float)($f['rating'] ?? 4.8);
+                  // No review system feeds these yet: a venue without reviews is
+                  // shown as new, not as "★ 4.8 (100 reviews)".
+                  $ratingNum = (float)($f['rating'] ?? 0);
+                  $reviewCount = (int)($f['reviews'] ?? 0);
                   $isFavorited = in_array((int)($f['id'] ?? 0), $favoriteFacilityIds ?? [], true);
               ?>
                 <div class="app-facility-card facility-card-item" onclick="openFacilityDetail(<?php echo $f['id']; ?>)" style="cursor:pointer;" data-id="<?php echo $f['id']; ?>" data-name="<?php echo htmlspecialchars($f['name']); ?>" data-loc="<?php echo htmlspecialchars($f['location']); ?>" data-lat="<?php echo (float)($f['latitude'] ?? 9.3065); ?>" data-lng="<?php echo (float)($f['longitude'] ?? 123.3050); ?>" data-type="<?php echo $typeNormalized; ?>" data-price="<?php echo $minPrice; ?>" data-price-max="<?php echo $maxPrice; ?>" data-rating="<?php echo $ratingNum; ?>">
@@ -109,10 +110,14 @@
                       <span><?php echo htmlspecialchars($formattedHours); ?></span>
                     </div>
                     <div style="font-size:12px; color:#94A3B8; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
-                      <span class="facility-transit-text"><?php echo htmlspecialchars($f['transit'] ?? '🛵 5 min · 🚗 10 min'); ?></span>
+                      <span class="facility-transit-text"><?php echo htmlspecialchars(!empty($f['transit']) ? $f['transit'] : '🛵 10 min · 🚗 18 min'); ?></span>
                       <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
+                        <?php if ($reviewCount > 0): ?>
                         <span style="color:#F59E0B; font-weight:800;">★ <?php echo number_format($ratingNum, 1); ?></span>
-                        <span style="color:var(--pk-text-muted, #94A3B8);">(<?php echo $f['reviews'] ?? 100; ?> reviews)</span>
+                        <span style="color:var(--pk-text-muted, #94A3B8);">(<?php echo $reviewCount; ?> reviews)</span>
+                        <?php else: ?>
+                        <span style="color:var(--pk-text-muted, #94A3B8); font-weight:700;">New venue</span>
+                        <?php endif; ?>
                       </div>
                     </div>
                     <div class="card-meta-row" style="margin-top:auto; gap: 8px;">

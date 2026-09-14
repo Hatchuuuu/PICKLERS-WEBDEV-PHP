@@ -4,12 +4,9 @@ declare(strict_types=1);
 namespace Picklers\Middleware;
 
 /**
- * General-purpose request throttling, generalized from the same flock()-based
- * counter LoginThrottle already uses for sign-in. Before this, only sign-in
- * had any throttling at all — every other mutating action (bookings, promo
- * quotes, posts, messages) could be hammered without limit, and the
- * database/rate_limits/ directory this reads/writes existed but nothing
- * referenced it.
+ * General-purpose request throttling for mutating actions (bookings, promo
+ * quotes, posts, messages), using the same flock()-based counter LoginThrottle
+ * uses for sign-in. Counters live in database/rate_limits/.
  */
 final class RateLimitMiddleware {
 

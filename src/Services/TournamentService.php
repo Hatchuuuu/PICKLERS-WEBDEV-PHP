@@ -28,6 +28,12 @@ final class TournamentService
     /** Roster ceiling for any single event. */
     public const MAX_TEAMS = 32;
 
+    /** Free-text field ceilings; the whole store is rewritten on every mutation. */
+    private const TEXT_LIMITS = [
+        'date' => 40, 'end_date' => 40, 'time' => 40, 'venue' => 150,
+        'prize_pool' => 60, 'entry_fee' => 60, 'description' => 2000,
+    ];
+
     /** Play categories an owner can host. */
     public const CATEGORIES = [
         'Doubles',
@@ -148,12 +154,12 @@ final class TournamentService
             'pairing_mode' => $pairingMode,
             'date' => $startDate,
             'end_date' => $endDate,
-            'time' => trim((string)($data['time'] ?? '')),
-            'venue' => trim((string)($data['venue'] ?? '')),
+            'time' => $this->clip((string)($data['time'] ?? ''), 'time'),
+            'venue' => $this->clip((string)($data['venue'] ?? ''), 'venue'),
             'max_teams' => $maxTeams,
-            'prize_pool' => trim((string)($data['prize_pool'] ?? '')),
-            'entry_fee' => trim((string)($data['entry_fee'] ?? '')),
-            'description' => trim((string)($data['description'] ?? '')),
+            'prize_pool' => $this->clip((string)($data['prize_pool'] ?? ''), 'prize_pool'),
+            'entry_fee' => $this->clip((string)($data['entry_fee'] ?? ''), 'entry_fee'),
+            'description' => $this->clip((string)($data['description'] ?? ''), 'description'),
             'players_pool' => [],
             'teams' => [],
             'matches' => [],
@@ -184,9 +190,18 @@ final class TournamentService
             }
         }
 
-        $rows = $this->db->getJSONData('tournaments');
-        $rows[] = $record;
-        $this->persist($rows);
+        // Appended under the same exclusive lock mutate() uses. This called a
+        // persist() method that never existed, so creating a tournament was a
+        // fatal error — and an unlocked read-then-write would have discarded
+        // any concurrent edit to another tournament.
+        $this->db->lockedJSONUpdate('tournaments', function (array $rows) use ($record): array {
+            $rows[] = $record;
+            return $rows;
+        });
+        if ($this->find($record['id']) === null) {
+            return ['tournament' => null, 'error' => 'The tournament could not be saved. Please try again.'];
+        }
+        $this->db->bumpSync('tournaments');
 
         return ['tournament' => $this->hydrate($record), 'error' => null];
     }
@@ -208,7 +223,7 @@ final class TournamentService
 
             foreach (['date', 'end_date', 'time', 'venue', 'prize_pool', 'entry_fee', 'description'] as $key) {
                 if (array_key_exists($key, $data)) {
-                    $t[$key] = trim((string)$data[$key]);
+                    $t[$key] = $this->clip((string)$data[$key], $key);
                 }
             }
 
@@ -271,23 +286,24 @@ final class TournamentService
 
     public function delete(string $id): bool
     {
-        $rows = $this->db->getJSONData('tournaments');
-        $kept = [];
+        // Same fix as create(): the missing persist() made every delete fatal.
         $found = false;
-        foreach ($rows as $row) {
-            if (is_array($row) && (string)($row['id'] ?? '') === $id) {
-                $found = true;
-                continue;
+        $this->db->lockedJSONUpdate('tournaments', function (array $rows) use ($id, &$found): array {
+            $kept = [];
+            foreach ($rows as $row) {
+                if (is_array($row) && (string)($row['id'] ?? '') === $id) {
+                    $found = true;
+                    continue;
+                }
+                $kept[] = $row;
             }
-            $kept[] = $row;
+            return $kept;
+        });
+        if ($found) {
+            $this->db->bumpSync('tournaments');
         }
-        if (!$found) {
-            return false;
-        }
-        $this->persist($kept);
-        return true;
+        return $found && $this->find($id) === null;
     }
-
     // --------------------------------------------------------------------------
     // Roster
     // --------------------------------------------------------------------------
@@ -1023,6 +1039,11 @@ final class TournamentService
     /** Both dates are optional; when both are present they must be in order. */
     private function validateDates(string $start, string $end): ?string
     {
+        foreach ([$start, $end] as $value) {
+            if (trim($value) !== '' && strtotime($value) === false) {
+                return 'Please enter a valid date.';
+            }
+        }
         if ($start === '' || $end === '') {
             return null;
         }
@@ -1032,6 +1053,11 @@ final class TournamentService
             return null;
         }
         return $e < $s ? 'The end date cannot be before the start date.' : null;
+    }
+
+    private function clip(string $value, string $field): string
+    {
+        return mb_substr(trim($value), 0, self::TEXT_LIMITS[$field] ?? 255);
     }
 
     private function shortName(string $full): string

@@ -16,6 +16,30 @@ use Picklers\Services\FacilityService;
 use Picklers\Services\TournamentService;
 
 class OwnerController extends BaseController {
+    /** Owner-application documents live outside the web root; see AdminController::document(). */
+    public const DOCUMENT_STORAGE_DIR = '/storage/permits';
+    /** Where documents were written before moving out of public/. Read-only fallback. */
+    public const LEGACY_DOCUMENT_DIR = '/public/uploads/permits';
+    public const DOCUMENT_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    public const DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
+
+    /** Upper bound for an Open Play session; also what "Unlimited Players" means. */
+    public const OPEN_PLAY_MAX_CAPACITY = 200;
+
+    /** Disbursement channels the payout form offers (views/partials/owner/_modals.php). */
+    public const PAYOUT_METHODS = [
+        'GCash',
+        'GCash (Instant Disbursement)',
+        'Bank Deposit — BDO Unibank',
+        'Bank Deposit — BPI',
+        'Bank Deposit — UnionBank',
+    ];
+    public const PAYOUT_MIN_AMOUNT = 100.0;
+
+    /** Facility logos are public images, relative to /public like other facility images. */
+    public const FACILITY_LOGO_DIR = 'uploads/facilities';
+    public const FACILITY_LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
     private AuthService $authService;
     private FacilityService $facilityService;
     private BookingService $bookingService;
@@ -141,11 +165,16 @@ class OwnerController extends BaseController {
 
         $facilityName = trim((string)$request->input('facility_name', ''));
         $address = trim((string)$request->input('address', ''));
-        $latitude = (float)$request->input('latitude', 14.5547);
-        $longitude = (float)$request->input('longitude', 121.0244);
-        $courtsCount = max(1, (int)$request->input('courts_count', 4));
-        $courtSurface = (string)$request->input('court_surface', 'Indoor Hard');
-        $operatingHours = (string)$request->input('operating_hours', '06:00 AM – 11:00 PM');
+        // No invented coordinates: a missing GPS fix is stored as unknown, not
+        // as a fixed point in BGC that an admin would take for the real site.
+        $latRaw = trim((string)$request->input('latitude', ''));
+        $lngRaw = trim((string)$request->input('longitude', ''));
+        $latitude = is_numeric($latRaw) && abs((float)$latRaw) <= 90 ? (float)$latRaw : null;
+        $longitude = is_numeric($lngRaw) && abs((float)$lngRaw) <= 180 ? (float)$lngRaw : null;
+        // Scaffolded into real court rows on approval, so it must be bounded.
+        $courtsCount = min(50, max(1, (int)$request->input('courts_count', 1)));
+        $courtSurface = trim((string)$request->input('court_surface', 'Indoor Hard'));
+        $operatingHours = trim((string)$request->input('operating_hours', '06:00 AM – 11:00 PM'));
 
         $ownerName = trim((string)$request->input('owner_name', ''));
         $businessEmail = trim((string)$request->input('business_email', ''));
@@ -153,16 +182,11 @@ class OwnerController extends BaseController {
         $entityName = trim((string)$request->input('entity_name', ''));
         $regNumber = trim((string)$request->input('reg_number', ''));
 
-        // Every one of these used to fall back to a specific fake business
-        // ("BGC Pickleball Arena", "Marcus Vance", "SEC-CS2026-98124", ...)
-        // whenever a field was left blank — and the form's own inputs shipped
-        // those exact strings as their pre-filled `value`, so an applicant
-        // could tab straight through the whole wizard without typing
-        // anything real and still pass HTML5 `required` (which only checks
-        // "not empty", and a pre-filled fake value isn't empty). This is a
-        // facility-owner identity/licensing check for a marketplace handling
-        // real money — reject incomplete applications instead of inventing a
-        // complete-looking fake one for an admin to unknowingly approve.
+        $isAjax = $request->header('X-Requested-With') === 'XMLHttpRequest' || $request->input('ajax') === '1';
+
+        // An owner application is an identity and licensing check for a
+        // marketplace handling real money: incomplete submissions are rejected,
+        // never completed with placeholder values.
         $missing = [];
         if ($facilityName === '') $missing[] = 'Facility Brand Name';
         if ($address === '') $missing[] = 'Street Address';
@@ -173,24 +197,56 @@ class OwnerController extends BaseController {
         if ($regNumber === '') $missing[] = 'DTI / SEC Registration Number';
         if ($missing !== []) {
             $msg = 'Please complete: ' . implode(', ', $missing) . '.';
-            if ($request->header('X-Requested-With') === 'XMLHttpRequest' || $request->input('ajax') === '1') {
+            if ($isAjax) {
                 return Response::json(['success' => false, 'message' => $msg], 400);
             }
             return Response::redirect('owner-application.php?notice=incomplete');
         }
 
-        // Handle uploaded permits/IDs safely with whitelist validation and actual file storage
-        $uploadDir = dirname(__DIR__, 2) . '/public/uploads/permits';
+        // Column limits are hard SQL errors under STRICT_TRANS_TABLES.
+        $tooLong = [];
+        foreach ([
+            ['Facility Brand Name', $facilityName, 150],
+            ['Street Address', $address, 500],
+            ['Owner Full Name', $ownerName, 120],
+            ['Business Email', $businessEmail, 120],
+            ['Mobile Number', $phone, 50],
+            ['Registered Legal Trade Name', $entityName, 150],
+            ['DTI / SEC Registration Number', $regNumber, 100],
+            ['Court Surface', $courtSurface, 60],
+            ['Operating Hours', $operatingHours, 100],
+        ] as [$label, $value, $max]) {
+            if (mb_strlen($value) > $max) {
+                $tooLong[] = "{$label} (max {$max} characters)";
+            }
+        }
+        if ($tooLong !== []) {
+            $msg = 'Please shorten: ' . implode(', ', $tooLong) . '.';
+            if ($isAjax) {
+                return Response::json(['success' => false, 'message' => $msg], 400);
+            }
+            return Response::redirect('owner-application.php?notice=incomplete');
+        }
+
+        // Permits and government IDs are private: they are stored outside the
+        // web root and served only to administrators by AdminController::document().
+        $uploadDir = dirname(__DIR__, 2) . self::DOCUMENT_STORAGE_DIR;
         if (!is_dir($uploadDir)) {
             @mkdir($uploadDir, 0750, true);
         }
 
         $allowedExts = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
-        // Returns null (not a fake filename) when no real file was uploaded —
-        // the caller must treat that as a rejected application, not silently
-        // record a permit/ID that was never actually provided.
+        // Returns null (not a fake filename) when no acceptable file was uploaded.
         $sanitizeUpload = function(?array $file, string $uploadDir) use ($allowedExts): ?string {
             if (!$file || empty($file['name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                return null;
+            }
+            if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+                return null;
+            }
+            // The form promises "max 5MB"; nothing enforced it.
+            $size = (int)($file['size'] ?? 0);
+            if ($size <= 0 || $size > self::DOCUMENT_MAX_BYTES) {
                 return null;
             }
             $cleanName = basename((string)$file['name']);
@@ -198,11 +254,17 @@ class OwnerController extends BaseController {
             if (!in_array($ext, $allowedExts, true)) {
                 return null;
             }
-            $safeBase = preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($cleanName, PATHINFO_FILENAME));
-            $finalName = substr((string)$safeBase, 0, 40) . '_' . date('Ymd_His') . '.' . $ext;
-            if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+            // The extension is only the client's claim; the bytes must agree.
+            $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']) ?: '';
+            if (!in_array($mime, self::DOCUMENT_MIME_TYPES, true)) {
                 return null;
             }
+            $safeBase = preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($cleanName, PATHINFO_FILENAME));
+            // Random suffix: a second-resolution timestamp alone meant a permit
+            // and an ID uploaded together under the same filename overwrote
+            // each other (both application fields then pointed at one file),
+            // and made stored names guessable.
+            $finalName = substr((string)$safeBase, 0, 40) . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
             if (!move_uploaded_file($file['tmp_name'], $uploadDir . '/' . $finalName)) {
                 return null;
             }
@@ -213,16 +275,21 @@ class OwnerController extends BaseController {
         $govIdName  = $sanitizeUpload($_FILES['gov_id_file'] ?? null, $uploadDir);
 
         if ($permitName === null || $govIdName === null) {
+            // Don't keep one private document on disk for an application that was never filed.
+            foreach ([$permitName, $govIdName] as $stored) {
+                if ($stored !== null) {
+                    @unlink($uploadDir . '/' . $stored);
+                }
+            }
             $docsMissing = [];
             if ($permitName === null) $docsMissing[] = "Mayor's Permit / Business License";
             if ($govIdName === null) $docsMissing[] = 'a valid Government ID';
             $msg = 'Please upload ' . implode(' and ', $docsMissing) . ' (PDF, PNG, or JPG, max 5MB).';
-            if ($request->header('X-Requested-With') === 'XMLHttpRequest' || $request->input('ajax') === '1') {
+            if ($isAjax) {
                 return Response::json(['success' => false, 'message' => $msg], 400);
             }
             return Response::redirect('owner-application.php?notice=incomplete');
         }
-
         $appRecord = [
             'id' => 'app_' . bin2hex(random_bytes(6)),
             'user_id' => $currentUser['id'],
@@ -276,14 +343,16 @@ class OwnerController extends BaseController {
             return $allFacilities;
         }
 
-        // Real rows only. An owner with none gets an empty array here and
-        // index() renders an onboarding state for it — never a fabricated
-        // facility (a fictional Manila venue was previously invented here,
-        // whose string id collapsed to facility_id = 0 the moment a court
-        // was added against it, silently vanishing that court from every
-        // real query keyed on an actual facility id).
-        return array_values(array_filter($allFacilities, function($f) use ($currentUser) {
-            return isset($f['owner_id']) && (string)$f['owner_id'] === (string)$currentUser['id'];
+        $staffFacilityIds = array_map('strval', \Picklers\Core\Database::get()->getStaffFacilityIdsForUser(
+            (string)($currentUser['id'] ?? ''),
+            (string)($currentUser['email'] ?? '')
+        ));
+
+        return array_values(array_filter($allFacilities, function($f) use ($currentUser, $staffFacilityIds) {
+            $fId = (string)($f['id'] ?? '');
+            $isOwner = isset($f['owner_id']) && (string)$f['owner_id'] === (string)($currentUser['id'] ?? '');
+            $isStaff = in_array($fId, $staffFacilityIds, true);
+            return $isOwner || $isStaff;
         }));
     }
 
@@ -291,22 +360,10 @@ class OwnerController extends BaseController {
      * The one facility a write action applies to, verified as one this owner
      * actually holds.
      *
-     * Every mutating action below (add_court, host_open_play, add_staff)
-     * used to reach for $facilities[0] unconditionally — correct only by
-     * coincidence, because every real owner account happens to hold exactly
-     * one facility today. It was never a real ownership check: nothing
-     * stopped a request from acting on the wrong facility once an owner (or
-     * an admin managing several) held more than one, and an owner with NONE
-     * (see resolveOwnerFacilities()) would pass facility_id => null through
-     * to an insert with no error at all — a court silently orphaned from
-     * every facility-scoped read.
-     *
-     * No client currently sends an explicit facility_id (there is no
-     * facility-switcher UI yet — a forward-looking enhancement, not part of
-     * this fix), so this preserves today's behaviour
-     * exactly for the single-facility case while making both the
-     * zero-facility and any future multi-facility case fail safely instead
-     * of silently.
+     * Without an explicit facility_id the owner's first facility is used,
+     * which is exact for single-facility accounts. An owner with no facility,
+     * or a facility_id the owner does not hold, resolves to null so the
+     * action fails instead of writing rows that belong to no facility.
      */
     private function resolveRequestedFacility(array $currentUser, Request $request): ?array {
         $facilities = $this->resolveOwnerFacilities($currentUser);
@@ -326,6 +383,49 @@ class OwnerController extends BaseController {
         }
 
         return null; // Requested a facility this owner does not hold.
+    }
+
+    /**
+     * Seats taken on a session's current occurrence — the same figure players
+     * see in Explore. current_players is a lifetime counter that an Everyday
+     * session never resets, so it cannot stand in for today's count.
+     */
+    private function openPlaySpotsTaken(array $match): int {
+        $matchId = (string)($match['id'] ?? '');
+        if ($matchId === '') {
+            return 0;
+        }
+        $active = Database::get()->countConfirmedMatchBookings($matchId, Database::getMatchTargetDate($match));
+        $date = strtolower((string)($match['date'] ?? ''));
+        if (str_contains($date, 'everyday') || str_contains($date, 'daily')) {
+            return $active;
+        }
+        return max((int)($match['current_players'] ?? 0), $active);
+    }
+
+    /** Validate and store an uploaded facility logo. Returns its public path, or null when rejected. */
+    private function storeFacilityLogo(array $file, string $facilityId): ?string {
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+            return null;
+        }
+        $size = (int)($file['size'] ?? 0);
+        if ($size <= 0 || $size > self::FACILITY_LOGO_MAX_BYTES) {
+            return null;
+        }
+        $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']) ?: '';
+        if (!isset($extensions[$mime]) || @getimagesize($file['tmp_name']) === false) {
+            return null;
+        }
+        $dir = dirname(__DIR__, 2) . '/public/' . self::FACILITY_LOGO_DIR;
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $name = 'facility_' . preg_replace('/[^0-9A-Za-z]/', '', $facilityId) . '_' . bin2hex(random_bytes(8)) . '.' . $extensions[$mime];
+        if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $name)) {
+            return null;
+        }
+        return self::FACILITY_LOGO_DIR . '/' . $name;
     }
 
     /**
@@ -358,7 +458,6 @@ class OwnerController extends BaseController {
         // court already carries its own attribute_slugs (Indoor/Outdoor/
         // Covered/...) for the tab's chips and the edit-court modal's picker.
         $courts = Database::get()->getCourtsWithAttributes($currentFacility['id'] ?? 1);
-        $bookings = $this->bookingModel->all();
         $courtAttributeCatalog = Database::get()->getCourtAttributeCatalog();
 
         // Tab selection (Strictly 5 Primary Modules: Dashboard, My Courts, Tournaments, Messages, Settings)
@@ -441,7 +540,8 @@ class OwnerController extends BaseController {
                     $isMatchForCourt = true;
                 } elseif ($cName !== '' && $mCourtName !== '' && strcasecmp($mCourtName, $cName) === 0) {
                     $isMatchForCourt = true;
-                } elseif ($cName !== '' && (strcasecmp($mType, $cName) === 0 || str_contains(strtolower($mType), strtolower($cName)))) {
+                } elseif ($cName !== '' && strcasecmp($mType, $cName) === 0) {
+                    // Exact only: containment showed Court 10's session on Court 1.
                     $isMatchForCourt = true;
                 } elseif ($totalCourtsForFacility === 1) {
                     $isMatchForCourt = true;
@@ -464,6 +564,7 @@ class OwnerController extends BaseController {
                 'active' => $statusNorm !== 'UNAVAILABLE',
                 'status' => $statusNorm,
                 'player' => $c['occupied_by'] ?? null,
+                'player_avatar' => $c['player_avatar'] ?? ($c['user_avatar'] ?? ($c['avatar_url'] ?? ($c['avatar'] ?? null))),
                 'player_time' => $c['occupied_until'] ?? null,
                 'attributes' => $c['attributes'] ?? [],
                 'attribute_slugs' => $c['attribute_slugs'] ?? [],
@@ -499,7 +600,7 @@ class OwnerController extends BaseController {
                     'timer' => null,
                     'has_open_play' => true,
                     'open_play_title' => $opMatch['title'] ?? 'Community Open Play',
-                    'joined_players' => (int)($opMatch['current_players'] ?? $opMatch['joined'] ?? 0),
+                    'joined_players' => $this->openPlaySpotsTaken($opMatch),
                     'max_players' => (int)($opMatch['max_players'] ?? $opMatch['capacity'] ?? 12),
                     'time_range' => $timeFormatted,
                     'is_everyday' => $isEveryday,
@@ -576,12 +677,8 @@ class OwnerController extends BaseController {
         // every later live refresh build the exact same shape from one place.
         $realRequests = \Picklers\Core\Database::get()->getPendingBookingRequests($currentFacility['id'] ?? '');
 
-        // Real requests only. This used to always append three fabricated
-        // rows (Bob Joshua, Daniel Alfeche, Alex Reyes) after the real ones —
-        // an owner had no way to tell which requests were real, and
-        // Accept/Decline on a demo row hit the API with a booking id that
-        // never existed. An empty queue is a real, honest state; the view
-        // renders its own "no pending requests" empty state for it.
+        // Real requests only; the view renders its own empty state when there
+        // are none.
         $pendingRequests = $realRequests;
 
         // Section 2 (Real Data): Open Play sessions actually hosted for this facility,
@@ -598,9 +695,8 @@ class OwnerController extends BaseController {
         // Section 3: Tournaments Hub.
         //
         // TournamentService owns the record shape (roster, bracket, lifecycle)
-        // and hydrates every read, so the view receives real bracket state
-        // rather than the fabricated 8-team quarterfinal placeholder this used
-        // to inject whenever a live tournament had no bracket drawn yet.
+        // and hydrates every read, so the view receives the real bracket state,
+        // including a tournament that has no bracket drawn yet.
         $tournaments = $this->tournaments->grouped((string)($currentFacility['id'] ?? ''));
 
 
@@ -640,10 +736,8 @@ class OwnerController extends BaseController {
         ];
 
         $db = Database::get();
-        $userNotifications = $db->getNotifications($currentUser['id'] ?? 'usr_owner');
-        if (empty($userNotifications)) {
-            $userNotifications = $db->getNotifications('usr_owner');
-        }
+        // Only this owner's own notifications; an empty inbox is a valid state.
+        $userNotifications = $db->getNotifications((string)$currentUser['id']);
         $unreadNotifsCount = count(array_filter($userNotifications, fn($n) => empty($n['is_read'])));
 
 
@@ -660,6 +754,7 @@ class OwnerController extends BaseController {
                 'date' => $s['date_joined'] ?? date('M Y'),
                 'role' => $s['role'] ?? 'Front Desk',
                 'status' => $s['status'] ?? 'Active',
+                'avatar_url' => $s['avatar_url'] ?? ($s['avatar'] ?? ''),
             ];
         }, $db->getStaffByFacility((int)($currentFacility['id'] ?? 1)));
 
@@ -689,7 +784,7 @@ class OwnerController extends BaseController {
                 'time' => $m['time'] ?? 'TBD',
                 'level' => $level,
                 'price' => $m['price'] ?? 0,
-                'joined' => (int)($m['current_players'] ?? 0),
+                'joined' => $this->openPlaySpotsTaken($m),
                 'capacity' => (int)($m['max_players'] ?? 4),
                 'is_completed' => $isExp
             ];
@@ -714,7 +809,6 @@ class OwnerController extends BaseController {
             'financials' => $fin,
             'liveCourts' => $liveCourts,
             'courts' => $realCourts,
-            'bookings' => $bookings,
             'pendingRequests' => $pendingRequests,
             'openPlayMatches' => $openPlayMatches,
             'tournaments' => $tournaments,
@@ -747,9 +841,15 @@ class OwnerController extends BaseController {
         switch ($action) {
             case 'add_court':
                 $rawCourtName = trim((string)$request->input('name', ''));
-                $surface = (string)$request->input('surface', 'Indoor Hard');
+                $surface = trim((string)$request->input('surface', 'Indoor Hard'));
                 $rate = max(50.0, (float)$request->input('rate', 450.0));
                 $attributes = array_map('strval', (array)$request->input('attributes', []));
+                if ($surface === '' || mb_strlen($surface) > 50) {
+                    return $this->jsonError('Please choose a valid court surface.', 400);
+                }
+                if ($rate > \Picklers\Services\PricingService::MAX_PAYABLE) {
+                    return $this->jsonError('That hourly rate is above the maximum allowed.', 400);
+                }
 
                 $facility = $this->resolveRequestedFacility($currentUser, $request);
                 if ($facility === null) {
@@ -773,6 +873,16 @@ class OwnerController extends BaseController {
                     $courtName = "Court " . (int)$matches[0];
                 } else {
                     $courtName = "Court " . $nextNum;
+                }
+                // Courts are identified by name in slot locks, rosters and Open
+                // Play; two "Court 2" rows at one venue blocked or double-booked
+                // each other.
+                $courtNum = (int)substr($courtName, 6);
+                if ($courtNum < 1 || $courtNum > 999) {
+                    return $this->jsonError('Court numbers must be between 1 and 999.', 400);
+                }
+                if (in_array($courtNum, $existingNums, true)) {
+                    return $this->jsonError("{$courtName} already exists at this facility. Choose a different court number.", 409);
                 }
 
                 try {
@@ -801,27 +911,57 @@ class OwnerController extends BaseController {
             case 'edit_court':
                 $courtId = trim((string)$request->input('court_id', ''));
                 $rawCourtName = trim((string)$request->input('name', ''));
-                $surface = (string)$request->input('surface', 'Premium Hard');
+                $surface = trim((string)$request->input('surface', 'Premium Hard'));
                 $rate = max(50.0, (float)$request->input('rate', 450.0));
                 $attributes = array_map('strval', (array)$request->input('attributes', []));
 
                 if ($courtId === '') {
                     return $this->jsonError('Missing court ID', 400);
                 }
-
-                if (preg_match('/\d+/', $rawCourtName, $matches)) {
-                    $courtName = "Court " . (int)$matches[0];
-                } else {
-                    $courtName = $rawCourtName !== '' ? $rawCourtName : 'Court 1';
+                if ($surface === '' || mb_strlen($surface) > 50) {
+                    return $this->jsonError('Please choose a valid court surface.', 400);
+                }
+                if ($rate > \Picklers\Services\PricingService::MAX_PAYABLE) {
+                    return $this->jsonError('That hourly rate is above the maximum allowed.', 400);
                 }
 
                 $db = Database::get();
+                $existingCourt = $db->getCourtById($courtId);
+                if ($existingCourt === null) {
+                    return $this->jsonError('Court not found', 404);
+                }
                 if (empty($currentUser['is_admin'])) {
                     if (!$db->verifyCourtOwner($courtId, (string)$currentUser['id'])) {
                         return $this->jsonError('Unauthorized: You do not own this court', 403);
                     }
                 }
 
+                if (preg_match('/\d+/', $rawCourtName, $matches)) {
+                    $courtName = "Court " . (int)$matches[0];
+                } else {
+                    // normalizeCourtName() turns any number-less name into
+                    // "Court 1", silently colliding with the real Court 1.
+                    return $this->jsonError('Court names must include a court number (for example "Court 3").', 400);
+                }
+
+                $previousName = (string)($existingCourt['name'] ?? '');
+                if (strcasecmp($previousName, $courtName) !== 0) {
+                    foreach ($db->getCourtsByFacility($existingCourt['facility_id']) as $other) {
+                        if ((string)($other['id'] ?? '') !== $courtId && strcasecmp((string)($other['name'] ?? ''), $courtName) === 0) {
+                            return $this->jsonError("{$courtName} already exists at this facility. Choose a different court number.", 409);
+                        }
+                    }
+                    // Existing reservations and Open Play sessions reference the
+                    // court by its current name.
+                    if ($db->countUpcomingCourtBookings($existingCourt['facility_id'], $courtId, $previousName) > 0) {
+                        return $this->jsonError("{$previousName} has upcoming bookings, so it can't be renamed right now.", 409);
+                    }
+                    foreach ($db->getMatchesByFacility($existingCourt['facility_id']) as $m) {
+                        if (!Database::isMatchExpired($m) && strcasecmp(trim((string)($m['type'] ?? '')), $previousName) === 0) {
+                            return $this->jsonError("{$previousName} is hosting Open Play, so it can't be renamed right now.", 409);
+                        }
+                    }
+                }
                 try {
                     $updatedCourt = $db->updateCourt($courtId, [
                         'name' => $courtName,
@@ -865,22 +1005,21 @@ class OwnerController extends BaseController {
                     }
                 }
 
-                // Guard: Cannot disable a court that is currently occupied or hosting Open Play
+                $court = $db->getCourtById($courtId);
+                if ($court === null) {
+                    return $this->jsonError('Court not found', 404);
+                }
+                // Guard: a court hosting an active Open Play session cannot be
+                // disabled. Only unexpired sessions on this exact court count
+                // ("Court 1" never matches "Court 10").
                 if (!$active) {
-                    $facility = $this->resolveRequestedFacility($currentUser, $request);
-                    if ($facility !== null) {
-                        $facilityMatches = $db->getMatchesByFacility($facility['id']);
-                        foreach ($facilityMatches as $m) {
-                            $mType = trim((string)($m['type'] ?? ''));
-                            $mCourtId = trim((string)($m['court_id'] ?? ''));
-                            if (($courtId !== '' && $mCourtId === $courtId) ||
-                                ($courtName !== '' && (strcasecmp($mType, $courtName) === 0 || str_contains(strtolower($mType), strtolower($courtName))))) {
-                                return $this->jsonError("Court '{$courtName}' is currently hosting Open Play and cannot be disabled.", 400);
-                            }
+                    $courtLabel = (string)($court['name'] ?? $courtName);
+                    foreach ($db->getMatchesByFacility($court['facility_id']) as $m) {
+                        if (!Database::isMatchExpired($m) && strcasecmp(trim((string)($m['type'] ?? '')), $courtLabel) === 0) {
+                            return $this->jsonError("Court '{$courtLabel}' is currently hosting Open Play and cannot be disabled.", 400);
                         }
                     }
                 }
-
                 // Matches the uppercase AVAILABLE/UNAVAILABLE/OCCUPIED convention
                 // read by views/partials/owner/_tab-courts.php's status display logic.
                 $statusValue = $active ? 'AVAILABLE' : 'UNAVAILABLE';
@@ -899,14 +1038,9 @@ class OwnerController extends BaseController {
                 return $this->jsonSuccess(['active' => $active], $statusMsg);
 
             case 'end_court_session':
-                // Previously wired to 'toggle_court_status', which only ever
-                // touches courts.status — a field the dashboard's dynamic
-                // occupancy calculation doesn't read for a real, timed
-                // booking. That made "End Session Early" a no-op: the court
-                // showed occupied by the same booking again on the very next
-                // page load. This calls Database::endCourtSessionEarly(),
-                // which flags the actual active booking so it's genuinely
-                // excluded from that calculation.
+                // Database::endCourtSessionEarly() flags the active booking
+                // itself: dashboard occupancy is computed from bookings, not
+                // from courts.status.
                 $courtId = trim((string)$request->input('court_id', ''));
                 $courtName = trim((string)$request->input('court_name', ''));
                 if ($courtId === '' && $courtName === '') {
@@ -944,19 +1078,22 @@ class OwnerController extends BaseController {
                     }
                 }
 
-                $facility = $this->resolveRequestedFacility($currentUser, $request);
-                if ($facility !== null) {
-                    $facilityMatches = $db->getMatchesByFacility($facility['id']);
-                    foreach ($facilityMatches as $m) {
-                        $mType = trim((string)($m['type'] ?? ''));
-                        $mCourtId = trim((string)($m['court_id'] ?? ''));
-                        if (($courtId !== '' && $mCourtId === $courtId) ||
-                            ($courtName !== '' && (strcasecmp($mType, $courtName) === 0 || str_contains(strtolower($mType), strtolower($courtName))))) {
-                            return $this->jsonError("Court '{$courtName}' is currently hosting Open Play and cannot be deleted until the session is cancelled.", 400);
-                        }
+                $court = $db->getCourtById($courtId);
+                if ($court === null) {
+                    return $this->jsonError('Court not found or could not be deleted.', 404);
+                }
+                $courtLabel = (string)($court['name'] ?? $courtName);
+                foreach ($db->getMatchesByFacility($court['facility_id']) as $m) {
+                    if (!Database::isMatchExpired($m) && strcasecmp(trim((string)($m['type'] ?? '')), $courtLabel) === 0) {
+                        return $this->jsonError("Court '{$courtLabel}' is currently hosting Open Play and cannot be deleted until the session is cancelled.", 400);
                     }
                 }
-
+                // A court with upcoming reservations cannot be deleted; those
+                // players hold paid slots on it.
+                $upcomingOnCourt = $db->countUpcomingCourtBookings($court['facility_id'], $courtId, $courtLabel);
+                if ($upcomingOnCourt > 0) {
+                    return $this->jsonError("Court '{$courtLabel}' has {$upcomingOnCourt} upcoming booking(s). Resolve them before deleting this court.", 409);
+                }
                 try {
                     $deleted = $db->deleteCourt($courtId);
                 } catch (\Throwable $e) {
@@ -970,31 +1107,54 @@ class OwnerController extends BaseController {
                 return $this->jsonSuccess(['court_id' => $courtId], "Court '{$courtName}' has been permanently deleted.");
 
             case 'host_open_play':
-                // No 400 on an empty title: the pre-existing (fake) implementation of this
-                // case never required a title either -- it silently fell back to 'Community
-                // Dink Session'. Preserved here rather than introducing a stricter requirement.
                 $title = trim((string)$request->input('title', ''));
                 if ($title === '') {
                     $title = 'Community Dink Session';
                 }
-                // The Host Open Play modal (views/partials/owner/_modals.php) targets a
-                // specific court (openHostOpenPlayForCourt() in owner.js), but the `matches`
-                // table has no court-reference column. Database::joinMatch() already treats
-                // `matches.type` as the court name downstream (it copies $match['type']
-                // straight into booking['court_name']), so that's the existing, load-bearing
-                // convention this reuses rather than inventing a new one.
-                $courtName = trim((string)$request->input('court_name', ''));
-                $bracket = (string)$request->input('bracket', 'All Levels');
-                $fee = max(0.0, (float)$request->input('fee', 250.0));
-                $capacity = max(2, (int)$request->input('capacity', 12));
+                if (mb_strlen($title) > 150) {
+                    return $this->jsonError('Session titles are limited to 150 characters.', 400);
+                }
+                // `matches.type` carries the court name (see joinMatch()).
+                $courtName = Database::normalizeCourtName(trim((string)$request->input('court_name', '')));
+                $bracket = trim((string)$request->input('bracket', 'All Levels'));
+                if ($bracket === '' || mb_strlen($bracket) > 30) {
+                    $bracket = 'All Levels';
+                }
+                $fee = (float)$request->input('fee', 250.0);
+                $rawCapacity = strtolower(trim((string)$request->input('capacity', '12')));
+                $capacity = $rawCapacity === 'unlimited' ? self::OPEN_PLAY_MAX_CAPACITY : (int)$rawCapacity;
                 $date = trim((string)$request->input('date', ''));
                 $startTime = trim((string)$request->input('start_time', ''));
                 $endTime = trim((string)$request->input('end_time', ''));
 
-                if ($startTime !== '' && $endTime !== '') {
-                    $timeRange = "{$startTime} \u{2013} {$endTime}";
+                if ($fee < 0 || $fee > \Picklers\Services\PricingService::MAX_PAYABLE) {
+                    return $this->jsonError('Please enter a valid entry fee.', 400);
+                }
+                if ($capacity < 2 || $capacity > self::OPEN_PLAY_MAX_CAPACITY) {
+                    return $this->jsonError('Player capacity must be between 2 and ' . self::OPEN_PLAY_MAX_CAPACITY . '.', 400);
+                }
+                if ($startTime === '' || $endTime === '') {
+                    return $this->jsonError('Please choose a start and end time.', 400);
+                }
+
+                $db = Database::get();
+                $timeRange = "{$startTime} \u{2013} {$endTime}";
+                if ($db->parseTimeRange($timeRange) === null) {
+                    return $this->jsonError('Please choose a valid time range.', 400);
+                }
+
+                // A "TBD" or unparseable date published a session that could
+                // never expire; a past date one nobody could attend.
+                if (in_array(strtolower($date), ['everyday', 'daily'], true)) {
+                    $date = 'Everyday';
                 } else {
-                    $timeRange = $startTime ?: ($endTime ?: 'TBD');
+                    $dateTs = $date !== '' ? strtotime($date) : false;
+                    if ($dateTs === false) {
+                        return $this->jsonError('Please choose a valid session date.', 400);
+                    }
+                    if (date('Y-m-d', $dateTs) < date('Y-m-d')) {
+                        return $this->jsonError('Open Play sessions cannot be scheduled in the past.', 400);
+                    }
                 }
 
                 $facility = $this->resolveRequestedFacility($currentUser, $request);
@@ -1005,35 +1165,53 @@ class OwnerController extends BaseController {
                 $facilityName = $facility['name'] ?? '';
                 $location = $facility['location'] ?? '';
 
-                try {
-                    $db = Database::get();
-                    if (!empty($courtName) && !empty($facilityId)) {
-                        $db->deleteMatch($courtName, $facilityId);
+                $court = null;
+                foreach ($db->getCourtsByFacility($facilityId) as $c) {
+                    if (strcasecmp((string)($c['name'] ?? ''), $courtName) === 0) {
+                        $court = $c;
+                        break;
                     }
+                }
+                if ($court === null) {
+                    return $this->jsonError("{$courtName} is not a court at this facility.", 404);
+                }
+                if (in_array(strtolower((string)($court['status'] ?? '')), ['maintenance', 'unavailable'], true)) {
+                    return $this->jsonError("{$courtName} is disabled. Enable it before hosting Open Play.", 409);
+                }
+
+                // Publishing never replaces a session players have joined: it
+                // must be cancelled explicitly first, which refunds and notifies them.
+                foreach ($db->getMatchesByFacility($facilityId) as $m) {
+                    if (strcasecmp(trim((string)($m['type'] ?? '')), $courtName) !== 0 || Database::isMatchExpired($m)) {
+                        continue;
+                    }
+                    if ($db->countActiveMatchBookings((string)$m['id'], Database::getMatchTargetDate($m)) > 0) {
+                        return $this->jsonError("{$courtName} already has an Open Play session with players. Cancel it before hosting a new one.", 409);
+                    }
+                }
+
+                try {
+                    // Clears this court's earlier sessions (ended, or nobody joined).
+                    $db->cancelOpenPlaySessions('', $facilityId, $courtName);
                     $newMatch = $db->insertMatch([
                         'facility_id' => $facilityId,
                         'facility_name' => $facilityName,
                         'location' => $location,
-                        'date' => $date !== '' ? $date : date('F j, Y'),
+                        'date' => $date,
                         'time' => $timeRange,
                         'level' => $bracket,
                         'current_players' => 0,
                         'max_players' => $capacity,
-                        'price' => $fee,
-                        // Court name folded into `type` (see comment above) -- falls back to
-                        // the same 'Open Play Session' default used by joinMatch()/getMatches().
-                        'type' => $courtName !== '' ? $courtName : 'Open Play Session',
-                        // `host` is a real, rendered field (views/partials/app/_tab-explore.php
-                        // shows "Host: {host}" to players across all facilities), so it must
-                        // carry an actual host-person name, not the session title.
+                        'price' => round($fee, 2),
+                        'type' => $courtName,
+                        // `host` is rendered to players, so it carries the host's
+                        // real name, not the session title.
                         'host' => $currentUser['name'] ?? 'Facility Staff',
-                        // Session title has its own dedicated column.
                         'title' => $title
                     ]);
-                    if (!empty($courtName) && !empty($facilityId)) {
-                        $db->occupyCourt((int)$facilityId, $courtName, 'Hosted Open Play', $timeRange);
-                    }
+                    $db->occupyCourt((int)$facilityId, $courtName, 'Hosted Open Play', $timeRange);
                 } catch (\Throwable $e) {
+                    error_log('[PICKLERS Owner] host_open_play failed: ' . $e->getMessage());
                     return $this->jsonError('Failed to publish Open Play session. Please try again.', 500);
                 }
 
@@ -1044,7 +1222,6 @@ class OwnerController extends BaseController {
                 return $this->jsonSuccess([
                     'session' => $newMatch
                 ], "Open Play event '{$title}' published successfully!");
-
             case 'cancel_open_play':
                 $matchId = trim((string)$request->input('match_id', ''));
                 $title = trim((string)$request->input('title', ''));
@@ -1061,11 +1238,25 @@ class OwnerController extends BaseController {
                 }
 
                 $db = Database::get();
-                $deleted = $db->deleteMatch($target, $facility['id'], $courtName);
+                try {
+                    $outcome = $db->cancelOpenPlaySessions($target, $facility['id'], $courtName);
+                } catch (\Throwable $e) {
+                    return $this->jsonError('Could not cancel this session. Nothing was changed — please try again.', 500);
+                }
                 if ($courtName !== '') {
                     $db->clearCourtSession($courtName, (int)$facility['id']);
                 }
-                return $this->jsonSuccess([], "Open Play session cancelled.");
+                if (!$outcome['deleted']) {
+                    return $this->jsonError('No active Open Play session was found to cancel.', 404);
+                }
+                $msg = 'Open Play session cancelled.';
+                if ($outcome['cancelled_bookings'] > 0) {
+                    $msg .= ' ' . $outcome['cancelled_bookings'] . ' player request(s) cancelled and notified';
+                    $msg .= $outcome['refunded_amount'] > 0
+                        ? '; ₱' . number_format($outcome['refunded_amount'], 2) . ' refunded to Pickle Credits.'
+                        : '.';
+                }
+                return $this->jsonSuccess($outcome, $msg);
 
             case 'update_facility_settings':
                 $facility = $this->resolveRequestedFacility($currentUser, $request);
@@ -1081,6 +1272,14 @@ class OwnerController extends BaseController {
                 if ($facName === '') {
                     return $this->jsonError('Facility name cannot be empty.', 400);
                 }
+                // facilities.name/location/hours are VARCHAR(150/200/50).
+                if (mb_strlen($facName) > 150 || mb_strlen($facLoc) > 200 || mb_strlen($hoursStr) > 50) {
+                    return $this->jsonError('Facility name (150), location (200) or hours (50 characters) is too long.', 400);
+                }
+                if ($facImage !== '' && (strlen($facImage) > 65000
+                    || !preg_match('#^(https?://|data:image/(png|jpe?g|webp);base64,|assets/|uploads/facilities/)#i', $facImage))) {
+                    return $this->jsonError('Unsupported facility image.', 400);
+                }
 
                 $updateData = ['name' => $facName];
                 if ($facLoc !== '') {
@@ -1093,10 +1292,33 @@ class OwnerController extends BaseController {
                     $updateData['image'] = $facImage;
                 }
 
-                // Payout destination + accepted-methods — previously saved to
-                // localStorage only (see saveFacilitySettings() in owner.js),
-                // so it never reached here at all. Digits-only, capped at the
-                // same 11-char length the settings form's own input enforces.
+                // Payout numbers must be complete PH mobile numbers. They are
+                // checked before the logo is stored, so a rejected number can't
+                // leave an orphaned upload behind. Blank clears the number.
+                foreach (['gcash_number' => 'GCash', 'maya_number' => 'Maya'] as $payoutField => $payoutLabel) {
+                    $rawNumber = $request->input($payoutField, null);
+                    if ($rawNumber === null) {
+                        continue;
+                    }
+                    $numberDigits = preg_replace('/\D/', '', (string)$rawNumber);
+                    if ($numberDigits !== '' && !preg_match('/^09\d{9}$/', $numberDigits)) {
+                        return $this->jsonError("Please enter a valid 11-digit {$payoutLabel} number starting with 09.", 400);
+                    }
+                }
+
+                // Brand logo picked in Settings (optional).
+                $storedLogo = null;
+                $logoFile = $_FILES['logo'] ?? null;
+                if (is_array($logoFile) && ($logoFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $storedLogo = $this->storeFacilityLogo($logoFile, (string)$facility['id']);
+                    if ($storedLogo === null) {
+                        return $this->jsonError('Please upload a PNG, JPG or WEBP logo under 2MB.', 400);
+                    }
+                    $updateData['image'] = $storedLogo;
+                }
+
+                // Payout destination and accepted payment methods. Numbers are
+                // stored digits-only, capped at the form's 11 characters.
                 if ($request->input('gcash_number', null) !== null) {
                     $updateData['gcash_number'] = substr(preg_replace('/\D/', '', (string)$request->input('gcash_number', '')), 0, 11);
                 }
@@ -1115,8 +1337,16 @@ class OwnerController extends BaseController {
 
                 $db = Database::get();
                 $ok = $db->updateFacility($facility['id'], $updateData);
+                $logoRoot = dirname(__DIR__, 2) . '/public/' . self::FACILITY_LOGO_DIR . '/';
                 if (!$ok) {
+                    if ($storedLogo !== null) {
+                        @unlink($logoRoot . basename($storedLogo));
+                    }
                     return $this->jsonError('Failed to update facility settings. Please try again.', 500);
+                }
+                $previousImage = (string)($facility['image'] ?? '');
+                if ($storedLogo !== null && $previousImage !== $storedLogo && str_starts_with($previousImage, self::FACILITY_LOGO_DIR . '/')) {
+                    @unlink($logoRoot . basename($previousImage));
                 }
 
                 return $this->jsonSuccess([
@@ -1173,6 +1403,9 @@ class OwnerController extends BaseController {
                 if ($name === '') {
                     return $this->jsonError('Staff name is required', 400);
                 }
+                if (mb_strlen($name) > 100 || mb_strlen($role) > 50 || strlen($email) > 150) {
+                    return $this->jsonError('Staff name (100), role (50) or email (150 characters) is too long.', 400);
+                }
                 if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     return $this->jsonError('Please enter a valid email address', 400);
                 }
@@ -1186,7 +1419,7 @@ class OwnerController extends BaseController {
                     $newStaff = Database::get()->insertStaff([
                         'facility_id' => $facility['id'],
                         'name' => $name,
-                        'email' => $email ?: 'staff@facility.com',
+                        'email' => $email,
                         'role' => $role,
                         'status' => 'Active',
                         'date_joined' => date('M Y')
@@ -1230,16 +1463,24 @@ class OwnerController extends BaseController {
                 return $this->jsonSuccess([], 'Staff access revoked successfully.');
 
             case 'request_payout':
-                $amount = (float)$request->input('amount', 0.0);
-                $method = trim((string)$request->input('method', 'GCash'));
+                $amount = round((float)$request->input('amount', 0.0), 2);
+                $method = trim((string)$request->input('method', ''));
                 $accountName = trim((string)$request->input('account_name', ''));
                 $accountNumber = trim((string)$request->input('account_number', ''));
 
-                if ($amount <= 0) {
-                    return $this->jsonError('Payout amount must be greater than zero.', 400);
+                if ($amount < self::PAYOUT_MIN_AMOUNT) {
+                    return $this->jsonError('The minimum payout is ₱' . number_format(self::PAYOUT_MIN_AMOUNT, 2) . '.', 400);
+                }
+                // This text becomes the instruction someone follows to send real
+                // money, so only the channels the form offers are accepted.
+                if (!in_array($method, self::PAYOUT_METHODS, true)) {
+                    return $this->jsonError('Please choose a supported disbursement method.', 400);
                 }
                 if ($accountName === '' || $accountNumber === '') {
                     return $this->jsonError('Account name and account/mobile number are required.', 400);
+                }
+                if (mb_strlen($accountName) > 120 || !preg_match('/^[0-9\s\-]{6,34}$/', $accountNumber)) {
+                    return $this->jsonError('Please enter a valid account name and account/mobile number.', 400);
                 }
 
                 $payoutFacility = $this->resolveRequestedFacility($currentUser, $request);
@@ -1247,34 +1488,26 @@ class OwnerController extends BaseController {
                     return $this->jsonError('No facility found for this account.', 400);
                 }
 
-                $financials = Database::get()->getOwnerFinancials((string)$payoutFacility['id']);
-                $available  = (float)($financials['available'] ?? 0.0);
-
-                if ($amount > $available) {
-                    return $this->jsonError(
-                        "Requested amount exceeds your available balance of ₱" . number_format($available, 2) . ".",
-                        400
-                    );
-                }
-
-                $payoutRecord = Database::get()->createPayoutRequest(
+                // Balance check and insert happen together under a per-facility
+                // lock, net of payouts already requested.
+                $payout = Database::get()->createPayoutRequest(
                     (string)$currentUser['id'],
                     (string)$payoutFacility['id'],
                     $amount,
                     $method,
                     "Disbursement to: {$accountName}, {$accountNumber}"
                 );
+                if (empty($payout['success'])) {
+                    return $this->jsonError((string)($payout['message'] ?? 'Payout request could not be submitted.'), 400);
+                }
 
                 return $this->jsonSuccess(
-                    ['payout' => $payoutRecord],
+                    ['payout' => $payout['payout']],
                     "Payout request for ₱" . number_format($amount, 2) . " via {$method} submitted for processing."
                 );
-
             default:
-                if ($request->header('X-Requested-With') === 'XMLHttpRequest' || $request->input('ajax') === '1') {
-                    return Response::json(['success' => true, 'message' => 'Action processed successfully.']);
-                }
-                return Response::redirect('owner.php?notice=success');
+                // An unknown or retired action is an error, never a silent success.
+                return $this->jsonError('Unknown action.', 400);
         }
     }
 }

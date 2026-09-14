@@ -30,8 +30,7 @@ final class PricingService {
     public const MAX_PAYABLE = 100000.0;
 
     /**
-     * Server-held promo codes. The browser previously owned this table, which
-     * is why the client was able to dictate the final price.
+     * Server-held promo codes, so the client can never dictate the final price.
      */
     private const PROMO_CODES = [
         'WELCOME10' => ['type' => 'percent', 'value' => 0.10,  'label' => 'WELCOME10 (10% Off)'],

@@ -23,7 +23,10 @@ class Response {
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=utf-8');
         }
-        echo json_encode($data);
+        // Without the substitute flag a single invalid UTF-8 byte anywhere in
+        // the payload (a legacy row, a truncated multibyte name) made
+        // json_encode() return false and the client received an empty body.
+        echo json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE);
         if (defined('TESTING_MODE') && TESTING_MODE) {
             return;
         }

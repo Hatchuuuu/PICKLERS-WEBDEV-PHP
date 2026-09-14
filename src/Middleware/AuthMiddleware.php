@@ -51,10 +51,10 @@ class AuthMiddleware {
 
     public static function logout(): void {
         self::initSession();
-        unset($_SESSION['picklers_user_id']);
-        if (isset($_SESSION['user'])) {
-            unset($_SESSION['user']);
-        }
+        // Drop everything tied to the signed-in identity (CSRF token,
+        // impersonation origin, flash state) — not just the user id — so the
+        // next person on this browser starts from a clean session.
+        $_SESSION = [];
         if (!headers_sent()) {
             @session_regenerate_id(true);
         }
@@ -81,7 +81,16 @@ class AuthMiddleware {
         $_SESSION['picklers_last_activity'] = time();
 
         $db = Database::get();
-        self::$memoizedUser = $db->getUserById($userId);
+        $user = $db->getUserById($userId);
+
+        // A deactivated (soft-deleted) or removed account must not keep
+        // acting through a session that was opened before it was retired.
+        if (!$user || ($user['role'] ?? '') === 'deleted') {
+            self::logout();
+            return null;
+        }
+
+        self::$memoizedUser = $user;
         return self::$memoizedUser;
     }
 
@@ -110,8 +119,10 @@ class AuthMiddleware {
         $isOwner = (int)($user['is_owner'] ?? 0);
         $isAdmin = (int)($user['is_admin'] ?? 0);
         $role    = (string)($user['role'] ?? '');
+        $staffFacilityIds = \Picklers\Core\Database::get()->getStaffFacilityIdsForUser((string)($user['id'] ?? ''), (string)($user['email'] ?? ''));
+        $isStaff = !empty($staffFacilityIds);
 
-        if ($isOwner !== 1 && $isAdmin !== 1 && $role !== 'owner') {
+        if ($isOwner !== 1 && $isAdmin !== 1 && $role !== 'owner' && !$isStaff) {
             Response::redirect('owner-application.php?notice=verification_required');
             exit;
         }

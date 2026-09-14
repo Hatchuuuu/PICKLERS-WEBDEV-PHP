@@ -1,0 +1,11 @@
+# Owner-uploaded facility logos. Only validated images are written here;
+# nothing in this directory may ever execute.
+<FilesMatch "\.(php[0-9]?|phtml|phar|pht|cgi|pl|py|sh)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

@@ -162,8 +162,7 @@
       }
     };
 
-    // Dialogs used to fade IN but vanish instantly. Play the exit unless the
-    // user asked for reduced motion.
+    // Play the exit animation unless the user asked for reduced motion.
     if (MOTION_QUERY.matches) {
       finish();
       return;
@@ -396,6 +395,15 @@
         var current = (data && data.versions) || {};
         if (data && typeof data.unread_notifications === 'number') {
           current = Object.assign({}, current, { unread_notifications: data.unread_notifications });
+        }
+        // Per-account state (this user's own bookings fingerprint and wallet
+        // balance) rides the same diff, so screens follow owner approvals,
+        // declines and refunds without a manual reload.
+        if (data && data.account && typeof data.account === 'object') {
+          current = Object.assign({}, current, {
+            my_bookings: data.account.bookings,
+            wallet_balance: data.account.wallet
+          });
         }
 
         if (known === null) {

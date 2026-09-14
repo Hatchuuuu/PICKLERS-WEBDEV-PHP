@@ -41,7 +41,7 @@
             </div>
           </div>
           <input type="file" id="avatarFileInput" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;" onchange="handleAvatarUpload(event)">
-          <div class="settings-hero-name" id="settingsHeroNameDisplay"><?php echo htmlspecialchars($currentUser['name'] ?? 'Alex Mercer'); ?></div>
+          <div class="settings-hero-name" id="settingsHeroNameDisplay"><?php echo htmlspecialchars($currentUser['name'] ?? ''); ?></div>
           <div class="settings-hero-badge"><?php echo strtoupper(htmlspecialchars($currentUser['role'] ?? 'PLAYER')); ?></div>
         </div>
 
@@ -51,7 +51,7 @@
           <div class="settings-action-card">
             <div style="display:flex; flex-direction:column; gap:6px;">
               <div id="settingsWalletBalance" style="font-size:28px; font-weight:800; color:#FFFFFF; font-family:'Inter', -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing:-0.02em; line-height:1.1;">
-                ₱<?php echo number_format($currentUser['wallet_balance'] ?? 1250); ?>
+                ₱<?php echo number_format((float)($currentUser['wallet_balance'] ?? 0)); ?>
               </div>
               <div style="display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:#94A3B8; letter-spacing:0.6px; text-transform:uppercase;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
@@ -72,9 +72,11 @@
           <?php
             $appDb = $db ?? \Picklers\Core\Database::get();
             $latestApp = $appDb->getLatestApplicationForUser((string)($currentUser['id'] ?? ''));
-            $isPendingOwner = $latestApp && in_array($latestApp['status'] ?? '', ['pending_review', 'pending'], true) && empty($currentUser['is_owner']) && ($currentUser['role'] ?? '') !== 'owner';
+            $isStaffUser = !empty($appDb->getStaffFacilityIdsForUser((string)($currentUser['id'] ?? ''), (string)($currentUser['email'] ?? '')));
+            $isPendingOwner = $latestApp && in_array($latestApp['status'] ?? '', ['pending_review', 'pending'], true) && empty($currentUser['is_owner']) && ($currentUser['role'] ?? '') !== 'owner' && !$isStaffUser;
+            $isApprovedOwner = !empty($currentUser['is_owner']) || ($currentUser['role'] ?? '') === 'owner' || !empty($currentUser['is_admin']) || ($currentUser['role'] ?? '') === 'admin' || $isStaffUser;
           ?>
-          <a href="<?php echo $isPendingOwner ? 'owner-application.php?notice=pending' : 'owner.php'; ?>" class="settings-row-item" style="text-decoration:none;">
+          <a href="<?php echo $isApprovedOwner ? 'owner.php' : ($isPendingOwner ? 'owner-application.php?notice=pending' : 'owner-application.php'); ?>" class="settings-row-item" style="text-decoration:none;">
             <div class="settings-row-left">
               <div class="settings-icon-pill" style="background:rgba(255,184,0,0.15); color:#FFB800;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
@@ -85,14 +87,19 @@
               </div>
             </div>
             <div class="settings-row-action">
-              <?php if ($isPendingOwner): ?>
+              <?php if ($isApprovedOwner): ?>
+                <span class="settings-portal-launch launch-owner">
+                  <span>Launch</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </span>
+              <?php elseif ($isPendingOwner): ?>
                 <span class="settings-portal-launch launch-owner" style="border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800; background: rgba(255, 184, 0, 0.14);">
                   <span>Pending</span>
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </span>
               <?php else: ?>
                 <span class="settings-portal-launch launch-owner">
-                  <span>Launch</span>
+                  <span>Apply</span>
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </span>
               <?php endif; ?>
@@ -142,7 +149,7 @@
               </div>
             </div>
             <div class="settings-row-right">
-              <span id="settingsRowNameDisplay"><?php echo htmlspecialchars($currentUser['name'] ?? 'Alex Mercer'); ?></span>
+              <span id="settingsRowNameDisplay"><?php echo htmlspecialchars($currentUser['name'] ?? ''); ?></span>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pk-text-muted, #94A3B8)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
             </div>
           </div>
@@ -158,7 +165,7 @@
               </div>
             </div>
             <div class="settings-row-right">
-              <span id="settingsRowPhoneDisplay"><?php echo !empty($currentUser['phone']) ? htmlspecialchars($currentUser['phone']) : '+63 917 111 2222'; ?></span>
+              <span id="settingsRowPhoneDisplay"><?php echo !empty($currentUser['phone']) ? htmlspecialchars($currentUser['phone']) : 'Not set'; ?></span>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pk-text-muted, #94A3B8)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
             </div>
           </div>
@@ -174,7 +181,7 @@
                 <div class="settings-row-sub">Link your Google account</div>
               </div>
             </div>
-            <button type="button" class="btn-social-connect" onclick="toggleSocialAccount('Google', this)">Connect</button>
+            <button type="button" class="btn-social-connect" onclick="toggleSocialAccount('Google')" disabled style="opacity:0.5; cursor:not-allowed;">Coming soon</button>
           </div>
 
           <!-- Facebook -->
@@ -188,7 +195,7 @@
                 <div class="settings-row-sub">Link your Facebook account</div>
               </div>
             </div>
-            <button type="button" class="btn-social-connect" onclick="toggleSocialAccount('Facebook', this)">Connect</button>
+            <button type="button" class="btn-social-connect" onclick="toggleSocialAccount('Facebook')" disabled style="opacity:0.5; cursor:not-allowed;">Coming soon</button>
           </div>
 
           <!-- Change Password -->
@@ -232,10 +239,12 @@
               </div>
               <div class="settings-row-text">
                 <div class="settings-row-title">Booking Confirmations</div>
+                <div class="settings-row-sub">Always on</div>
               </div>
             </div>
-            <label class="settings-switch">
-              <input type="checkbox" checked onchange="showToast('Booking notifications updated')">
+            <?php /* Notification preferences are not configurable yet; the switches show the fixed behaviour. */ ?>
+            <label class="settings-switch" style="opacity:0.55; cursor:not-allowed;">
+              <input type="checkbox" checked disabled>
               <span class="settings-slider"></span>
             </label>
           </div>
@@ -248,10 +257,11 @@
               </div>
               <div class="settings-row-text">
                 <div class="settings-row-title">Open Match Alerts</div>
+                <div class="settings-row-sub">Not available yet</div>
               </div>
             </div>
-            <label class="settings-switch">
-              <input type="checkbox" onchange="showToast('Open match alerts preference updated')">
+            <label class="settings-switch" style="opacity:0.55; cursor:not-allowed;">
+              <input type="checkbox" disabled>
               <span class="settings-slider"></span>
             </label>
           </div>
@@ -264,10 +274,11 @@
               </div>
               <div class="settings-row-text">
                 <div class="settings-row-title">Community Updates</div>
+                <div class="settings-row-sub">Always on</div>
               </div>
             </div>
-            <label class="settings-switch">
-              <input type="checkbox" checked onchange="showToast('Community updates updated')">
+            <label class="settings-switch" style="opacity:0.55; cursor:not-allowed;">
+              <input type="checkbox" checked disabled>
               <span class="settings-slider"></span>
             </label>
           </div>
@@ -280,10 +291,11 @@
               </div>
               <div class="settings-row-text">
                 <div class="settings-row-title">Chat & Direct Messages</div>
+                <div class="settings-row-sub">Always on</div>
               </div>
             </div>
-            <label class="settings-switch">
-              <input type="checkbox" checked onchange="showToast('Chat alerts updated')">
+            <label class="settings-switch" style="opacity:0.55; cursor:not-allowed;">
+              <input type="checkbox" checked disabled>
               <span class="settings-slider"></span>
             </label>
           </div>
@@ -350,7 +362,7 @@
             </div>
             <div style="flex:1;">
               <div style="font-size:14px; font-weight:800; color:#FFFFFF; margin-bottom:3px;">Delete Account</div>
-              <div style="font-size:11px; color:#94A3B8; line-height:1.4;">Permanently remove your account and all data. This action cannot be undone.</div>
+              <div style="font-size:11px; color:#94A3B8; line-height:1.4;">Deactivate your account and sign out. Upcoming bookings are cancelled under the refund policy.</div>
             </div>
           </div>
           <button type="button" class="btn-delete-account" onclick="confirmDeleteAccount()">

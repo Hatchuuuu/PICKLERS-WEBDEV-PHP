@@ -76,29 +76,51 @@
             $isCredit = ($t['type'] ?? '') === 'credit';
             $rawLabel = trim($t['label'] ?? 'Transaction');
             $isRefund = stripos($rawLabel, 'refund') !== false;
-            $isOpenPlay = stripos($rawLabel, 'open play') !== false || stripos($rawLabel, 'match') !== false;
+            $isAdminAdjustment = str_starts_with($rawLabel, '[Admin]');
+            $isOpeningBalance = $rawLabel === 'Opening Balance';
+            $isOpenPlay = stripos($rawLabel, 'open play') !== false;
             $isBooking = stripos($rawLabel, 'booking') !== false;
-            $isTopUp = $isCredit && !$isRefund;
-            
-            $catType = $isRefund ? 'refunds' : ($isTopUp ? 'deposits' : 'bookings');
 
-            // Format clean title based on transaction type
+            $catType = $isRefund ? 'refunds' : ($isCredit ? 'deposits' : 'bookings');
+
+            // Extract payment method from array or label if available
+            $payMethod = '';
+            if (!empty($t['payment_method'])) {
+                $payMethod = trim($t['payment_method']);
+            } elseif (!empty($t['method'])) {
+                $payMethod = trim($t['method']);
+            } elseif (preg_match('/\bvia\s+([A-Za-z0-9\s]+?)(?:\s*\(|\s*$)/i', $rawLabel, $pmMatch)) {
+                $payMethod = trim($pmMatch[1]);
+            }
+
+            // Extract facility name from raw label
+            $cleanLabelForFac = preg_replace('/\bvia\s+.*$/i', '', $rawLabel);
+            $cleanLabelForFac = preg_replace('/\([^)]*\)/', '', $cleanLabelForFac);
             $facNameMatch = '';
-            if (preg_match('/at\s+([^(\n\v]+)/i', $rawLabel, $fMatch)) {
+            if (preg_match('/at\s+([^(\n\v]+)/i', $cleanLabelForFac, $fMatch)) {
                 $facNameMatch = trim($fMatch[1]);
             }
 
-            if ($isOpenPlay) {
-                $cleanTitle = !empty($facNameMatch) ? "Open Play • $facNameMatch" : 'Open Play';
+            // Refunds, admin adjustments and opening balances are checked first:
+            if ($isRefund) {
+                $cleanTitle = 'Refund' . ($isOpenPlay ? ' • Open Play' : ($isBooking ? ' • Booking' : ''));
+            } elseif ($isAdminAdjustment) {
+                $cleanTitle = ($isCredit ? 'Credit' : 'Deduction') . ' by Picklers';
+            } elseif ($isOpeningBalance) {
+                $cleanTitle = 'Opening Balance';
+            } elseif ($isOpenPlay) {
+                $baseName = !empty($facNameMatch) ? "Open Play • $facNameMatch" : 'Open Play';
+                $methodStr = !empty($payMethod) ? $payMethod : 'GCash';
+                $cleanTitle = "$baseName via $methodStr";
             } elseif ($isBooking) {
-                $cleanTitle = !empty($facNameMatch) ? "Booked • $facNameMatch" : 'Booked';
-            } elseif ($isRefund) {
-                $cleanTitle = 'Refund';
+                $baseName = !empty($facNameMatch) ? "Booked • $facNameMatch" : 'Booked';
+                $methodStr = !empty($payMethod) ? $payMethod : 'GCash';
+                $cleanTitle = "$baseName via $methodStr";
             } else {
                 $methodStr = trim(preg_replace('/\s*(?:Wallet\s*)?Top[- ]?Up\b/i', '', $rawLabel));
                 $methodStr = trim(preg_replace('/\bWallet\s+/i', '', $methodStr));
                 if (empty($methodStr)) {
-                    $methodStr = 'GCash';
+                    $methodStr = !empty($payMethod) ? $payMethod : 'GCash';
                 }
                 $cleanTitle = "$methodStr Top-Up";
             }
@@ -112,7 +134,9 @@
             } elseif (preg_match('/\b(PKL-[A-Z0-9]+)\b/i', $rawLabel, $matches)) {
                 $txCode = '#' . strtoupper($matches[1]);
             } else {
-                $txCode = '#PKL-' . strtoupper(substr(md5($rawLabel . ($t['date'] ?? '') . ($t['id'] ?? '')), 0, 6));
+                // The entry's own id, not an invented booking code for a
+                // transaction that never had a booking.
+                $txCode = '#' . strtoupper((string)($t['id'] ?? 'TX'));
             }
           ?>
             <div class="wallet-txn-item" data-category="<?php echo $catType; ?>">

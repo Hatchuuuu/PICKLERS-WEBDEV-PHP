@@ -1,4 +1,6 @@
 
+
+
   <!-- Confirm Booking Reservation Modal -->
   <div class="app-modal-overlay" id="confirmBookingModal">
     <div class="app-modal-box" style="max-width: 440px; border-radius: 24px; background: #0E1A2D; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 50px rgba(0,0,0,0.6);">
@@ -16,8 +18,6 @@
       </div>
 
       <div class="modal-body" style="padding: 20px;">
-        <!-- Clean Unified Professional Card (No Glass Box Artifacts) -->
-        <div style="background: #132238; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; padding: 18px; margin-bottom: 20px;">
           <!-- Facility & Court Badge Row -->
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 14px;">
             <div style="flex: 1; min-width: 0;">
@@ -102,7 +102,7 @@
           <div style="border-top: 1px solid rgba(255,255,255,0.08); margin: 14px 0;"></div>
 
           <!-- Payment Breakdown -->
-          <div>
+          <div style="margin-bottom: 20px;">
             <div style="font-size: 10px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">PAYMENT BREAKDOWN</div>
             
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #94A3B8; margin-bottom: 8px;">
@@ -123,8 +123,6 @@
             <div id="confirmBookPrice" style="display:none;"></div>
           </div>
           <div id="cbConflictNotice" style="display:none; margin-top: 10px;"></div>
-        </div>
-        </div>
 
         <!-- Modal Actions -->
         <div style="display: flex; gap: 10px;">
@@ -603,12 +601,12 @@
 
         <!-- 24-Hour Policy Notice Box -->
         <div id="cancelRefundNoticeBox" style="background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); border-radius:14px; padding:14px; margin-bottom:20px; text-align:left;">
-          <div style="font-size:12px; font-weight:800; color: var(--pk-status-success); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+          <div style="font-size:12px; font-weight:800; color: var(--pk-text-primary); margin-bottom:4px; display:flex; align-items:center; gap:6px; text-transform:uppercase;">
             <span>🛡️</span>
-            <span>100% PICKLE CREDITS REFUND ELIGIBLE</span>
+            <span id="cancelRefundNoticeTitle">Cancellation policy</span>
           </div>
           <div style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.4;" id="cancelRefundDetailsText">
-            Cancellation made at least 6 hours before match time. Court fee will be refunded back to your wallet.
+            Pickle Credits bookings cancelled at least 24 hours before play are refunded in full.
           </div>
         </div>
 
@@ -663,7 +661,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         </div>
         <h3 class="confirm-modal-title">Delete Your Account?</h3>
-        <p class="confirm-modal-desc">This will permanently erase your player profile, booking history, wallet credits, and match stats. This action cannot be reversed.</p>
+        <p class="confirm-modal-desc">This deactivates your account and signs you out. Upcoming bookings are cancelled under the normal refund policy, and you will no longer be able to sign in.</p>
         <div style="margin-bottom:20px; text-align:left;">
           <label class="form-label">Type "DELETE" to confirm</label>
           <input type="text" id="deleteAccountConfirmInput" class="form-input" style="padding-left:14px;" placeholder="DELETE" autocomplete="off">
@@ -695,20 +693,7 @@
         <div class="form-group">
           <label class="form-label">Phone Number</label>
           <div style="position:relative; display:flex; align-items:center;">
-            <input type="tel" id="modalProfilePhoneInput" class="form-input" style="padding-left:14px; padding-right:90px; width:100%; box-sizing:border-box;" value="<?php echo htmlspecialchars($currentUser['phone'] ?? ''); ?>" placeholder="+63 9xx xxx xxxx" maxlength="16" onkeydown="return isPhoneKey(event)" oninput="formatPHPhoneInput(this)">
-            <button type="button" id="btnSendModalPhoneOtp" class="btn-inline-send-otp" onclick="sendModalPhoneOtp()" disabled style="position:absolute; right:7px; top:50%; transform:translateY(-50%); padding:4px 8px; border-radius:6px; font-size:10.5px; font-weight:700; border:1px solid rgba(255,255,255,0.1); background:transparent; color:rgba(255,255,255,0.3); cursor:not-allowed; transition:all 0.2s; white-space:nowrap; z-index:2; line-height:1.15;">
-              Send OTP
-            </button>
-          </div>
-        </div>
-        <div id="modalPhoneOtpVerificationGroup" style="display:none; margin-bottom:16px;">
-          <label class="form-label" style="font-size:12px; color:#00D98B; display:flex; justify-content:space-between; align-items:center;">
-            <span>6-Digit Verification Code</span>
-            <span id="modalOtpDemoHint" style="color:rgba(255,255,255,0.5); font-weight:600;"></span>
-          </label>
-          <div style="display:flex; gap:8px; align-items:center; margin-top:4px;">
-            <input type="text" id="modalPhoneOtpCodeInput" class="form-input" style="padding-left:14px; letter-spacing:4px; font-weight:700; font-size:15px; flex:1;" placeholder="• • • • • •" maxlength="6" oninput="this.value=this.value.replace(/\D/g,'')">
-            <button type="button" class="btn-auth-submit" id="btnVerifyModalOtp" style="width:auto; padding:10px 16px; margin:0; font-size:13px; font-weight:700; white-space:nowrap;" onclick="verifyModalPhoneOtp()">Verify</button>
+            <input type="tel" id="modalProfilePhoneInput" class="form-input" style="padding-left:14px; width:100%; box-sizing:border-box;" value="<?php echo htmlspecialchars($currentUser['phone'] ?? ''); ?>" placeholder="+63 9xx xxx xxxx" maxlength="16" onkeydown="return isPhoneKey(event)" oninput="formatPHPhoneInput(this)">
           </div>
         </div>
         <button type="button" class="btn-auth-submit" id="btnModalSaveProfile" onclick="saveModalProfileChanges()">
@@ -813,7 +798,7 @@
           <div class="form-group" style="margin:0;">
             <label class="form-label" style="font-size:11px; font-weight:800; color: #94A3B8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">New Password</label>
             <div style="position:relative; display:flex; align-items:center; border-radius:14px;">
-              <input type="password" id="newPassInput" name="new_password" class="form-input" style="padding-left:16px; padding-right:44px; background:rgba(255,255,255,0.05); border:1.5px solid rgba(255,255,255,0.12); border-radius:14px !important; outline:none !important; font-size:14px; color:#FFFFFF;" placeholder="Min. 6 characters" autocomplete="new-password">
+              <input type="password" id="newPassInput" name="new_password" class="form-input" style="padding-left:16px; padding-right:44px; background:rgba(255,255,255,0.05); border:1.5px solid rgba(255,255,255,0.12); border-radius:14px !important; outline:none !important; font-size:14px; color:#FFFFFF;" placeholder="Min. 8 characters, 1 number" autocomplete="new-password">
               <button type="button" onclick="togglePasswordVisibility('newPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color: #94A3B8; cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
@@ -921,28 +906,6 @@
             <div style="font-size: 12px; color: rgba(255, 255, 255, 0.55);">When you book courts or join open play sessions, updates will show up here.</div>
           </div>
         <?php endif; ?>
-      </div>
-    </div>
-  </div>
-
-  <!-- Sign Out Confirmation Modal -->
-  <div class="app-modal-overlay" id="logoutModal">
-    <div class="app-modal-box" style="max-width: 400px; border-radius: 24px; background: linear-gradient(165deg, rgba(17,31,58,0.98) 0%, rgba(10,22,40,0.99) 100%); border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 60px rgba(0,0,0,0.6);">
-      <div style="padding: 26px 24px; text-align: center;">
-        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(239,68,68,0.15); border: 2px solid var(--pk-status-error); color: var(--pk-status-error); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; box-shadow: 0 0 20px rgba(239,68,68,0.3);">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
-        </div>
-        <h3 style="font-size: 20px; font-weight: 900; color: var(--pk-text-primary); margin: 0 0 8px;">Sign Out of Picklers?</h3>
-        <p style="font-size: 13px; color: var(--pk-text-muted); margin: 0 0 24px; line-height: 1.5;">You will need to re-enter your credentials to access your court bookings and wallet balance.</p>
-
-        <div style="display: flex; gap: 12px;">
-          <button type="button" onclick="closeModal('logoutModal')" style="flex: 1; padding: 12px 18px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; color: var(--pk-text-primary); font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s;">
-            Stay Signed In
-          </button>
-          <a href="auth.php?action=logout" style="flex: 1; padding: 12px 18px; background: var(--pk-status-error); border: none; border-radius: 12px; color: var(--pk-text-primary); font-size: 13px; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(239,68,68,0.4); transition: all 0.2s;">
-            Yes, Sign Out
-          </a>
-        </div>
       </div>
     </div>
   </div>

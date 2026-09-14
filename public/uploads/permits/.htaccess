@@ -1,0 +1,10 @@
+# Legacy location of owner-application documents (permits, government IDs).
+# New uploads are stored in /storage/permits and served only through the
+# admin-only /admin/document endpoint. Never serve these files directly.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

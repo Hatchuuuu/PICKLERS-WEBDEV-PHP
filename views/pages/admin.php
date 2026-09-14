@@ -913,7 +913,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
 
 
           <div style="position:relative;">
-            <button type="button" class="topbar-btn" id="bellBtn" onclick="toggleDropdown('bellDropdown')">
+            <button type="button" class="topbar-btn" id="bellBtn" onclick="toggleDropdown('bellDropdown')" aria-label="Notifications">
               <?php echo admin_icon('bell', 16); ?>
               <?php if (count($pendingApplications) > 0 || !empty($recentBookings)): ?><span class="topbar-dot"></span><?php endif; ?>
             </button>
@@ -1355,7 +1355,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
           </div>
         </section>
 
-        <!-- ===================== CONTENT MODERATION (honest coming-soon) ===================== -->
+        <!-- ===================== CONTENT MODERATION (coming soon) ===================== -->
         <section class="admin-panel <?php echo $activeTab === 'moderation' ? 'active' : ''; ?>" data-panel="moderation">
           <div class="content-header">
 
@@ -2143,7 +2143,8 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
 
       const cleanName = filename.trim();
       const ext = cleanName.split('.').pop().toLowerCase();
-      const fileUrl = `uploads/permits/${encodeURIComponent(cleanName)}`;
+      // Served by the admin-only document endpoint; the files are not public.
+      const fileUrl = `admin/document?file=${encodeURIComponent(cleanName)}`;
 
       if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
         container.innerHTML = `
@@ -2261,7 +2262,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     }
     async function submitResetPassword() {
       const pwd = document.getElementById('resetPassword').value;
-      if (pwd.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+      if (pwd.length < 8 || !/[0-9]/.test(pwd)) { showToast('Password must be at least 8 characters and include a number.', 'error'); return; }
       const data = await callAdmin('admin_reset_password', { user_id: resetTargetId, new_password: pwd });
       if (data && data.success) { closeModal('resetModal'); }
     }
@@ -2331,7 +2332,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     }
 
     async function impersonateUser(userId, name) {
-      if (!confirm(`Switch session and log in as ${name}? You can return to admin at any time.`)) return;
+      if (!confirm(`Sign in as ${name}? Your admin session will end — sign back in with your admin account to return.`)) return;
       const data = await callAdmin('admin_impersonate', { user_id: userId });
       if (data && data.success) {
         window.location.href = 'app.php';

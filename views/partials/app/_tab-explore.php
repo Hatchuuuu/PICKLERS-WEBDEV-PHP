@@ -47,15 +47,39 @@
     <div class="openplay-matches-grid" id="matchesGrid">
       <?php
         $matches = $db->getMatches();
+        // Occurrences this player already holds a seat on (pending or
+        // confirmed). getMatches() never set is_joined, so every card kept
+        // offering "Join" and the server then refused the duplicate.
+        $myJoinedOccurrences = [];
+        foreach ($db->getBookings((string)($currentUser['id'] ?? '')) as $myBooking) {
+            if (in_array($myBooking['status'] ?? '', ['pending', 'confirmed'], true)) {
+                if (!empty($myBooking['match_id'])) {
+                    $myJoinedOccurrences[(string)$myBooking['match_id']] = true;
+                    $myJoinedOccurrences[(string)$myBooking['match_id'] . '|' . (string)($myBooking['booking_date'] ?? '')] = true;
+                }
+                $bFacId = (string)($myBooking['facility_id'] ?? '');
+                $bCourt = \Picklers\Core\Database::normalizeCourtName($myBooking['court_name'] ?? '');
+                if ($bFacId !== '' && $bCourt !== '') {
+                    $myJoinedOccurrences[$bFacId . '|' . $bCourt] = true;
+                    $myJoinedOccurrences[$bFacId . '|' . $bCourt . '|' . (string)($myBooking['booking_date'] ?? '')] = true;
+                }
+            }
+        }
         foreach ($matches as $m):
           $current = intval($m['current_players'] ?? 0);
           $max = intval($m['max_players'] ?? 4);
           $isFull = $current >= $max;
           $spotsLeft = max(0, $max - $current);
-          $joined = !empty($m['is_joined']);
           $facilityName = !empty($m['facility_name']) ? trim((string)$m['facility_name']) : (!empty($m['title']) ? $m['title'] : 'Pickleball Facility');
           $rawCourt = !empty($m['court_name']) ? $m['court_name'] : (!empty($m['type']) && str_starts_with($m['type'], 'Court') ? $m['type'] : 'Court 1');
           $courtNameDisplay = \Picklers\Core\Database::normalizeCourtName($rawCourt);
+          $mFacId = (string)($m['facility_id'] ?? '');
+
+          $joined = isset($myJoinedOccurrences[(string)$m['id']])
+                 || isset($myJoinedOccurrences[(string)$m['id'] . '|' . (string)($m['target_date'] ?? '')])
+                 || isset($myJoinedOccurrences[$mFacId . '|' . $courtNameDisplay])
+                 || isset($myJoinedOccurrences[$mFacId . '|' . $courtNameDisplay . '|' . (string)($m['target_date'] ?? '')]);
+
           $searchData = $facilityName . ' ' . $courtNameDisplay . ' ' . ($m['title'] ?? '') . ' ' . ($m['type'] ?? '');
       ?>
         <div class="openplay-card match-card-item" data-id="<?php echo $m['id']; ?>" data-level="<?php echo htmlspecialchars($m['level']); ?>" data-facility="<?php echo htmlspecialchars($searchData); ?>" data-location="<?php echo htmlspecialchars($m['location']); ?>">
@@ -80,11 +104,7 @@
                 <div class="openplay-detail-item date">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
                   <span>
-                    <?php if (str_contains($m['date'] ?? '', 'Tomorrow')): ?>
-                      Everyday • <strong style="color: #00D98B; font-weight: 700;">Tomorrow</strong>
-                    <?php else: ?>
-                      <?php echo htmlspecialchars($m['date'] ?? ''); ?>
-                    <?php endif; ?>
+                    <?php echo htmlspecialchars($m['date'] ?? ''); ?>
                   </span>
                 </div>
                 <div class="openplay-detail-item time">

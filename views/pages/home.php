@@ -49,7 +49,7 @@ $faqs = $faqs ?? [];
 
         <?php if ($currentUser): ?>
           <a href="app.php" class="btn-nav-login" style="background:#10B981; color:#FFFFFF; border:none; padding:8px 18px; border-radius:12px; font-weight:800; display:inline-flex; align-items:center; gap:8px;">
-            <img src="<?php echo htmlspecialchars($currentUser['avatar_url']); ?>" style="width:22px; height:22px; border-radius:50%; object-fit:cover;">
+            <img src="<?php echo htmlspecialchars($currentUser['avatar_url']); ?>" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover;">
             <span>Open App →</span>
           </a>
         <?php else: ?>
@@ -249,7 +249,8 @@ $faqs = $faqs ?? [];
           $typeNormalized = (stripos($typeStr, 'indoor') !== false) ? 'Indoor' : 'Outdoor';
           $minP = (float)($f['min_price'] ?? $f['price_numeric'] ?? 200);
           $maxP = (float)($f['max_price'] ?? $f['price_numeric'] ?? $minP);
-          $ratingNum = (float)($f['rating'] ?? 4.8);
+          $ratingNum = (float)($f['rating'] ?? 0);
+          $reviewCount = (int)($f['reviews'] ?? 0);
         ?>
         <div class="app-facility-card reveal-on-scroll">
           <div class="card-thumb-wrap">
@@ -267,10 +268,14 @@ $faqs = $faqs ?? [];
               <span><?php echo htmlspecialchars($f['location'] ?? ''); ?></span>
             </div>
             <div style="font-size:12px; color:#94A3B8; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center;">
-              <span style="color:var(--ink-secondary);"><?php echo htmlspecialchars((string)($f['transit'] ?? '🚗 15 min')); ?></span>
+              <span style="color:var(--ink-secondary);"><?php echo htmlspecialchars((string)($f['transit'] ?? '')); ?></span>
               <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
+                <?php if ($reviewCount > 0): ?>
                 <span style="color:#F59E0B; font-weight:800;">★ <?php echo number_format($ratingNum, 1); ?></span>
-                <span style="color:var(--ink-secondary);">(<?php echo $f['reviews'] ?? 100; ?> reviews)</span>
+                <span style="color:var(--ink-secondary);">(<?php echo $reviewCount; ?> reviews)</span>
+                <?php else: ?>
+                <span style="color:var(--ink-secondary); font-weight:700;">New venue</span>
+                <?php endif; ?>
               </div>
             </div>
             <div class="card-meta-row" style="gap:8px;">
@@ -300,17 +305,17 @@ $faqs = $faqs ?? [];
     <div class="open-play-grid" id="openPlayGrid" style="display: none;">
       <?php foreach ($matches as $m):
           $cardTitle = !empty($m['title']) ? $m['title'] : ($m['facility_name'] ?? 'Open Play Session');
-          $facilityName = $m['facility_name'] ?? 'A-Courts Dumaguete';
+          $facilityName = $m['facility_name'] ?? '';
           $currentPlayers = intval($m['current_players'] ?? 0);
           $maxPlayers = intval($m['max_players'] ?? $m['max_slots'] ?? 4);
           $isFull = $currentPlayers >= $maxPlayers;
           $spotsLeft = max(0, $maxPlayers - $currentPlayers);
-          $priceVal = is_numeric($m['price'] ?? null) ? (float)$m['price'] : 150;
-          $hostName = $m['host'] ?? 'Coach Marco';
+          $priceVal = is_numeric($m['price'] ?? null) ? (float)$m['price'] : 0.0;
+          $hostName = $m['host'] ?? '';
           $levelName = $m['level'] ?? 'All Levels';
-          $locationName = $m['location'] ?? 'Bantayan, Dumaguete City';
-          $dateVal = $m['date'] ?? 'Today';
-          $timeVal = $m['time'] ?? '6:00 PM - 8:00 PM';
+          $locationName = $m['location'] ?? '';
+          $dateVal = $m['date'] ?? '';
+          $timeVal = $m['time'] ?? '';
         ?>
         <div class="openplay-card match-card reveal-on-scroll">
           <div>

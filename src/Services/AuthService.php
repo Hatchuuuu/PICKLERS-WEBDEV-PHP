@@ -6,10 +6,30 @@ namespace Picklers\Services;
 use Picklers\Repositories\UserRepository;
 
 class AuthService {
+    /** Applies to sign-up, password changes and admin resets alike. */
+    public const PASSWORD_MIN_LENGTH = 8;
+
     private UserRepository $userRepo;
 
     public function __construct(?UserRepository $userRepo = null) {
         $this->userRepo = $userRepo ?? new UserRepository();
+    }
+
+    /**
+     * The single password rule. Sign-up enforced 8 characters + a number
+     * while password changes and admin resets accepted 6 of anything, so a
+     * strong password could be swapped for a weak one right after sign-up.
+     *
+     * @return string|null An error message, or null when the password is acceptable.
+     */
+    public static function passwordPolicyError(string $password): ?string {
+        if (strlen($password) < self::PASSWORD_MIN_LENGTH) {
+            return 'Password must be at least ' . self::PASSWORD_MIN_LENGTH . ' characters long.';
+        }
+        if (!preg_match('/[0-9]/', $password)) {
+            return 'Password must contain at least one number.';
+        }
+        return null;
     }
 
     public function getUserById(string $id): ?array {
@@ -44,7 +64,7 @@ class AuthService {
         $verified = password_verify($password, $passwordHash);
 
         // Then check both user existence AND verification result
-        if ($user && $verified) {
+        if ($user && $verified && ($user['role'] ?? '') !== 'deleted') {
             return $user;
         }
         return null;
@@ -56,13 +76,22 @@ class AuthService {
             return ['success' => false, 'error' => 'User account not found.'];
         }
 
-        $passwordHash = $user['password_hash'] ?? '';
-        if ($currentPassword !== '' && $passwordHash !== '' && !password_verify($currentPassword, $passwordHash)) {
-            return ['success' => false, 'error' => 'Current password is incorrect. Please try again.'];
+        // The current password was only checked when one was supplied, so an
+        // empty field skipped verification entirely: anyone holding a live
+        // session (a shared or unattended device) could lock the owner out.
+        $passwordHash = (string)($user['password_hash'] ?? '');
+        if ($passwordHash !== '') {
+            if ($currentPassword === '') {
+                return ['success' => false, 'error' => 'Please enter your current password.'];
+            }
+            if (!password_verify($currentPassword, $passwordHash)) {
+                return ['success' => false, 'error' => 'Current password is incorrect. Please try again.'];
+            }
         }
 
-        if (strlen($newPassword) < 6) {
-            return ['success' => false, 'error' => 'New password must be at least 6 characters long.'];
+        $policyError = self::passwordPolicyError($newPassword);
+        if ($policyError !== null) {
+            return ['success' => false, 'error' => $policyError];
         }
 
         $newHash = password_hash($newPassword, PASSWORD_BCRYPT);

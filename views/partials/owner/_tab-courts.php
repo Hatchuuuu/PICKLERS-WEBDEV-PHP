@@ -38,7 +38,7 @@ declare(strict_types=1);
     $statusText = $c['status'] ?? (!$isActive ? 'UNAVAILABLE' : 'AVAILABLE');
     $statusNormUpper = strtoupper(trim((string)$statusText));
 
-    if ($hasOpenPlay && ($statusNormUpper === 'AVAILABLE' || $statusNormUpper === 'HOSTED OPEN PLAY' || $statusNormUpper === 'OCCUPIED')) {
+    if ($hasOpenPlay && ($statusNormUpper === 'AVAILABLE' || $statusNormUpper === 'HOSTED OPEN PLAY' || $statusNormUpper === 'OPEN PLAY' || $statusNormUpper === 'OCCUPIED')) {
       $statusText = 'HOSTED OPEN PLAY';
       $statusClass = 'badge-amber-glow';
     } elseif ($statusNormUpper === 'OCCUPIED') {
@@ -59,6 +59,7 @@ declare(strict_types=1);
     $surfaceVal = $surfaceStr;
     $player = $c['player'] ?? null;
     $playerTime = $c['player_time'] ?? null;
+    $playerAvatar = $c['player_avatar'] ?? ($c['user_avatar'] ?? ($c['avatar_url'] ?? ($c['avatar'] ?? null)));
   ?>
     <div class="court-item-card <?php echo (!$isActive || $statusText === 'UNAVAILABLE') ? 'court-card-disabled' : ''; ?>" data-court-name="<?php echo htmlspecialchars(strtolower((string)$c['name'])); ?>">
       <!-- Header Row -->
@@ -81,17 +82,11 @@ declare(strict_types=1);
               <?php endif; ?>
             </div>
             <div class="player-avatar-circle">
-              <span><?php echo htmlspecialchars(strtoupper(substr(trim((string)$player), 0, 1))); ?></span>
-            </div>
-          </div>
-        <?php elseif (!empty($c['next_booking'])): ?>
-          <div class="court-item-player">
-            <div>
-              <div style="font-size:11.5px; font-weight:800; color:#00D98B; text-align:right;">Booked <?php echo htmlspecialchars((string)$c['next_booking']['time']); ?></div>
-              <div style="font-size:11px; font-weight:600; color:#CBD5E1; text-align:right;"><?php echo htmlspecialchars((string)$c['next_booking']['user_name']); ?></div>
-            </div>
-            <div class="player-avatar-circle">
-              <span><?php echo htmlspecialchars(strtoupper(substr(trim((string)($c['next_booking']['user_name'] ?? 'B')), 0, 1))); ?></span>
+              <?php if (!empty($playerAvatar)): ?>
+                <img src="<?php echo htmlspecialchars($playerAvatar); ?>" alt="<?php echo htmlspecialchars((string)$player); ?>" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+              <?php else: ?>
+                <span><?php echo htmlspecialchars(strtoupper(substr(trim((string)$player), 0, 1))); ?></span>
+              <?php endif; ?>
             </div>
           </div>
         <?php endif; ?>

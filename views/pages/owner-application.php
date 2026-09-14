@@ -135,12 +135,19 @@ declare(strict_types=1);
       border-color: rgba(255, 255, 255, 0.2);
     }
 
+    .wizard-top-nav {
+      padding: 24px 32px 0 32px;
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+    }
+
     /* Main Container */
     .main-wizard-container {
       flex: 1;
       max-width: 720px;
       width: 100%;
-      margin: 48px auto 80px;
+      margin: 16px auto 80px;
       padding: 0 20px;
     }
 
@@ -632,30 +639,31 @@ declare(strict_types=1);
     </a>
   </header>
 
-  <div class="main-wizard-container">
-    <div style="margin-bottom: 20px;">
-      <a href="app.php" class="btn-ghost-back">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-        <span>Player App</span>
-      </a>
-    </div>
+  <!-- Left Back Action Button (On the Red Line Position) -->
+  <div class="wizard-top-nav">
+    <a href="app.php" class="btn-ghost-back">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      <span>Player App</span>
+    </a>
+  </div>
 
-    <?php if ($notice === 'verification_required'): ?>
-      <div class="notice-card">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>To access the Court Owner Portal, please complete your facility details and verification documents below.</span>
-      </div>
-    <?php elseif ($notice === 'incomplete'): ?>
+  <div class="main-wizard-container">
+
+    <?php if ($notice === 'incomplete'): ?>
       <div class="notice-card">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span>Your last submission was missing required details or documents. Please review every step below and try again.</span>
+      </div>
+    <?php elseif ($notice === 'pending'): ?>
+      <div class="notice-card" style="background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38BDF8;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Your facility application is currently under review by PICKLERS administrators. You may update your details below.</span>
       </div>
     <?php endif; ?>
 
     <!-- Hero Header -->
     <div class="wizard-hero">
       <h1>List Your Pickleball Facility</h1>
-      <p>Connect your courts with over 15,000 active players in the Philippines. Automated reservations, cashless split payments, and tournament management.</p>
     </div>
 
     <!-- Verification Session Card -->
@@ -709,34 +717,63 @@ declare(strict_types=1);
             <input type="hidden" id="longitude" name="longitude" value="121.0244">
           </div>
 
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label class="form-label" for="courts_count">Number of Active Courts *</label>
-              <select id="courts_count" name="courts_count" class="input-field">
-                <option value="2">2 Courts</option>
-                <option value="4" selected>4 Courts</option>
-                <option value="6">6 Courts</option>
-                <option value="8">8 Courts</option>
-                <option value="12">12+ Courts</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="operating_hours">Standard Operating Hours *</label>
-              <input type="text" id="operating_hours" name="operating_hours" class="input-field" value="06:00 AM – 11:00 PM" required>
-            </div>
+          <div class="form-group">
+            <label class="form-label" for="courts_count">Number of Active Courts *</label>
+            <select id="courts_count" name="courts_count" class="input-field">
+              <option value="2">2 Courts</option>
+              <option value="4" selected>4 Courts</option>
+              <option value="6">6 Courts</option>
+              <option value="8">8 Courts</option>
+              <option value="12">12+ Courts</option>
+            </select>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="court_surface">Primary Court Surface *</label>
-            <select id="court_surface" name="court_surface" class="input-field" required>
-              <option value="Indoor Hard" selected>Indoor Hard</option>
-              <option value="Outdoor Acrylic">Outdoor Acrylic</option>
-              <option value="Pro Synthetic">Pro Synthetic</option>
-              <option value="Covered Wood">Covered Wood</option>
-              <option value="Cushioned Acrylic">Cushioned Acrylic</option>
-              <option value="Concrete / Asphalt">Concrete / Asphalt</option>
-            </select>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <label class="form-label" style="margin-bottom:0;">Standard Operating Hours *</label>
+              <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12.5px; font-weight:700; color:var(--mint); user-select:none;">
+                <input type="checkbox" id="is_24_hours" onchange="updateOperatingHoursValue()" style="accent-color:var(--mint); width:16px; height:16px; cursor:pointer;">
+                <span>Open 24 Hours (24/7)</span>
+              </label>
+            </div>
+
+            <div class="form-grid-2" id="operatingHoursTimeGrid">
+              <div>
+                <label style="font-size:11px; font-weight:700; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:block;">Opening Time</label>
+                <select id="operating_start" class="input-field" onchange="updateOperatingHoursValue()">
+                  <option value="04:00 AM">04:00 AM</option>
+                  <option value="05:00 AM">05:00 AM</option>
+                  <option value="06:00 AM" selected>06:00 AM</option>
+                  <option value="07:00 AM">07:00 AM</option>
+                  <option value="08:00 AM">08:00 AM</option>
+                  <option value="09:00 AM">09:00 AM</option>
+                  <option value="10:00 AM">10:00 AM</option>
+                  <option value="11:00 AM">11:00 AM</option>
+                  <option value="12:00 PM">12:00 PM</option>
+                  <option value="01:00 PM">01:00 PM</option>
+                  <option value="02:00 PM">02:00 PM</option>
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:11px; font-weight:700; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:block;">Closing Time</label>
+                <select id="operating_end" class="input-field" onchange="updateOperatingHoursValue()">
+                  <option value="06:00 PM">06:00 PM</option>
+                  <option value="07:00 PM">07:00 PM</option>
+                  <option value="08:00 PM">08:00 PM</option>
+                  <option value="09:00 PM">09:00 PM</option>
+                  <option value="10:00 PM">10:00 PM</option>
+                  <option value="11:00 PM" selected>11:00 PM</option>
+                  <option value="12:00 AM">12:00 AM (Midnight)</option>
+                  <option value="01:00 AM">01:00 AM</option>
+                  <option value="02:00 AM">02:00 AM</option>
+                  <option value="03:00 AM">03:00 AM</option>
+                </select>
+              </div>
+            </div>
+
+            <input type="hidden" id="operating_hours" name="operating_hours" value="06:00 AM – 11:00 PM" required>
+            <input type="hidden" id="court_surface" name="court_surface" value="Indoor Hard">
           </div>
 
           <div class="wizard-footer-actions">
@@ -906,17 +943,75 @@ declare(strict_types=1);
         </div>
       </div>
 
-      <a href="app.php?tab=settings" class="btn-launch-owner">
-        <span>Back to My Account</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-      </a>
+      <!-- Action Button Row -->
+      <div style="margin-top: 24px; width: 100%;">
+        <a href="app.php" style="width: 100%; padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: 9999px; background: #00D98B; color: #FFFFFF !important; text-decoration: none; border: none; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: transform 0.2s, background 0.2s;">
+          <span style="color: #FFFFFF !important;">OK, Got It</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </a>
+      </div>
     </div>
   </div>
+
+  <!-- Verification Notice Modal Notification Overlay -->
+  <?php if (!$shouldShowSubmittedModal): ?>
+  <div class="elevation-modal-overlay" id="ownerAppNoticeModal" style="display: flex;" onclick="if(event.target===this) dismissNoticeModal()">
+    <div class="elevation-modal-card">
+      <!-- Centered Glowing Icon Badge matching 2nd modal -->
+      <div class="elevation-icon-wrap" style="background: rgba(255, 184, 0, 0.14); border: 1.5px solid rgba(255, 184, 0, 0.4); color: #FFB800; box-shadow: 0 0 20px rgba(255, 184, 0, 0.2);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+
+      <!-- Centered Title matching 2nd modal -->
+      <h2 style="font-size: 24px; font-weight: 900; color: #FFFFFF; margin-bottom: 8px; text-align: center;">Court Owner Verification</h2>
+
+      <!-- Centered Subtitle Body Text matching 2nd modal -->
+      <p style="font-size: 14px; color: #94A3B8; line-height: 1.55; text-align: center; margin-bottom: 24px;">
+        To access the Court Owner Portal, please complete your facility details and verification documents below.
+      </p>
+
+      <!-- Full-Width Action Button matching 2nd modal -->
+      <div style="width: 100%;">
+        <button type="button" onclick="dismissNoticeModal()" style="width: 100%; padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: 9999px; background: #00D98B; color: #FFFFFF !important; border: none; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: transform 0.2s, background 0.2s;">
+          <span style="color: #FFFFFF !important;">OK, Fill Up Form</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <script>
     let currentStep = 1;
     const STEP_NAMES = ['Facility Details', 'Business & Contact', 'Permits & ID'];
     const RING_CIRCUMFERENCE = 2 * Math.PI * 27; // r=27, matches the SVG circle above
+
+    function dismissNoticeModal() {
+      const el = document.getElementById('ownerAppNoticeModal');
+      if (el) el.style.display = 'none';
+    }
+
+    function updateOperatingHoursValue() {
+      const is24 = document.getElementById('is_24_hours')?.checked;
+      const startSelect = document.getElementById('operating_start');
+      const endSelect = document.getElementById('operating_end');
+      const hiddenInput = document.getElementById('operating_hours');
+      const grid = document.getElementById('operatingHoursTimeGrid');
+
+      if (is24) {
+        if (startSelect) startSelect.disabled = true;
+        if (endSelect) endSelect.disabled = true;
+        if (grid) grid.style.opacity = '0.4';
+        if (hiddenInput) hiddenInput.value = '24 Hours';
+      } else {
+        if (startSelect) startSelect.disabled = false;
+        if (endSelect) endSelect.disabled = false;
+        if (grid) grid.style.opacity = '1';
+        const startVal = startSelect ? startSelect.value : '06:00 AM';
+        const endVal = endSelect ? endSelect.value : '11:00 PM';
+        if (hiddenInput) hiddenInput.value = startVal + ' – ' + endVal;
+      }
+    }
 
     function updateVerifyProgress(step) {
       const pct = step / 3;
@@ -1113,6 +1208,13 @@ declare(strict_types=1);
       if (!govIdInput.files || !govIdInput.files[0]) missingDocs.push('a valid Government ID');
       if (missingDocs.length) {
         showApplicationError('Please upload ' + missingDocs.join(' and ') + ' before submitting.');
+        return;
+      }
+      // The server rejects documents over 5MB, and past PHP's upload limit the
+      // request arrives empty and fails as a confusing security-token error.
+      const oversized = [permitInput.files[0], govIdInput.files[0]].filter(f => f.size > 5 * 1024 * 1024);
+      if (oversized.length) {
+        showApplicationError('Each document must be 5MB or smaller: ' + oversized.map(f => f.name).join(', ') + '.');
         return;
       }
 

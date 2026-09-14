@@ -72,7 +72,7 @@
           <?php endif; ?>
         </div>
         <div class="user-info-text">
-          <div class="user-name-line"><?php echo htmlspecialchars($currentUser['name'] ?? 'Ignacio Reyes'); ?></div>
+          <div class="user-name-line"><?php echo htmlspecialchars($currentUser['name'] ?? ''); ?></div>
           <div class="user-email-line"><?php echo htmlspecialchars($currentUser['email'] ?? 'ignacio.reyes@incredoball.ph'); ?></div>
         </div>
       </div>

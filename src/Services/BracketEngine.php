@@ -617,13 +617,16 @@ final class BracketEngine
         // The reset match only exists when the losers-bracket survivor takes the
         // grand final — otherwise it stays dormant and invisible.
         if ($matchId === 'GF') {
+            // Start from a clean reset: re-reporting the grand final used to
+            // keep the previous reset match's winner, so a stale result could
+            // still decide the champion.
+            $matches = self::deactivateReset($matches);
             $resetIdx = self::indexOf($matches, 'GF2');
-            if ($resetIdx !== null) {
-                $needsReset = ($winnerTeamId === $t2);
-                $matches[$resetIdx]['active'] = $needsReset;
-                $matches[$resetIdx]['status'] = $needsReset ? 'ready' : 'inactive';
-                $matches[$resetIdx]['team1'] = $needsReset ? $winnerTeamId : null;
-                $matches[$resetIdx]['team2'] = $needsReset ? $matches[$idx]['loser'] : null;
+            if ($resetIdx !== null && $winnerTeamId === $t2) {
+                $matches[$resetIdx]['active'] = true;
+                $matches[$resetIdx]['status'] = 'ready';
+                $matches[$resetIdx]['team1'] = $winnerTeamId;
+                $matches[$resetIdx]['team2'] = $matches[$idx]['loser'];
             }
         }
 
@@ -648,19 +651,7 @@ final class BracketEngine
         $idx = (int)self::indexOf($matches, $matchId);
 
         if ($matchId === 'GF') {
-            $resetIdx = self::indexOf($matches, 'GF2');
-            if ($resetIdx !== null) {
-                $matches[$resetIdx]['active'] = false;
-                $matches[$resetIdx]['status'] = 'inactive';
-                $matches[$resetIdx]['team1'] = null;
-                $matches[$resetIdx]['team2'] = null;
-                $matches[$resetIdx]['winner'] = null;
-                $matches[$resetIdx]['loser'] = null;
-                $matches[$resetIdx]['score1'] = null;
-                $matches[$resetIdx]['score2'] = null;
-                $matches[$resetIdx]['score'] = '';
-                $matches[$resetIdx]['completed_at'] = null;
-            }
+            $matches = self::deactivateReset($matches);
         }
 
         $matches[$idx]['winner'] = null;
@@ -726,8 +717,34 @@ final class BracketEngine
                 $matches[$tIdx]['team1'] = null;
                 $matches[$tIdx]['team2'] = null;
             }
+            // The championship reset exists only because of a grand-final
+            // result, so vacating the grand final also deactivates the reset.
+            if ($targetId === 'GF') {
+                $matches = self::deactivateReset($matches);
+            }
         }
 
+        return $matches;
+    }
+
+    /**
+     * Return the conditional championship reset to its dormant state.
+     *
+     * @param array<int,array<string,mixed>> $matches
+     * @return array<int,array<string,mixed>>
+     */
+    private static function deactivateReset(array $matches): array
+    {
+        $resetIdx = self::indexOf($matches, 'GF2');
+        if ($resetIdx === null) {
+            return $matches;
+        }
+        foreach (['team1', 'team2', 'winner', 'loser', 'score1', 'score2', 'completed_at'] as $key) {
+            $matches[$resetIdx][$key] = null;
+        }
+        $matches[$resetIdx]['score'] = '';
+        $matches[$resetIdx]['active'] = false;
+        $matches[$resetIdx]['status'] = 'inactive';
         return $matches;
     }
 

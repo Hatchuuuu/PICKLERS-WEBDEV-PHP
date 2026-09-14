@@ -64,6 +64,10 @@ if (session_status() === PHP_SESSION_NONE) {
         'httponly' => $sessionParams['httponly'] ?? true,
         'samesite' => $sessionParams['samesite'] ?? 'Lax'
     ]);
+    // Refuse session ids the server never issued (session fixation) and never
+    // accept one from the URL.
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
     @session_start();
 }
 
@@ -98,7 +102,14 @@ try {
     }
     http_response_code(500);
     error_log(sprintf("[PICKLERS CRITICAL] %s in %s:%d", $e->getMessage(), $e->getFile(), $e->getLine()));
-    if ($request->header('X-Requested-With') === 'XMLHttpRequest') {
+    // fetch() calls rarely send X-Requested-With; API routes and JSON callers
+    // must still get JSON back rather than an HTML page they can't parse.
+    $requestPath = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+    $wantsJson = $request->header('X-Requested-With') === 'XMLHttpRequest'
+        || str_contains((string)$request->header('Accept', ''), 'application/json')
+        || stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== false
+        || preg_match('#/(api|admin/api)(\.php)?$#', $requestPath) === 1;
+    if ($wantsJson) {
         header('Content-Type: application/json');
         echo json_encode(['success' => false, 'message' => 'Internal Server Error. Please contact support.']);
         exit;

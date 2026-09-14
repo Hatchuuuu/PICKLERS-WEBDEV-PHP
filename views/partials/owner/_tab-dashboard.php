@@ -57,7 +57,7 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
           <span class="quick-stat-num text-emerald">₱<?= number_format($financials['peak_day_gross'] ?? 0) ?></span>
         </div>
         <div class="quick-stat-divider"></div>
-        <div class="quick-stat-item quick-stat-clickable" onclick="openModal('dailyRevenueModal')" title="Click to view September daily income breakdown" role="button" tabindex="0">
+        <div class="quick-stat-item quick-stat-clickable" onclick="openModal('dailyRevenueModal')" title="View the past 30 days of daily income" role="button" tabindex="0">
           <span class="quick-stat-label quick-stat-yesterday-label">
             Yesterday's Income
             <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
@@ -171,7 +171,7 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
     <div class="live-courts-grid">
       <?php foreach ($liveCourts as $court): ?>
         <div class="live-court-card-v2" id="card_<?= htmlspecialchars($court['id']) ?>">
-          <div class="court-card-header-row" style="position:relative; display:flex; justify-content:space-between; align-items:center; min-height:20px;">
+          <div class="court-card-header-row" style="position:relative; top:-6px; display:flex; justify-content:space-between; align-items:center; min-height:20px;">
             <div class="court-name-text" title="<?= htmlspecialchars($court['name']) ?>"><?= htmlspecialchars($court['name']) ?></div>
             
             <?php if (($court['dot'] ?? '') === 'amber' || !empty($court['has_open_play'])): ?>
@@ -180,47 +180,25 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
                 <span>Players ▾</span>
               </button>
             <?php else: ?>
-              <div style="position:relative; display:inline-block;">
-                <button type="button" onclick="event.stopPropagation(); toggleCourtDropdown('dd_<?= htmlspecialchars(addslashes($court['id'])) ?>')" style="background:transparent; border:none; color:#FFFFFF; padding:0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
-                  <span>Schedule ▾</span>
-                </button>
-                <div class="court-schedule-dropdown" id="dd_<?= htmlspecialchars($court['id']) ?>" style="display:none; position:absolute; top:100%; right:0; margin-top:4px; background:#0F172A; border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:10px; width:220px; z-index:100; box-shadow:0 12px 30px rgba(0,0,0,0.6); text-align:left;">
-                  <?php if (!empty($court['upcoming_bookings'])): ?>
-                    <div style="font-size:10px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">Upcoming Bookings</div>
-                    <?php foreach ($court['upcoming_bookings'] as $ub): ?>
-                      <div style="font-size:11.5px; color:#FFFFFF; font-weight:700; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:3px;">
-                        <span><?= htmlspecialchars($ub['user_name']) ?></span>
-                        <span style="color:#00D98B; font-weight:800;"><?= htmlspecialchars($ub['time']) ?></span>
-                      </div>
-                    <?php endforeach; ?>
-                  <?php endif; ?>
-                  <?php if (!empty($court['completed_bookings'])): ?>
-                    <div style="font-size:10px; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.04em; margin-top:8px; margin-bottom:4px;">Completed Today</div>
-                    <?php foreach ($court['completed_bookings'] as $cb): ?>
-                      <div style="font-size:11.5px; color:#94A3B8; font-weight:600; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
-                        <span><?= htmlspecialchars($cb['user_name']) ?></span>
-                        <span><?= htmlspecialchars($cb['time']) ?></span>
-                      </div>
-                    <?php endforeach; ?>
-                  <?php endif; ?>
-                  <?php if (empty($court['upcoming_bookings']) && empty($court['completed_bookings'])): ?>
-                    <div style="font-size:11.5px; color:#94A3B8; text-align:center; padding:4px 0;">No bookings today</div>
-                  <?php endif; ?>
-                </div>
-              </div>
+              <button type="button" class="btn-court-players-trigger" onclick="openCourtScheduleModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', <?= htmlspecialchars(json_encode($court['upcoming_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($court['completed_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>)" title="View court schedule roster" style="background:transparent; border:none; color:#FFFFFF; padding:0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+                <span>Schedule ▾</span>
+              </button>
             <?php endif; ?>
           </div>
 
           <?php if ($court['status'] === 'occupied'):
-            $secLeftVal = (int)($court['seconds_left'] ?? 3600);
+            // OwnerController always supplies seconds_left for an occupied
+            // court; if it ever doesn't, show an unknown time rather than a
+            // made-up "36:20".
+            $secLeftVal = max(0, (int)($court['seconds_left'] ?? 0));
             $timerClass = ($secLeftVal < 600) ? 'court-timer--critical' : 'court-timer--normal';
           ?>
             <div class="court-player-sub"><?= htmlspecialchars($court['player_name'] ?? 'Player') ?></div>
             <div class="court-digital-timer-glow <?= $timerClass ?>"
                  id="timer_<?= htmlspecialchars($court['id']) ?>"
                  data-court-id="<?= htmlspecialchars($court['id']) ?>"
-                 data-seconds-left="<?= (int)($court['seconds_left'] ?? 2180) ?>"
-                 data-total-seconds="<?= (int)($court['total_seconds'] ?? 3600) ?>"><?= (!empty($court['timer']) && $court['timer'] !== 'NaN:NaN') ? htmlspecialchars($court['timer']) : '36:20' ?></div>
+                 data-seconds-left="<?= $secLeftVal ?>"
+                 data-total-seconds="<?= (int)($court['total_seconds'] ?? 3600) ?>"><?= (!empty($court['timer']) && $court['timer'] !== 'NaN:NaN') ? htmlspecialchars($court['timer']) : '--:--' ?></div>
             <div class="court-timer-progress-track">
               <div class="court-timer-progress-bar-<?= $court['progress_color'] ?? 'green' ?>" 
                    id="pbar_<?= htmlspecialchars($court['id']) ?>" 
@@ -244,16 +222,7 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
             </div>
           <?php elseif ($court['status'] === 'waiting'): ?>
             <div class="court-waiting-pill-wrap" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; margin-top:8px; margin-bottom:8px;">
-              <?php if (!empty($court['next_booking'])): ?>
-                <span style="background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.4); color: #00D98B; font-weight: 800; font-size: 11.5px; padding: 6px 14px; border-radius: 9999px; letter-spacing: 0.01em; display: inline-block;">
-                  Booked <?= htmlspecialchars($court['next_booking']['time']) ?>
-                </span>
-                <div style="font-size: 12.5px; color: #CBD5E1; font-weight: 600; text-align: center; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <?= htmlspecialchars($court['next_booking']['user_name']) ?>
-                </div>
-              <?php else: ?>
-                <span class="court-waiting-pill">Waiting for players</span>
-              <?php endif; ?>
+              <span class="court-waiting-pill">Waiting for players</span>
             </div>
           <?php elseif ($court['status'] === 'maintenance'): ?>
             <div class="court-maintenance-wrap">
@@ -289,8 +258,24 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
       <?php endif; ?>
       <?php foreach ($pendingRequests as $req): ?>
         <div class="request-card-v2" id="req_card_<?= htmlspecialchars($req['id']) ?>">
-          <div class="req-card-top-row">
-            <span class="req-player-name"><?= htmlspecialchars($req['name']) ?></span>
+          <div class="req-card-top-row" style="align-items:center; gap:10px;">
+            <?php 
+              $reqAvatar = $req['player_avatar'] ?? ($req['avatar_url'] ?? ($req['avatar'] ?? null)); 
+              $reqInitials = !empty($req['name']) ? strtoupper(substr(trim((string)$req['name']), 0, 1)) : 'P';
+            ?>
+            <div class="user-avatar-circle-sm" style="width: 36px; height: 36px; flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+              <?php if (!empty($reqAvatar)): ?>
+                <img src="<?= htmlspecialchars($reqAvatar) ?>" alt="Avatar" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">
+              <?php else: ?>
+                <span><?= htmlspecialchars($reqInitials) ?></span>
+              <?php endif; ?>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <span class="req-player-name"><?= htmlspecialchars($req['name']) ?></span>
+              <div style="font-size:11.5px; font-weight:700; color:<?= !empty($req['is_open_play']) ? '#38BDF8' : '#00D98B' ?>; letter-spacing:0.02em; margin-top:1px;">
+                <?= !empty($req['is_open_play']) ? 'Open Play' : 'Court Reservation' ?>
+              </div>
+            </div>
             <span class="req-payment-method-badge"><?= htmlspecialchars($req['badge'] ?? 'GCASH') ?></span>
           </div>
 

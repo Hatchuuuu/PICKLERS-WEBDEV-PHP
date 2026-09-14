@@ -40,7 +40,7 @@
 
             if ($isOP) {
                 $typeKey = 'open_play';
-                $typeLabel = 'Hosted Open Play';
+                $typeLabel = 'Open Play';
                 $icon = '🔥';
 
                 if (empty($rawCourt) || strcasecmp($rawCourt, $facility) === 0) {
@@ -93,6 +93,36 @@
         }
     }
 
+    if (!function_exists('formatBookingDisplayDate')) {
+        function formatBookingDisplayDate($b) {
+            $rawDate = trim((string)($b['date'] ?? ''));
+            $bookingDate = trim((string)($b['booking_date'] ?? ''));
+
+            if (preg_match('/Everyday\s*\(([^)]+)\)/i', $rawDate, $m)) {
+                $rawDate = trim($m[1]);
+            } elseif (strcasecmp($rawDate, 'everyday') === 0 && !empty($bookingDate)) {
+                $rawDate = $bookingDate;
+            }
+
+            $ts = strtotime($rawDate);
+            if ($ts !== false && $ts > 0 && preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawDate)) {
+                return date('D, M j, Y', $ts);
+            }
+
+            return $rawDate;
+        }
+    }
+
+    // Inline onclick arguments: each value becomes a JSON string literal
+    // (quotes/tags hex-escaped) and the whole list is attribute-escaped.
+    if (!function_exists('bookingJsArgs')) {
+        function bookingJsArgs(...$values) {
+            $flags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE;
+            $parts = array_map(static fn($v) => json_encode((string)$v, $flags), $values);
+            return htmlspecialchars(implode(', ', $parts), ENT_QUOTES, 'UTF-8');
+        }
+    }
+
     // End of helper functions
   ?>
   <div>
@@ -106,22 +136,22 @@
     <div class="booking-subnav">
       <button type="button" id="bookingSubTabBtn_upcoming" class="booking-subnav-btn <?php echo $subTab === 'upcoming' ? 'active' : ''; ?>" onclick="switchBookingSubTab('upcoming')">
         <span class="booking-subnav-label">
-          Upcoming <span class="booking-badge-count">(<?php echo count($upcomingBookings); ?>)</span>
+          Upcoming<?php if (count($upcomingBookings) > 0): ?> <span class="booking-badge-count" id="bookingBadge_upcoming" <?php echo $subTab === 'upcoming' ? 'style="display:none;"' : ''; ?>><?php echo count($upcomingBookings); ?></span><?php endif; ?>
         </span>
       </button>
       <button type="button" id="bookingSubTabBtn_completed" class="booking-subnav-btn <?php echo $subTab === 'completed' ? 'active' : ''; ?>" onclick="switchBookingSubTab('completed')">
         <span class="booking-subnav-label">
-          Completed <span class="booking-badge-count">(<?php echo count($completedBookings); ?>)</span>
+          Completed<?php if (count($completedBookings) > 0): ?> <span class="booking-badge-count" id="bookingBadge_completed" <?php echo $subTab === 'completed' ? 'style="display:none;"' : ''; ?>><?php echo count($completedBookings); ?></span><?php endif; ?>
         </span>
       </button>
       <button type="button" id="bookingSubTabBtn_refunds" class="booking-subnav-btn <?php echo $subTab === 'refunds' ? 'active' : ''; ?>" onclick="switchBookingSubTab('refunds')">
         <span class="booking-subnav-label">
-          Refunds <span class="booking-badge-count">(<?php echo count($refundTransactions); ?>)</span>
+          Refunds<?php if (count($refundTransactions) > 0): ?> <span class="booking-badge-count" id="bookingBadge_refunds" <?php echo $subTab === 'refunds' ? 'style="display:none;"' : ''; ?>><?php echo count($refundTransactions); ?></span><?php endif; ?>
         </span>
       </button>
       <button type="button" id="bookingSubTabBtn_cancelled" class="booking-subnav-btn <?php echo $subTab === 'cancelled' ? 'active' : ''; ?>" onclick="switchBookingSubTab('cancelled')">
         <span class="booking-subnav-label">
-          Cancelled <span class="booking-badge-count">(<?php echo count($cancelledBookings); ?>)</span>
+          Cancelled<?php if (count($cancelledBookings) > 0): ?> <span class="booking-badge-count" id="bookingBadge_cancelled" <?php echo $subTab === 'cancelled' ? 'style="display:none;"' : ''; ?>><?php echo count($cancelledBookings); ?></span><?php endif; ?>
         </span>
       </button>
     </div>
@@ -138,7 +168,10 @@
       <?php else: ?>
         <div style="display:flex; flex-direction:column; gap:16px;">
           <?php foreach ($upcomingBookings as $b): ?>
-            <?php $det = getBookingTypeDetails($b); ?>
+            <?php 
+              $det = getBookingTypeDetails($b); 
+              $displayDate = formatBookingDisplayDate($b);
+            ?>
             <div class="booking-card-item" data-booking-type="<?php echo $det['type_key']; ?>">
               <div class="app-facility-card" style="padding:22px; border:1px solid rgba(255,255,255,0.08); border-radius:18px; background:rgba(17, 35, 61, 0.6);">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:12px;">
@@ -147,7 +180,7 @@
                       <h4 style="font-size:18px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.2px;">
                         <?php echo htmlspecialchars($det['display_name']); ?>
                       </h4>
-                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $det['is_op'] ? 'rgba(255, 184, 0, 0.14)' : 'rgba(0, 217, 139, 0.14)'; ?>; border:1px solid <?php echo $det['is_op'] ? 'rgba(255, 184, 0, 0.35)' : 'rgba(0, 217, 139, 0.3)'; ?>; color:<?php echo $det['is_op'] ? '#FFB800' : '#00D98B'; ?>; text-transform:uppercase; letter-spacing:0.04em;">
+                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $det['is_op'] ? 'rgba(56, 189, 248, 0.14)' : 'rgba(0, 217, 139, 0.14)'; ?>; border:1px solid <?php echo $det['is_op'] ? 'rgba(56, 189, 248, 0.35)' : 'rgba(0, 217, 139, 0.3)'; ?>; color:<?php echo $det['is_op'] ? '#38BDF8' : '#00D98B'; ?>; text-transform:uppercase; letter-spacing:0.04em;">
                         <?php echo htmlspecialchars($det['type_label']); ?>
                       </span>
                     </div>
@@ -185,20 +218,22 @@
                       <span><?php echo htmlspecialchars($det['facility_name']); ?></span>
                     </div>
                     <div style="font-size:12px; color:#94A3B8; display:flex; align-items:center; gap:8px;">
-                      <span>📅 <?php echo htmlspecialchars($b['date']); ?></span>
+                      <span>📅 <?php echo htmlspecialchars($displayDate); ?></span>
                       <span style="color:rgba(255,255,255,0.2);">•</span>
                       <span>🕒 <?php echo htmlspecialchars($b['time']); ?></span>
                     </div>
                   </div>
 
                   <div style="display:flex; align-items:center; gap:10px;">
-                    <button type="button" class="btn-view-courts" onclick="openQrPassModal('<?php echo $b['id']; ?>', '<?php echo htmlspecialchars(addslashes($det['facility_name'])); ?>', '<?php echo htmlspecialchars(addslashes($det['display_name'])); ?>', '<?php echo $b['date']; ?>', '<?php echo $b['time']; ?>', '<?php echo $det['type_key']; ?>')">
+                    <button type="button" class="btn-view-courts" onclick="openQrPassModal(<?php echo bookingJsArgs($b['id'], $det['facility_name'], $det['display_name'], $displayDate, $b['time'], $det['type_key']); ?>)">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
                       <span>View Pass</span>
                     </button>
-                    <button type="button" class="btn-danger" onclick="promptCancelBooking('<?php echo $b['id']; ?>', '<?php echo htmlspecialchars(addslashes($b['date'])); ?>')">
-                      Cancel
-                    </button>
+                    <?php if (($b['status'] ?? '') !== 'confirmed'): ?>
+                      <button type="button" class="btn-danger" onclick="promptCancelBooking(<?php echo bookingJsArgs($b['id'], $displayDate, $db->isFullRefundEligible($b) ? '1' : '', $b['payment_method'] ?? ''); ?>)">
+                        Cancel
+                      </button>
+                    <?php endif; ?>
                   </div>
                 </div>
               </div>
@@ -219,7 +254,10 @@
       <?php else: ?>
         <div style="display:flex; flex-direction:column; gap:16px;">
           <?php foreach ($completedBookings as $b): ?>
-            <?php $det = getBookingTypeDetails($b); ?>
+            <?php 
+              $det = getBookingTypeDetails($b); 
+              $displayDate = formatBookingDisplayDate($b);
+            ?>
             <div class="booking-card-item" data-booking-type="<?php echo $det['type_key']; ?>">
               <div class="app-facility-card" style="padding:22px; border:1px solid rgba(255,255,255,0.08); border-radius:18px; background:rgba(17, 35, 61, 0.6);">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:12px;">
@@ -228,7 +266,7 @@
                       <h4 style="font-size:18px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.2px;">
                         <?php echo htmlspecialchars($det['display_name']); ?>
                       </h4>
-                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $det['is_op'] ? 'rgba(255, 184, 0, 0.14)' : 'rgba(0, 217, 139, 0.14)'; ?>; border:1px solid <?php echo $det['is_op'] ? 'rgba(255, 184, 0, 0.35)' : 'rgba(0, 217, 139, 0.3)'; ?>; color:<?php echo $det['is_op'] ? '#FFB800' : '#00D98B'; ?>; text-transform:uppercase; letter-spacing:0.04em;">
+                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $det['is_op'] ? 'rgba(56, 189, 248, 0.14)' : 'rgba(0, 217, 139, 0.14)'; ?>; border:1px solid <?php echo $det['is_op'] ? 'rgba(56, 189, 248, 0.35)' : 'rgba(0, 217, 139, 0.3)'; ?>; color:<?php echo $det['is_op'] ? '#38BDF8' : '#00D98B'; ?>; text-transform:uppercase; letter-spacing:0.04em;">
                         <?php echo htmlspecialchars($det['type_label']); ?>
                       </span>
                     </div>
@@ -258,14 +296,14 @@
                       <span><?php echo htmlspecialchars($det['facility_name']); ?></span>
                     </div>
                     <div style="font-size:12px; color:#94A3B8; display:flex; align-items:center; gap:8px;">
-                      <span>📅 <?php echo htmlspecialchars($b['date']); ?></span>
+                      <span>📅 <?php echo htmlspecialchars($displayDate); ?></span>
                       <span style="color:rgba(255,255,255,0.2);">•</span>
                       <span>🕒 <?php echo htmlspecialchars($b['time']); ?></span>
                     </div>
                   </div>
 
                   <div>
-                    <button type="button" class="btn-view-courts" onclick="openQrPassModal('<?php echo $b['id']; ?>', '<?php echo htmlspecialchars(addslashes($det['facility_name'])); ?>', '<?php echo htmlspecialchars(addslashes($det['display_name'])); ?>', '<?php echo $b['date']; ?>', '<?php echo $b['time']; ?>', '<?php echo $det['type_key']; ?>')">
+                    <button type="button" class="btn-view-courts" onclick="openQrPassModal(<?php echo bookingJsArgs($b['id'], $det['facility_name'], $det['display_name'], $displayDate, $b['time'], $det['type_key']); ?>)">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
                       <span>View Pass</span>
                     </button>
@@ -319,7 +357,10 @@
       <?php else: ?>
         <div style="display:flex; flex-direction:column; gap:16px;">
           <?php foreach ($cancelledBookings as $b): ?>
-            <?php $det = getBookingTypeDetails($b); ?>
+            <?php 
+              $det = getBookingTypeDetails($b); 
+              $displayDate = formatBookingDisplayDate($b);
+            ?>
             <div class="booking-card-item" data-booking-type="<?php echo $det['type_key']; ?>">
               <div class="app-facility-card" style="padding:22px; border:1px solid rgba(255,255,255,0.08); border-radius:18px; background:rgba(17, 35, 61, 0.4); opacity:0.85;">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:12px;">
@@ -358,7 +399,7 @@
                       <span><?php echo htmlspecialchars($det['facility_name']); ?></span>
                     </div>
                     <div style="font-size:12px; color:#94A3B8; display:flex; align-items:center; gap:8px;">
-                      <span>📅 <?php echo htmlspecialchars($b['date']); ?></span>
+                      <span>📅 <?php echo htmlspecialchars($displayDate); ?></span>
                       <span style="color:rgba(255,255,255,0.2);">•</span>
                       <span>🕒 <?php echo htmlspecialchars($b['time']); ?></span>
                     </div>

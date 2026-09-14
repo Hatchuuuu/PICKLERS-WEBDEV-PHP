@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Controllers;
 
-use Exception;
 use Picklers\Core\Request;
 use Picklers\Core\Response;
 use Picklers\Services\AuthService;
@@ -19,6 +18,13 @@ class ApiController extends BaseController {
 
     /** Payment methods the platform accepts. Anything else is rejected outright. */
     public const ALLOWED_PAYMENT_METHODS = ['Pickle Credits', 'GCash', 'Maya', 'Card', 'Pay at Venue'];
+
+    /**
+     * Labels the checkout UI sends for an accepted method. The player app's
+     * "Cash on Site" option was rejected as unsupported, so every cash court
+     * booking and cash Open Play join failed.
+     */
+    public const PAYMENT_METHOD_ALIASES = ['Cash on Site' => 'Pay at Venue'];
 
     /** Ceiling for a stored avatar. A 256px re-encode lands well under this. */
     public const MAX_AVATAR_BYTES = 200000;
@@ -73,6 +79,25 @@ class ApiController extends BaseController {
     /** Owners host tournaments; admins may act on any of them for support. */
     private function isOwnerAccount(?array $user): bool {
         return $user !== null && (!empty($user['is_owner']) || !empty($user['is_admin']));
+    }
+
+    /**
+     * The player app's Support chat addresses the reserved id 'usr_admin',
+     * which no account holds in a provisioned database, so support messages
+     * were stored against nobody and never read. Route that reserved id to a
+     * real, active administrator when one exists.
+     */
+    private function resolveMessagePartnerId(string $partnerId): string {
+        $partnerId = trim($partnerId);
+        if ($partnerId !== 'usr_admin' || $this->authService->getUserById('usr_admin')) {
+            return $partnerId;
+        }
+        foreach ($this->authService->getAllUsers() as $u) {
+            if (!empty($u['is_admin']) && ($u['role'] ?? '') !== 'deleted') {
+                return (string)$u['id'];
+            }
+        }
+        return $partnerId;
     }
 
     /**
@@ -260,6 +285,9 @@ class ApiController extends BaseController {
 
                         $unread = $this->notificationService->getNotifications($currentUser['id']);
                         $syncPayload['unread_notifications'] = count(array_filter($unread, fn($n) => empty($n['is_read'])));
+                        // This player's own bookings and wallet, so an owner accepting or
+                        // declining a request (or a refund) reaches their screen live.
+                        $syncPayload['account'] = \Picklers\Core\Database::get()->getAccountSyncState((string)$currentUser['id']);
                     }
                     return $this->json($syncPayload);
 
@@ -301,13 +329,9 @@ class ApiController extends BaseController {
                     ]);
 
                 case 'verify_checkin':
-                    // The venue "Scan QR Pass" flow used to parse the scanned
-                    // string CLIENT-SIDE ONLY and always show "Verified &
-                    // Checked In!" — scanning a random QR code, or typing
-                    // gibberish into the manual entry box, "verified" it every
-                    // time. This actually looks the code up against a real
-                    // booking and only reports success for one that is real,
-                    // belongs to this facility, and is actually confirmed.
+                    // Looks the scanned code up against a real booking and only
+                    // reports success for one that belongs to this facility, is
+                    // confirmed, and is for today's session.
                     if (!$this->isOwnerAccount($currentUser)) {
                         return $this->jsonError('Owner access required.', 403);
                     }
@@ -354,6 +378,14 @@ class ApiController extends BaseController {
                         return $this->json(['success' => false, 'message' => $reason, 'booking' => $scanDetails], 409);
                     }
 
+                    // A confirmed pass is only valid on the day of its own session.
+                    if ($db->isBookingPast($scanBooking)) {
+                        return $this->json(['success' => false, 'message' => 'This pass has expired — the session has already ended.', 'booking' => $scanDetails], 409);
+                    }
+                    $scanDay = (string)($scanBooking['booking_date'] ?? '');
+                    if ($scanDay !== '' && $scanDay > date('Y-m-d')) {
+                        return $this->json(['success' => false, 'message' => 'This pass is for ' . date('M j, Y', (int)strtotime($scanDay)) . ', not today.', 'booking' => $scanDetails], 409);
+                    }
                     return $this->json(['success' => true, 'message' => 'Booking verified.', 'booking' => $scanDetails]);
 
                 case 'mark_notifications_read':
@@ -380,13 +412,36 @@ class ApiController extends BaseController {
                     $name = trim((string)$request->input('name', ''));
                     $email = trim((string)$request->input('email', ''));
                     $phone = trim((string)$request->input('phone', ''));
+                    // One stored form per number, so sign-in and the uniqueness
+                    // check below recognise it however it was typed.
+                    if ($phone !== '') {
+                        $phone = \Picklers\Helpers\Format::phMobile($phone) ?? $phone;
+                    }
                     $level = trim((string)$request->input('level', ''));
+                    // users.name/phone/level are VARCHAR(120/32/20): under
+                    // STRICT_TRANS_TABLES an over-long value is a hard SQL error.
+                    if ($name !== '' && (mb_strlen($name) > 120 || preg_match('/[<>]/', $name))) {
+                        return $this->jsonError('Please enter a valid name (up to 120 characters, no < or >).', 400);
+                    }
+                    if ($level !== '' && (mb_strlen($level) > 20 || preg_match('/[<>]/', $level))) {
+                        return $this->jsonError('Please choose a valid skill level.', 400);
+                    }
+                    if ($phone !== '' && $phone !== (string)($currentUser['phone'] ?? '')) {
+                        if (strlen($phone) > 32 || !preg_match('/^[0-9+()\-\s]{7,32}$/', $phone)) {
+                            return $this->jsonError('Please enter a valid mobile number.', 400);
+                        }
+                        // Phone is a sign-in identifier: it must stay unique.
+                        $phoneOwner = $this->authService->getUserByEmailOrPhone($phone);
+                        if ($phoneOwner && (string)$phoneOwner['id'] !== (string)$currentUser['id']) {
+                            return $this->jsonError('This mobile number is already linked to another account.', 400);
+                        }
+                    }
                     $fields = [];
                     if (!empty($name)) $fields['name'] = $name;
                     if (!empty($phone)) $fields['phone'] = $phone;
                     if (!empty($level)) $fields['level'] = $level;
                     if (!empty($email) && $email !== ($currentUser['email'] ?? '')) {
-                        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        if (strlen($email) > 120 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                             return $this->jsonError('Please enter a valid email address', 400);
                         }
                         $existing = $this->authService->getUserByEmailOrPhone($email);
@@ -467,19 +522,17 @@ class ApiController extends BaseController {
                     }
                     $targetId = (string)$request->input('user_id', '');
                     $target = $this->authService->getUserById($targetId);
-                    if ($target) {
+                    if ($target && ($target['role'] ?? '') !== 'deleted') {
                         unset($_SESSION['user']);
                         \Picklers\Middleware\AuthMiddleware::login($target['id']);
-                        return $this->json(['success' => true, 'user' => $target, 'message' => 'Switched to ' . $target['name']]);
+                        // The raw row (password hash included) was returned here.
+                        return $this->json(['success' => true, 'user' => $this->sanitizeUser($target), 'message' => 'Switched to ' . $target['name']]);
                     }
                     return $this->jsonError('User not found', 404);
 
                 case 'delete_own_account':
-                    // The settings screen previously showed a "DELETE" confirmation
-                    // and then merely signed the user out — nothing was ever
-                    // deleted, while the toast claimed it had been. This performs a
-                    // real soft-delete (the same shape admin_delete_user uses, so
-                    // financial records referenced by FK constraints survive).
+                    // A soft-delete (the same shape admin_delete_user uses), so
+                    // financial records referenced by FK constraints survive.
                     if (!$currentUser) {
                         return $this->jsonError('Unauthorized', 401);
                     }
@@ -492,8 +545,24 @@ class ApiController extends BaseController {
                             'Administrator accounts cannot be self-deleted. Contact another administrator.', 403
                         );
                     }
+                    // The facility listing, its bookings and payouts would stay
+                    // attached to an account nobody can sign in to anymore.
+                    if (!empty($currentUser['is_owner'])) {
+                        return $this->jsonError(
+                            'Facility owner accounts cannot be deleted from the app while a facility is listed. Please contact Picklers support.', 403
+                        );
+                    }
 
                     $selfId = (string)$currentUser['id'];
+                    // Release the courts this account still holds: a deactivated
+                    // account's pending/confirmed bookings kept those slots blocked
+                    // for everyone. The normal cancellation policy (and refunds) applies.
+                    $selfDb = \Picklers\Core\Database::get();
+                    foreach ($this->bookingService->getBookings($selfId) as $held) {
+                        if (in_array((string)($held['status'] ?? ''), ['pending', 'confirmed'], true) && !$selfDb->isBookingPast($held)) {
+                            $this->bookingService->cancelBooking((string)$held['id'], $selfId);
+                        }
+                    }
                     $this->authService->updateUser($selfId, [
                         'role'                => 'deleted',
                         'email'               => 'deleted_' . $selfId . '@picklers.invalid',
@@ -546,6 +615,64 @@ class ApiController extends BaseController {
                     $courts = $this->facilityService->getCourtsWithAttributes($id);
                     $images = $this->facilityService->getCourtImagesByFacility($id);
                     $amenities = $this->facilityService->getFacilityAmenities($id);
+
+                    // Check if current user has joined any open play sessions at this facility
+                    if ($currentUser && !empty($currentUser['id'])) {
+                        $userId = (string)$currentUser['id'];
+                        $db = \Picklers\Core\Database::get();
+                        $myBookings = $db->getBookings($userId);
+                        $joinedMatchMap = [];
+                        foreach ($myBookings as $mb) {
+                            if (in_array($mb['status'] ?? '', ['pending', 'confirmed'], true)) {
+                                $bId = (string)($mb['id'] ?? '');
+                                $bCourtName = (string)($mb['court_name'] ?? '');
+                                $bLabel = (string)($mb['label'] ?? '');
+                                $bFacId = (string)($mb['facility_id'] ?? '');
+
+                                if (!empty($mb['match_id'])) {
+                                    $joinedMatchMap[(string)$mb['match_id']] = true;
+                                }
+
+                                $isOPBooking = str_starts_with($bId, 'PKL-OP-')
+                                            || stripos($bCourtName, 'open play') !== false
+                                            || stripos($bLabel, 'open play') !== false
+                                            || !empty($mb['match_id']);
+
+                                if ($isOPBooking && $bFacId !== '') {
+                                    $joinedMatchMap["fac_{$bFacId}"] = true;
+                                }
+
+                                $key = $bFacId . '|' . $bCourtName . '|' . (string)($mb['time'] ?? '');
+                                $joinedMatchMap[$key] = true;
+                            }
+                        }
+                        foreach ($courts as &$c) {
+                            $cFacId = (string)($c['facility_id'] ?? $id);
+                            $cName = (string)($c['name'] ?? '');
+                            $isOPCourt = !empty($c['has_open_play'])
+                                      || (!empty($c['occupied_by']) && (stripos($c['occupied_by'], 'open play') !== false || stripos($c['occupied_by'], 'hosted') !== false))
+                                      || !empty($c['open_play_match']);
+
+                            if ($isOPCourt) {
+                                $op = $c['open_play_match'] ?? [];
+                                $opId = (string)($op['id'] ?? '');
+                                $opKey = $cFacId . '|' . (string)($op['type'] ?? $cName) . '|' . (string)($op['time'] ?? '');
+
+                                if ((!empty($opId) && isset($joinedMatchMap[$opId]))
+                                    || isset($joinedMatchMap[$opKey])
+                                    || isset($joinedMatchMap["fac_{$cFacId}"])
+                                ) {
+                                    $c['user_joined'] = true;
+                                    if (!empty($c['open_play_match'])) {
+                                        $c['open_play_match']['is_joined'] = true;
+                                        $c['open_play_match']['user_joined'] = true;
+                                    }
+                                }
+                            }
+                        }
+                        unset($c);
+                    }
+
                     return $this->json([
                         'success' => true,
                         'facility' => $facility,
@@ -557,8 +684,16 @@ class ApiController extends BaseController {
                 case 'slot_availability':
                     $facIdRaw = $request->query('facility_id', $request->query('id', ''));
                     $facilityId = ctype_digit((string)$facIdRaw) ? (int)$facIdRaw : (string)$facIdRaw;
-                    $courtId = (string)$request->query('court_id', '');
-                    $dateStr = (string)$request->query('date', date('Y-m-d'));
+                    $courtId = trim((string)$request->query('court_id', ''));
+                    if ($courtId === '') {
+                        return $this->jsonError('court_id is required.', 400);
+                    }
+                    // The checkout sends display dates ("Sun, Sep 14, 2026") but
+                    // availability is keyed on the canonical Y-m-d booking_date:
+                    // the raw string never matched, so every slot read as free and
+                    // the "already booked" warning never appeared.
+                    $slotDateTs = strtotime((string)$request->query('date', ''));
+                    $dateStr = $slotDateTs !== false ? date('Y-m-d', $slotDateTs) : date('Y-m-d');
                     $slots = $this->bookingService->getSlotAvailability($facilityId, $courtId, $dateStr);
                     return $this->json(['success' => true, 'slots' => $slots]);
 
@@ -569,26 +704,42 @@ class ApiController extends BaseController {
                     if (!$currentUser) {
                         return $this->jsonError('Authentication required.', 401);
                     }
+                    // Entries belong to THIS account: by user id wherever the
+                    // roster recorded one, otherwise by exact full name.
+                    // Substring matching showed a player named "Al" every
+                    // tournament containing an "Alex", "Alan" or "Salvador".
+                    $myId = (string)$currentUser['id'];
                     $playerName = strtolower(trim((string)($currentUser['name'] ?? '')));
+                    $isMe = static function (string $entryUserId, string $entryName) use ($myId, $playerName): bool {
+                        if ($entryUserId !== '') {
+                            return $entryUserId === $myId;
+                        }
+                        return $playerName !== '' && strtolower(trim($entryName)) === $playerName;
+                    };
                     $myTs = [];
                     foreach ($this->tournamentService()->all() as $t) {
                         $found = false;
                         foreach ((array)($t['teams'] ?? []) as $team) {
-                            $p1 = strtolower(trim((string)($team['player1'] ?? '')));
-                            $p2 = strtolower(trim((string)($team['player2'] ?? '')));
-                            if ($playerName !== '' && (str_contains($p1, $playerName) || str_contains($p2, $playerName))) {
+                            if ($isMe((string)($team['player1_id'] ?? ''), (string)($team['player1'] ?? ''))
+                                || $isMe((string)($team['player2_id'] ?? ''), (string)($team['player2'] ?? ''))) {
                                 $found = true; break;
                             }
                         }
                         if (!$found) {
                             foreach ((array)($t['players_pool'] ?? []) as $player) {
-                                $pn = strtolower(trim((string)($player['name'] ?? '')));
-                                if ($playerName !== '' && str_contains($pn, $playerName)) {
+                                if ($isMe((string)($player['user_id'] ?? ''), (string)($player['name'] ?? ''))) {
                                     $found = true; break;
                                 }
                             }
                         }
-                        if ($found) { $myTs[] = $t; }
+                        if ($found) {
+                            // Other entrants' contact details are the host's, not this player's.
+                            $t['players_pool'] = array_map(static function ($p) {
+                                unset($p['email']);
+                                return $p;
+                            }, (array)($t['players_pool'] ?? []));
+                            $myTs[] = $t;
+                        }
                     }
                     return $this->jsonSuccess(['tournaments' => $myTs]);
 
@@ -604,6 +755,7 @@ class ApiController extends BaseController {
                     }
                     $matchId = (string)$request->input('match_id', '');
                     $paymentMethod = (string)$request->input('payment_method', 'GCash');
+                    $paymentMethod = self::PAYMENT_METHOD_ALIASES[$paymentMethod] ?? $paymentMethod;
                     if (!in_array($paymentMethod, self::ALLOWED_PAYMENT_METHODS, true)) {
                         return $this->jsonError('Unsupported payment method.', 400);
                     }
@@ -627,24 +779,39 @@ class ApiController extends BaseController {
                     }
                     $facIdRaw = $request->input('facility_id', '');
                     $facilityId = ctype_digit((string)$facIdRaw) ? (int)$facIdRaw : (string)$facIdRaw;
-                    // court_id is the authoritative identity once the client supplies
-                    // one (it comes straight from the courts list this same facility
-                    // detail request returned, so it cannot be stale/mistyped the way
-                    // a display name — previously regex-truncated client-side before
-                    // it ever reached here — could be). court_name is kept only as a
-                    // fallback for any caller that hasn't been updated to send an id.
+                    // court_id is the authoritative identity (it comes from this
+                    // facility's own courts list). court_name is only a fallback for
+                    // callers that do not send an id.
                     $courtId   = trim((string)$request->input('court_id', ''));
                     $courtName = (string)$request->input('court_name', 'Court 1');
-                    $date = (string)$request->input('date', 'Tomorrow');
-                    $time = (string)$request->input('time', '6:00 PM - 7:00 PM');
+                    // No defaults: a booking without an explicit date and time is rejected.
+                    $date = trim((string)$request->input('date', ''));
+                    $time = trim((string)$request->input('time', ''));
                     $paymentMethod = (string)$request->input('payment_method', 'Pickle Credits');
+                    $paymentMethod = self::PAYMENT_METHOD_ALIASES[$paymentMethod] ?? $paymentMethod;
                     if (!in_array($paymentMethod, self::ALLOWED_PAYMENT_METHODS, true)) {
                         return $this->jsonError('Unsupported payment method.', 400);
+                    }
+                    if ($date === '' || $time === '') {
+                        return $this->jsonError('Please choose a date and time slot.', 400);
                     }
 
                     // Price is computed server-side from the court's published rate.
                     // Anything the client sends as `price` is deliberately ignored.
                     $duration  = $this->pricingService->normalizeDuration($request->input('duration', 1));
+
+                    // The court is held for the slot's real length, so that is
+                    // what must be paid for. Pricing trusted `duration` alone,
+                    // so "7:00 AM - 3:00 PM" sent with duration=1 reserved eight
+                    // hours for the price of one.
+                    $slotRange = \Picklers\Core\Database::get()->parseTimeRange($time);
+                    if ($slotRange === null) {
+                        return $this->jsonError('Please choose a valid time slot.', 400);
+                    }
+                    $slotMinutes = $slotRange[1] - $slotRange[0];
+                    if ($slotMinutes % 60 !== 0 || intdiv($slotMinutes, 60) !== $duration) {
+                        return $this->jsonError('The selected time slot does not match the booking duration. Please reselect your time.', 400);
+                    }
                     $promoCode = trim((string)$request->input('promo_code', ''));
                     $quote     = $this->pricingService->quoteCourtBooking(
                         $facilityId,
@@ -658,9 +825,8 @@ class ApiController extends BaseController {
                         return $this->jsonError((string)($quote['message'] ?? 'Unable to price this booking.'), 400);
                     }
 
-                    // Recorded ATOMICALLY inside createBooking()'s own transaction —
-                    // a granted discount can no longer be committed without also
-                    // being counted, or vice versa (see createBooking()'s doc comment).
+                    // The promo redemption is recorded inside createBooking()'s own
+                    // transaction, so a discount is never granted without being counted.
                     $res = $this->bookingService->createBooking(
                         $currentUser['id'], $facilityId, $courtName, $date, $time,
                         $duration, (float)$quote['total'], $paymentMethod,
@@ -818,6 +984,18 @@ class ApiController extends BaseController {
                     if (empty($content)) {
                         return $this->jsonError('Post cannot be empty', 400);
                     }
+                    if (mb_strlen($content) > 2000) {
+                        return $this->jsonError('Posts are limited to 2,000 characters.', 400);
+                    }
+                    if (!preg_match('/^[a-z_]{1,30}$/', $type)) {
+                        $type = 'text';
+                    }
+                    // Only a real web image or a small inline image — never a
+                    // javascript: or data:text URL rendered into other feeds.
+                    if ($imageUrl !== null && (strlen($imageUrl) > self::MAX_AVATAR_BYTES
+                        || !preg_match('#^(https?://|data:image/(png|jpe?g|webp|gif);base64,)#i', $imageUrl))) {
+                        return $this->jsonError('Unsupported image. Please attach a PNG, JPG, WEBP or GIF.', 400);
+                    }
                     $res = $this->communityService->createFeedPost($currentUser['id'], $content, $imageUrl, $type);
                     return $this->json($res);
 
@@ -851,6 +1029,9 @@ class ApiController extends BaseController {
                     if (empty($comment)) {
                         return $this->jsonError('Comment cannot be empty', 400);
                     }
+                    if (mb_strlen($comment) > 1000) {
+                        return $this->jsonError('Comments are limited to 1,000 characters.', 400);
+                    }
                     $res = $this->communityService->addComment($postId, $currentUser['id'], $comment);
                     return $this->json($res);
 
@@ -861,7 +1042,8 @@ class ApiController extends BaseController {
                     if (!$currentUser) {
                         return $this->json(['success' => false, 'messages' => []]);
                     }
-                    $partnerId = (string)$request->query('partner_id', 'usr_admin');
+                    $partnerId = $this->resolveMessagePartnerId((string)$request->query('partner_id', 'usr_admin'));
+                    \Picklers\Core\Database::get()->markConversationRead((string)$currentUser['id'], $partnerId);
                     $messages = $this->communityService->getMessages($currentUser['id'], $partnerId);
                     $partner = $this->authService->getUserById($partnerId);
                     return $this->json([
@@ -872,7 +1054,6 @@ class ApiController extends BaseController {
                             'name' => $partner['name'],
                             'avatar_url' => $partner['avatar_url'],
                             'level' => $partner['level'],
-                            'online' => true
                         ] : null
                     ]);
 
@@ -880,28 +1061,21 @@ class ApiController extends BaseController {
                     if (!$currentUser) {
                         return $this->jsonError('Unauthorized', 401);
                     }
-                    $partnerId = (string)$request->input('partner_id', 'usr_admin');
+                    $partnerId = $this->resolveMessagePartnerId((string)$request->input('partner_id', 'usr_admin'));
                     $content = trim((string)$request->input('content', ''));
                     if (empty($content)) {
                         return $this->jsonError('Message is empty', 400);
                     }
-                    $res = $this->communityService->sendMessage($currentUser['id'], $partnerId, $content);
-
-                    // Optional auto-reply from admin bot if user is messaging admin
-                    if ($partnerId === 'usr_admin' && $currentUser['id'] !== 'usr_admin') {
-                        $replies = [
-                            "Let's get some games in! Court 1 at BGC is usually free around 6 PM.",
-                            "Nice! Let me know if you want to team up for Saturday's tournament.",
-                            "Always ready for a dink battle! See you on the court 🏓",
-                            "Got it! Thanks for reaching out. Have a great session!"
-                        ];
-                        $replyContent = $replies[array_rand($replies)];
-                        $this->communityService->sendMessage($partnerId, $currentUser['id'], $replyContent);
-                        $res['auto_reply'] = $replyContent;
+                    if (mb_strlen($content) > 2000) {
+                        return $this->jsonError('Messages are limited to 2,000 characters.', 400);
                     }
-
+                    $recipient = $this->authService->getUserById($partnerId);
+                    if (!$recipient || ($recipient['role'] ?? '') === 'deleted' || (string)$recipient['id'] === (string)$currentUser['id']) {
+                        return $this->jsonError('This conversation is not available.', 404);
+                    }
+                    // Replies only ever come from the actual recipient.
+                    $res = $this->communityService->sendMessage($currentUser['id'], $partnerId, $content);
                     return $this->json($res);
-
                 // ----------------------------------------------------------------------
                 // Console Operations: Owner & Admin
                 // ----------------------------------------------------------------------
@@ -910,15 +1084,20 @@ class ApiController extends BaseController {
                     if (!$currentUser || (empty($currentUser['is_owner']) && empty($currentUser['is_admin']))) {
                         return $this->jsonError('Unauthorized: Owner access required', 403);
                     }
-                    $courtId = $request->input('court_id', 0);
+                    // Cast: a numeric JSON court_id reached verifyCourtOwner(string)
+                    // as an int and threw a TypeError under strict_types.
+                    $courtId = trim((string)$request->input('court_id', ''));
                     $status = (string)$request->input('status', 'available');
                     $allowedStatuses = ['available', 'occupied', 'maintenance'];
                     if (!in_array($status, $allowedStatuses, true)) {
                         return $this->jsonError('Invalid status value', 400);
                     }
                     $db = \Picklers\Core\Database::get();
+                    if ($courtId === '' || !$db->getCourtById($courtId)) {
+                        return $this->jsonError('Court not found', 404);
+                    }
                     if (empty($currentUser['is_admin'])) {
-                        if (!$db->verifyCourtOwner($courtId, $currentUser['id'])) {
+                        if (!$db->verifyCourtOwner($courtId, (string)$currentUser['id'])) {
                             return $this->jsonError('Unauthorized: You do not own this court', 403);
                         }
                     }
@@ -943,10 +1122,15 @@ class ApiController extends BaseController {
                     if (!$booking) {
                         return $this->jsonError('Booking record not found', 404);
                     }
-                    if (($booking['status'] ?? '') === 'cancelled') {
+                    $prevStatus = (string)($booking['status'] ?? 'pending');
+                    if (in_array($prevStatus, ['cancelled', 'declined'], true)) {
                         return $this->jsonError('This request was already cancelled or declined.', 400);
                     }
-                    $prevStatus = $booking['status'] ?? 'pending';
+                    if ($prevStatus === 'confirmed') {
+                        // Already accepted (another tab, a double-click): report
+                        // the real state without re-counting or re-notifying.
+                        return $this->jsonSuccess(['booking_id' => $bookingId, 'status' => 'confirmed'], 'This booking is already confirmed.');
+                    }
 
                     // Resolve the Open Play match (if any) BEFORE writing the new
                     // status, so a full session can be rejected without leaving
@@ -962,24 +1146,35 @@ class ApiController extends BaseController {
                             }
                         }
                     }
-                    if ($matchId && $prevStatus !== 'confirmed') {
+                    if ($matchId) {
                         $match = $db->getMatchById((string)$matchId);
-                        // Belt-and-suspenders: joinMatch() already gates new requests
-                        // at capacity, so this should only ever trip on legacy data.
-                        // Either way, an owner must never be able to silently accept
-                        // more players than the session's own declared capacity.
-                        if ($match && (int)($match['current_players'] ?? 0) >= (int)($match['max_players'] ?? 0)) {
-                            return $this->jsonError('This Open Play session is already full. Decline this request or increase its capacity first.', 409);
+                        // Capacity is per session occurrence. current_players is a
+                        // lifetime counter that never resets for an Everyday
+                        // session, so comparing it to max_players made a recurring
+                        // session permanently "full" once enough days had filled.
+                        if ($match) {
+                            $occurrence = (string)($booking['booking_date'] ?? '') !== ''
+                                ? (string)$booking['booking_date']
+                                : \Picklers\Core\Database::getMatchTargetDate($match);
+                            if ($db->countActiveMatchBookings((string)$matchId, $occurrence) > (int)($match['max_players'] ?? 0)) {
+                                return $this->jsonError('This Open Play session is already full. Decline this request or increase its capacity first.', 409);
+                            }
                         }
                     }
 
-                    $this->bookingService->updateBookingStatus($bookingId, 'confirmed');
-
-                    // Increment match player count if this was an Open Play join request being approved
-                    if ($matchId && $prevStatus !== 'confirmed') {
-                        $db->adjustMatchPlayerCount((string)$matchId, 1);
+                    // Compare-and-set: only the request that actually moves the
+                    // booking out of pending takes the seat and notifies.
+                    if (!$db->transitionBookingStatus($bookingId, ['pending', 'upcoming'], 'confirmed')) {
+                        $latest = $db->getBookingById($bookingId);
+                        if (($latest['status'] ?? '') === 'confirmed') {
+                            return $this->jsonSuccess(['booking_id' => $bookingId, 'status' => 'confirmed'], 'This booking is already confirmed.');
+                        }
+                        return $this->jsonError('This request is no longer pending.', 409);
                     }
 
+                    if ($matchId) {
+                        $db->adjustMatchPlayerCount((string)$matchId, 1);
+                    }
                     // The player was only ever told a request was SENT (see
                     // createBooking()/joinMatch()'s notifications). This is the
                     // one place that actually confirms it.
@@ -1310,6 +1505,9 @@ class ApiController extends BaseController {
                     $allUsers = \Picklers\Core\Database::get()->getAllUsers();
                     $matched = [];
                     foreach ($allUsers as $u) {
+                        if (($u['role'] ?? '') === 'deleted') {
+                            continue;
+                        }
                         $name = (string)($u['name'] ?? '');
                         $email = (string)($u['email'] ?? '');
                         $nameLower = strtolower($name);
@@ -1368,13 +1566,9 @@ class ApiController extends BaseController {
                 // ----------------------------------------------------------------------
                 // Admin actions — delegated, not duplicated.
                 //
-                // These four used to exist here as separate, weaker copies of the
-                // AdminController implementations: they skipped the notification
-                // dispatch and never updated the owner_application record's own
-                // status, so approving via api.php left the application stuck in
-                // the review queue forever. AdminController::handle() is the single
-                // source of truth (it performs its own admin + CSRF checks); this
-                // forwards to it so any legacy caller keeps working.
+                // AdminController::handle() is the single source of truth (it
+                // performs its own admin and CSRF checks and sends the related
+                // notifications); these legacy api.php actions forward to it.
                 // ----------------------------------------------------------------------
                 case 'admin_update_role':
                 case 'admin_toggle_verify':
@@ -1385,8 +1579,12 @@ class ApiController extends BaseController {
                 default:
                     return $this->jsonError('Invalid action: ' . htmlspecialchars($action), 400);
             }
-        } catch (Exception $e) {
-            return $this->jsonError($e->getMessage(), 500);
+        } catch (\Throwable $e) {
+            // \Throwable, so a TypeError also returns JSON; raw exception text
+            // (which can include SQL) stays in the log, not the response.
+            error_log(sprintf('[PICKLERS API] action=%s failed: %s in %s:%d', $action, $e->getMessage(), $e->getFile(), $e->getLine()));
+            $debug = filter_var($_ENV['APP_DEBUG'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            return $this->jsonError($debug ? $e->getMessage() : 'Something went wrong while processing your request. Please try again.', 500);
         }
     }
 }

@@ -164,9 +164,7 @@
           </div>
           <div>
             <label style="display:block; font-size:13px; font-weight:700; margin-bottom:6px;" class="modal-text-muted">Account Name</label>
-            <!-- No stand-in name here on purpose: this used to default to
-                 "Marcus Vance" (a demo value), which an owner could easily
-                 submit unnoticed — sending a real payout to the wrong name. -->
+            <?php /* Prefilled only with the owner's own name, never a stand-in value. */ ?>
             <input type="text" id="payoutAccountName" value="<?= htmlspecialchars((string)($currentUser['name'] ?? '')) ?>" placeholder="Name on the receiving account" required style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
           </div>
           <div>
@@ -564,11 +562,22 @@
         <p class="confirm-modal-desc">
           Are you sure you want to revoke administrative permissions for <strong id="revokeStaffTargetName">Staff Member</strong>? They will immediately lose access to this venue portal.
         </p>
+
+        <div style="margin: 14px 0 16px; text-align: left;">
+          <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px; text-align: center;">
+            Type <strong style="color: #EF4444; font-weight: 800;">REVOKE</strong> below to confirm:
+          </label>
+          <input type="text" id="revokeConfirmInput" class="tb-input" placeholder="REVOKE" autocomplete="off"
+                 oninput="checkRevokeConfirmInput(this.value)"
+                 onkeydown="if(event.key==='Enter' && (this.value||'').trim().toUpperCase()==='REVOKE') executeRevokeStaff();"
+                 style="text-align: center; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(15, 23, 42, 0.6); padding: 10px; width: 100%; border-radius: 10px; color: #FFFFFF;">
+        </div>
+
         <div style="display:flex; gap:12px;">
           <button type="button" onclick="closeModal('revokeStaffModal')" class="btn-modal-cancel">
             Cancel
           </button>
-          <button type="button" onclick="executeRevokeStaff()" class="btn-modal-danger">
+          <button type="button" id="btnExecuteRevoke" onclick="executeRevokeStaff()" class="btn-modal-danger" disabled style="opacity: 0.4; cursor: not-allowed; transition: all 0.2s;">
             Yes, Revoke Access
           </button>
         </div>
@@ -808,33 +817,50 @@
           </div>
           <div>
             <h3 style="font-size:20px; font-weight:900; color: #FFFFFF; margin:0; font-family:'Montserrat', sans-serif; letter-spacing:-0.01em;">Daily Income Breakdown</h3>
-            <p style="font-size:12.5px; color: #94A3B8; margin:2px 0 0; font-weight:500;">Past 30 Days daily court gross earnings • Month of September 2026</p>
+            <p style="font-size:12.5px; color: #94A3B8; margin:2px 0 0; font-weight:500;">Past 30 days of confirmed court &amp; Open Play earnings</p>
           </div>
         </div>
         <button type="button" class="btn-close-modal" onclick="closeModal('dailyRevenueModal')" title="Close" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color: #94A3B8; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; transition:all 0.2s; flex-shrink:0;">&times;</button>
       </div>
 
+      <?php
+        // Real figures only. This modal used to render a hardcoded table of
+        // invented dates, sessions and revenue for every owner.
+        $dailyRecords = (array)($financials['daily_breakdown'] ?? []);
+        $peakVal = max(1.0, (float)($financials['daily_breakdown_peak'] ?? 0));
+        $yesterdayRow = $dailyRecords[1] ?? null;
+        $peakRow = null;
+        foreach ($dailyRecords as $candidateDay) {
+            if (!empty($candidateDay['is_peak'])) {
+                $peakRow = $candidateDay;
+                break;
+            }
+        }
+        $yesterdaySessions = (int)($yesterdayRow['sessions'] ?? 0);
+        $currentMonthKey = strtolower(date('F'));
+      ?>
+
       <!-- Quick KPI Summary Strip -->
       <div class="daily-rev-summary-grid">
         <div class="daily-rev-summary-box">
-          <span class="daily-rev-summary-label">September Total</span>
-          <span class="daily-rev-summary-val" style="color: #00D98B;">₱48,200</span>
+          <span class="daily-rev-summary-label"><?php echo htmlspecialchars(date('F')); ?> Total</span>
+          <span class="daily-rev-summary-val" style="color: #00D98B;">₱<?php echo number_format((float)($financials['monthly_gross'] ?? 0)); ?></span>
           <span style="font-size:11px; color: #94A3B8;">Gross booking revenue</span>
         </div>
         <div class="daily-rev-summary-box" style="border-color:rgba(0,229,255,0.3) !important; background:linear-gradient(135deg, rgba(0,229,255,0.08), rgba(11,24,43,0.95)) !important;">
-          <span class="daily-rev-summary-label" style="color: #00E5FF;">Yesterday (Sep 7)</span>
-          <span class="daily-rev-summary-val" style="color: #00E5FF;">₱2,800</span>
-          <span style="font-size:11px; color: #00E5FF;">7 sessions booked</span>
+          <span class="daily-rev-summary-label" style="color: #00E5FF;">Yesterday<?php echo $yesterdayRow ? ' (' . htmlspecialchars(date('M j', (int)strtotime((string)$yesterdayRow['date']))) . ')' : ''; ?></span>
+          <span class="daily-rev-summary-val" style="color: #00E5FF;">₱<?php echo number_format((float)($yesterdayRow['revenue'] ?? 0)); ?></span>
+          <span style="font-size:11px; color: #00E5FF;"><?php echo $yesterdaySessions . ' session' . ($yesterdaySessions === 1 ? '' : 's') . ' booked'; ?></span>
         </div>
         <div class="daily-rev-summary-box" style="border-color:rgba(255,184,0,0.3) !important; background:linear-gradient(135deg, rgba(255,184,0,0.08), rgba(11,24,43,0.95)) !important;">
-          <span class="daily-rev-summary-label" style="color: #FFB800;">Peak Day (Sep 6)</span>
-          <span class="daily-rev-summary-val" style="color: #FFB800;">₱5,400</span>
-          <span style="font-size:11px; color: #94A3B8;">Saturday tournament</span>
+          <span class="daily-rev-summary-label" style="color: #FFB800;">Peak Day<?php echo $peakRow ? ' (' . htmlspecialchars(date('M j', (int)strtotime((string)$peakRow['date']))) . ')' : ''; ?></span>
+          <span class="daily-rev-summary-val" style="color: #FFB800;">₱<?php echo number_format((float)($peakRow['revenue'] ?? 0)); ?></span>
+          <span style="font-size:11px; color: #94A3B8;"><?php echo $peakRow ? htmlspecialchars((string)$peakRow['dow']) : 'No bookings yet'; ?></span>
         </div>
         <div class="daily-rev-summary-box">
           <span class="daily-rev-summary-label">Daily Average</span>
-          <span class="daily-rev-summary-val" style="color: #FFFFFF;">₱1,606</span>
-          <span style="font-size:11px; color: #94A3B8;">Per operational day</span>
+          <span class="daily-rev-summary-val" style="color: #FFFFFF;">₱<?php echo number_format((float)($financials['daily_avg_gross'] ?? 0)); ?></span>
+          <span style="font-size:11px; color: #94A3B8;">This month, per day</span>
         </div>
       </div>
 
@@ -842,7 +868,7 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; gap:10px; flex-wrap:wrap;">
         <div style="display:flex; gap:8px; flex-wrap:wrap;" id="dailyRevFilterBtns">
           <button type="button" class="daily-rev-filter-btn active" onclick="filterDailyRev('all', this)">All 30 Days</button>
-          <button type="button" class="daily-rev-filter-btn" onclick="filterDailyRev('september', this)">September (MTD)</button>
+          <button type="button" class="daily-rev-filter-btn" onclick="filterDailyRev('month', this)"><?php echo htmlspecialchars(date('F')); ?> (MTD)</button>
           <button type="button" class="daily-rev-filter-btn" onclick="filterDailyRev('weekends', this)">Weekends Only</button>
           <button type="button" class="daily-rev-filter-btn" onclick="filterDailyRev('high', this)">High Volume (₱3k+)</button>
         </div>
@@ -854,7 +880,7 @@
 
       <!-- Scrollable Daily Breakdown Table -->
       <div class="daily-rev-table-container">
-        <table class="daily-rev-table" id="dailyRevenueTable">
+        <table class="daily-rev-table" id="dailyRevenueTable" data-current-month="<?php echo htmlspecialchars($currentMonthKey); ?>">
           <thead>
             <tr>
               <th>Date &amp; Day</th>
@@ -866,83 +892,54 @@
             </tr>
           </thead>
           <tbody>
-            <?php
-              $dailyRecords = [
-                ['date' => 'Sep 7, 2026', 'dow' => 'Sunday', 'is_yesterday' => true, 'is_peak' => false, 'is_weekend' => true, 'month' => 'september', 'sessions' => 7, 'players' => 24, 'court' => 'Court 1 & 3', 'revenue' => 2800],
-                ['date' => 'Sep 6, 2026', 'dow' => 'Saturday', 'is_yesterday' => false, 'is_peak' => true, 'is_weekend' => true, 'month' => 'september', 'sessions' => 15, 'players' => 48, 'court' => 'Championship Open Play', 'revenue' => 5400],
-                ['date' => 'Sep 5, 2026', 'dow' => 'Friday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'september', 'sessions' => 11, 'players' => 36, 'court' => 'Court 2 & 4', 'revenue' => 4200],
-                ['date' => 'Sep 4, 2026', 'dow' => 'Thursday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'september', 'sessions' => 6, 'players' => 20, 'court' => 'Court 1', 'revenue' => 2300],
-                ['date' => 'Sep 3, 2026', 'dow' => 'Wednesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'september', 'sessions' => 5, 'players' => 18, 'court' => 'Court 5', 'revenue' => 2000],
-                ['date' => 'Sep 2, 2026', 'dow' => 'Tuesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'september', 'sessions' => 4, 'players' => 16, 'court' => 'Court 2', 'revenue' => 1800],
-                ['date' => 'Sep 1, 2026', 'dow' => 'Monday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'september', 'sessions' => 4, 'players' => 14, 'court' => 'Court 3', 'revenue' => 1600],
-                ['date' => 'Aug 31, 2026', 'dow' => 'Sunday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 9, 'players' => 32, 'court' => 'Court 1 & 2', 'revenue' => 3600],
-                ['date' => 'Aug 30, 2026', 'dow' => 'Saturday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 10, 'players' => 36, 'court' => 'Open Play Special', 'revenue' => 4100],
-                ['date' => 'Aug 29, 2026', 'dow' => 'Friday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 8, 'players' => 26, 'court' => 'Court 5', 'revenue' => 2900],
-                ['date' => 'Aug 28, 2026', 'dow' => 'Thursday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 4, 'players' => 16, 'court' => 'Court 3', 'revenue' => 1700],
-                ['date' => 'Aug 27, 2026', 'dow' => 'Wednesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 4, 'players' => 14, 'court' => 'Court 1', 'revenue' => 1500],
-                ['date' => 'Aug 26, 2026', 'dow' => 'Tuesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 3, 'players' => 12, 'court' => 'Court 2', 'revenue' => 1400],
-                ['date' => 'Aug 25, 2026', 'dow' => 'Monday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 4, 'players' => 14, 'court' => 'Court 4', 'revenue' => 1600],
-                ['date' => 'Aug 24, 2026', 'dow' => 'Sunday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 8, 'players' => 28, 'court' => 'Court 1 & 3', 'revenue' => 3400],
-                ['date' => 'Aug 23, 2026', 'dow' => 'Saturday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 9, 'players' => 34, 'court' => 'Court 1 & 2', 'revenue' => 3800],
-                ['date' => 'Aug 22, 2026', 'dow' => 'Friday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 6, 'players' => 22, 'court' => 'Court 2', 'revenue' => 2500],
-                ['date' => 'Aug 21, 2026', 'dow' => 'Thursday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 4, 'players' => 16, 'court' => 'Court 5', 'revenue' => 1800],
-                ['date' => 'Aug 20, 2026', 'dow' => 'Wednesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 3, 'players' => 12, 'court' => 'Court 3', 'revenue' => 1300],
-                ['date' => 'Aug 19, 2026', 'dow' => 'Tuesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 3, 'players' => 10, 'court' => 'Court 1', 'revenue' => 1200],
-                ['date' => 'Aug 18, 2026', 'dow' => 'Monday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 3, 'players' => 10, 'court' => 'Court 4', 'revenue' => 1100],
-                ['date' => 'Aug 17, 2026', 'dow' => 'Sunday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 7, 'players' => 24, 'court' => 'Court 1 & 2', 'revenue' => 2700],
-                ['date' => 'Aug 16, 2026', 'dow' => 'Saturday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 8, 'players' => 30, 'court' => 'Open Play Session', 'revenue' => 3200],
-                ['date' => 'Aug 15, 2026', 'dow' => 'Friday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 5, 'players' => 18, 'court' => 'Court 3', 'revenue' => 2100],
-                ['date' => 'Aug 14, 2026', 'dow' => 'Thursday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 4, 'players' => 14, 'court' => 'Court 2', 'revenue' => 1500],
-                ['date' => 'Aug 13, 2026', 'dow' => 'Wednesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 3, 'players' => 12, 'court' => 'Court 1', 'revenue' => 1200],
-                ['date' => 'Aug 12, 2026', 'dow' => 'Tuesday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 2, 'players' => 8, 'court' => 'Court 4', 'revenue' => 900],
-                ['date' => 'Aug 11, 2026', 'dow' => 'Monday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => false, 'month' => 'august', 'sessions' => 2, 'players' => 8, 'court' => 'Court 5', 'revenue' => 800],
-                ['date' => 'Aug 10, 2026', 'dow' => 'Sunday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 6, 'players' => 20, 'court' => 'Court 1 & 2', 'revenue' => 2400],
-                ['date' => 'Aug 9, 2026', 'dow' => 'Saturday', 'is_yesterday' => false, 'is_peak' => false, 'is_weekend' => true, 'month' => 'august', 'sessions' => 7, 'players' => 26, 'court' => 'Court 3', 'revenue' => 2900]
-              ];
-              $peakVal = 5400;
-              foreach ($dailyRecords as $row):
-                $pct = min(100, round(($row['revenue'] / $peakVal) * 100));
+            <?php foreach ($dailyRecords as $row):
+                $pct = (int)min(100, round(((float)$row['revenue'] / $peakVal) * 100));
                 $rowClass = '';
-                if ($row['is_yesterday']) $rowClass = 'row-yesterday';
-                elseif ($row['is_peak']) $rowClass = 'row-peak';
+                if (!empty($row['is_yesterday'])) $rowClass = 'row-yesterday';
+                elseif (!empty($row['is_peak'])) $rowClass = 'row-peak';
             ?>
-              <tr class="<?php echo $rowClass; ?>" data-month="<?php echo $row['month']; ?>" data-weekend="<?php echo $row['is_weekend'] ? '1' : '0'; ?>" data-rev="<?php echo $row['revenue']; ?>">
+              <tr class="<?php echo $rowClass; ?>" data-month="<?php echo htmlspecialchars((string)$row['month']); ?>" data-weekend="<?php echo !empty($row['is_weekend']) ? '1' : '0'; ?>" data-rev="<?php echo (float)$row['revenue']; ?>">
                 <td>
                   <div style="font-weight:700; color: var(--pk-text-primary); display:flex; align-items:center; gap:6px;">
-                    <?php echo htmlspecialchars($row['date']); ?>
-                    <?php if ($row['is_yesterday']): ?>
+                    <?php echo htmlspecialchars((string)$row['date']); ?>
+                    <?php if (!empty($row['is_today'])): ?>
+                      <span style="background:rgba(0,217,139,0.18); border:1px solid rgba(0,217,139,0.35); color: var(--pk-status-success); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Today</span>
+                    <?php elseif (!empty($row['is_yesterday'])): ?>
                       <span style="background:rgba(0,229,255,0.18); border:1px solid rgba(0,229,255,0.35); color: var(--pk-status-info); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Yesterday</span>
-                    <?php elseif ($row['is_peak']): ?>
+                    <?php elseif (!empty($row['is_peak'])): ?>
                       <span style="background:rgba(255,184,0,0.18); border:1px solid rgba(255,184,0,0.35); color: var(--pk-brand-amber); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Peak Day</span>
                     <?php endif; ?>
                   </div>
-                  <div style="font-size:11px; color: var(--pk-text-muted); margin-top:2px;"><?php echo htmlspecialchars($row['dow']); ?></div>
+                  <div style="font-size:11px; color: var(--pk-text-muted); margin-top:2px;"><?php echo htmlspecialchars((string)$row['dow']); ?></div>
                 </td>
                 <td>
-                  <div style="font-weight:600; color: var(--pk-text-primary);"><?php echo $row['sessions']; ?> slots</div>
-                  <div style="font-size:11px; color: var(--pk-text-muted);"><?php echo $row['players']; ?> players</div>
+                  <div style="font-weight:600; color: var(--pk-text-primary);"><?php echo (int)$row['sessions']; ?> <?php echo (int)$row['sessions'] === 1 ? 'booking' : 'bookings'; ?></div>
+                  <div style="font-size:11px; color: var(--pk-text-muted);"><?php echo (int)$row['players']; ?> players</div>
                 </td>
                 <td style="color: var(--pk-text-muted); font-size:12px;">
-                  <?php echo htmlspecialchars($row['court']); ?>
+                  <?php echo htmlspecialchars((string)$row['court']); ?>
                 </td>
                 <td>
                   <div class="daily-bar-wrap">
-                    <div class="daily-bar-fill <?php echo $row['is_peak'] ? 'peak' : ''; ?>" style="width: <?php echo $pct; ?>%;"></div>
+                    <div class="daily-bar-fill <?php echo !empty($row['is_peak']) ? 'peak' : ''; ?>" style="width: <?php echo $pct; ?>%;"></div>
                   </div>
                   <span style="font-size:11px; color: var(--pk-text-muted);"><?php echo $pct; ?>%</span>
                 </td>
-                <td style="text-align:right; font-weight:800; font-family:'Montserrat', sans-serif; font-size:14px; <?php echo $row['is_peak'] ? 'color: var(--pk-status-info);' : ($row['is_yesterday'] ? 'color: var(--pk-status-info);' : 'color: var(--pk-status-success);'); ?>">
-                  ₱<?php echo number_format($row['revenue']); ?>
+                <td style="text-align:right; font-weight:800; font-family:'Montserrat', sans-serif; font-size:14px; <?php echo (!empty($row['is_peak']) || !empty($row['is_yesterday'])) ? 'color: var(--pk-status-info);' : 'color: var(--pk-status-success);'; ?>">
+                  ₱<?php echo number_format((float)$row['revenue']); ?>
                 </td>
                 <td style="text-align:center;">
-                  <span style="background: var(--pk-status-success-bg); color: var(--pk-status-success); font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid var(--pk-status-success);">Settled</span>
+                  <?php if ((int)$row['sessions'] > 0): ?>
+                    <span style="background: var(--pk-status-success-bg); color: var(--pk-status-success); font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid var(--pk-status-success);">Confirmed</span>
+                  <?php else: ?>
+                    <span style="color: var(--pk-text-muted); font-size:11px; font-weight:600;">No bookings</span>
+                  <?php endif; ?>
                 </td>
               </tr>
             <?php endforeach; ?>
           </tbody>
         </table>
       </div>
-
       <!-- Footer Actions -->
       <div style="margin-top:16px; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; color: var(--pk-text-muted);">Showing 30 operational days breakdown</span>
@@ -1030,7 +1027,7 @@
 
   <!-- 7. Open Play Roster & Players Modal -->
   <div class="app-modal-overlay" id="openPlayRosterModal" style="display: none; position: fixed; inset: 0; background: rgba(5, 11, 20, 0.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
-    <div class="modal-box-card" style="max-width: 520px; width: 100%; padding: 0; border-radius: 24px; background: rgba(11, 19, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 217, 139, 0.12); display: flex; flex-direction: column;">
+    <div class="modal-box-card" style="max-width: 410px; width: 92%; min-height: 520px; padding: 0; border-radius: 24px; background: rgba(11, 19, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 217, 139, 0.12); display: flex; flex-direction: column;">
       
       <!-- Modal Header -->
       <div style="padding: 20px 24px; background: linear-gradient(180deg, rgba(15, 26, 46, 0.9), rgba(11, 19, 34, 0.9)); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10;">
@@ -1052,17 +1049,39 @@
       </div>
 
       <!-- Roster Players List Container -->
-      <div id="openPlayRosterList" style="max-height: 440px; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div id="openPlayRosterList" style="flex: 1; min-height: 420px; max-height: 580px; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
         <!-- Dynamic Roster Content rendered by JS -->
       </div>
 
-      <!-- Footer Bar -->
-      <div style="padding: 16px 24px; background: rgba(12, 22, 38, 0.95); border-top: 1px solid rgba(255, 255, 255, 0.06); display: flex; align-items: center; justify-content: space-between;">
-        <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(255, 184, 0, 0.12); border: 1px solid rgba(255, 184, 0, 0.3); padding: 5px 14px; border-radius: 9999px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span id="openPlayRosterCountBadge" style="font-size: 12.5px; color: #FFB800; font-weight: 800;">0 Players Joined</span>
+    </div>
+  </div>
+
+  <!-- 8. Court Schedule Roster Modal -->
+  <div class="app-modal-overlay" id="courtScheduleModal" style="display: none; position: fixed; inset: 0; background: rgba(5, 11, 20, 0.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
+    <div class="modal-box-card" style="max-width: 410px; width: 92%; min-height: 520px; padding: 0; border-radius: 24px; background: rgba(11, 19, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 217, 139, 0.12); display: flex; flex-direction: column;">
+      
+      <!-- Modal Header -->
+      <div style="padding: 20px 24px; background: linear-gradient(180deg, rgba(15, 26, 46, 0.9), rgba(11, 19, 34, 0.9)); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, rgba(0, 217, 139, 0.2), rgba(6, 182, 212, 0.2)); border: 1px solid rgba(0, 217, 139, 0.4); display: flex; align-items: center; justify-content: center; color: #00D98B; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 217, 139, 0.25);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+          </div>
+          <div>
+            <h3 id="courtScheduleTitle" style="font-family: 'Montserrat', sans-serif; font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0 0 2px; letter-spacing: -0.01em;">Court Schedule</h3>
+            <p id="courtScheduleSubtitle" style="font-size: 12px; color: #94A3B8; margin: 0; font-weight: 600;">Court Reservations • Scheduled Players</p>
+          </div>
         </div>
-        <button type="button" onclick="closeModal('openPlayRosterModal')" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16); color: #FFFFFF; font-size: 13px; font-weight: 800; padding: 8px 22px; border-radius: 12px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);" onmouseover="this.style.background='rgba(255, 255, 255, 0.16)'; this.style.borderColor='rgba(255, 255, 255, 0.3)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.08)'; this.style.borderColor='rgba(255, 255, 255, 0.16)';">Close</button>
+        <button type="button" onclick="closeModal('courtScheduleModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #94A3B8; width: 34px; height: 34px; min-width: 34px; min-height: 34px; max-width: 34px; max-height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)';" aria-label="Close modal">&times;</button>
+      </div>
+
+      <!-- Schedule List Container -->
+      <div id="courtScheduleList" style="flex: 1; min-height: 420px; max-height: 580px; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+        <!-- Dynamic Schedule Content rendered by JS -->
       </div>
 
     </div>

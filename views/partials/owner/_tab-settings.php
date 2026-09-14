@@ -33,7 +33,11 @@ declare(strict_types=1);
           <div class="logo-upload-card-row">
             <div class="brand-logo-preview-wrap">
               <div class="brand-logo-preview" id="brandLogoPreview">
-                <span><?php echo htmlspecialchars(strtoupper(substr($currentFacility['name'] ?? 'INC', 0, 3))); ?></span>
+                <?php if (!empty($currentFacility['image'])): ?>
+                  <img src="<?php echo htmlspecialchars((string)$currentFacility['image']); ?>" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">
+                <?php else: ?>
+                  <span><?php echo htmlspecialchars(strtoupper(substr($currentFacility['name'] ?? 'INC', 0, 3))); ?></span>
+                <?php endif; ?>
               </div>
               <button type="button" class="btn-logo-camera-overlay" onclick="document.getElementById('logoFileInput').click()" title="Change Brand Logo">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
@@ -172,8 +176,8 @@ declare(strict_types=1);
                     GCash Payouts
                   </div>
                   <div style="margin-top:4px;">
-                    <span id="gcashStatusBadge" class="payout-status-badge verified">
-                      <span id="gcashStatusText">Linked &amp; Verified ✓</span>
+                    <span id="gcashStatusBadge" class="payout-status-badge <?= !empty($currentFacility['gcash_number']) ? 'verified' : 'unverified' ?>">
+                      <span id="gcashStatusText"><?= !empty($currentFacility['gcash_number']) ? 'Saved ✓' : 'Not set' ?></span>
                     </span>
                   </div>
                   <div style="font-size:11px; color:var(--pk-text-muted, #94A3B8); margin-top:3px;">Primary e-wallet disbursement channel</div>
@@ -190,9 +194,8 @@ declare(strict_types=1);
               <label class="settings-input-label" style="margin-bottom:6px;">GCash Mobile Number</label>
               <div class="payout-input-inline-wrap" id="gcashInputWrap">
                 <input type="tel" id="gcashNumberInput" class="payout-inline-input" value="<?= htmlspecialchars((string)($currentFacility['gcash_number'] ?? '')) ?>" maxlength="11" placeholder="09XXXXXXXXX" oninput="onPayoutNumberChange('gcash')">
-                <input type="text" id="gcashOtpCodeInput" class="payout-inline-input otp-code" maxlength="6" value="" placeholder="Enter 6-digit OTP" style="display:none;">
-                <button type="button" class="btn-payout-inline-action" id="btnGcashOtpAction" onclick="handlePayoutInlineOtp('gcash')">
-                  <span>Send</span>
+                <button type="button" class="btn-payout-inline-action" id="btnGcashOtpAction" onclick="savePayoutNumber('gcash')">
+                  <span>Save</span>
                 </button>
               </div>
             </div>
@@ -212,8 +215,8 @@ declare(strict_types=1);
                     Maya Payouts
                   </div>
                   <div style="margin-top:4px;">
-                    <span id="mayaStatusBadge" class="payout-status-badge verified">
-                      <span id="mayaStatusText">Linked &amp; Verified ✓</span>
+                    <span id="mayaStatusBadge" class="payout-status-badge <?= !empty($currentFacility['maya_number']) ? 'verified' : 'unverified' ?>">
+                      <span id="mayaStatusText"><?= !empty($currentFacility['maya_number']) ? 'Saved ✓' : 'Not set' ?></span>
                     </span>
                   </div>
                   <div style="font-size:11px; color:var(--pk-text-muted, #94A3B8); margin-top:3px;">Direct wallet &amp; merchant payouts</div>
@@ -230,9 +233,8 @@ declare(strict_types=1);
               <label class="settings-input-label" style="margin-bottom:6px;">Maya Mobile / Account Number</label>
               <div class="payout-input-inline-wrap" id="mayaInputWrap">
                 <input type="tel" id="mayaNumberInput" class="payout-inline-input" value="<?= htmlspecialchars((string)($currentFacility['maya_number'] ?? '')) ?>" maxlength="11" placeholder="09XXXXXXXXX" oninput="onPayoutNumberChange('maya')">
-                <input type="text" id="mayaOtpCodeInput" class="payout-inline-input otp-code" maxlength="6" value="" placeholder="Enter 6-digit OTP" style="display:none;">
-                <button type="button" class="btn-payout-inline-action" id="btnMayaOtpAction" onclick="handlePayoutInlineOtp('maya')">
-                  <span>Send</span>
+                <button type="button" class="btn-payout-inline-action" id="btnMayaOtpAction" onclick="savePayoutNumber('maya')">
+                  <span>Save</span>
                 </button>
               </div>
             </div>

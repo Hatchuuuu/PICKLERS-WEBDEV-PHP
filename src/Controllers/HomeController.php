@@ -56,8 +56,8 @@ class HomeController extends BaseController {
             [
                 'q' => 'Can I list my own court or facility on Picklers?',
                 'question' => 'Can I list my own court or facility on Picklers?',
-                'a' => 'Yes! Click "List Your Court" in the navigation bar to submit your facility details. Our team will verify and activate your portal within 24 hours.',
-                'answer' => 'Yes! Click "List Your Court" in the navigation bar to submit your facility details. Our team will verify and activate your portal within 24 hours.'
+                'a' => 'Yes! Click "List Your Court" in the navigation bar to submit your facility details. Our team reviews every application and will notify you once your portal is activated.',
+                'answer' => 'Yes! Click "List Your Court" in the navigation bar to submit your facility details. Our team reviews every application and will notify you once your portal is activated.'
             ]
         ];
 

@@ -106,18 +106,25 @@ class AuthController extends BaseController {
                 } else {
                     $passwordHash = $user['password_hash'] ?? '';
                     if (password_verify($password, $passwordHash)) {
-                        $throttle->clear($identifier);
+                        // A deactivated account keeps its phone number (so an
+                        // administrator can reactivate it), which meant it could
+                        // still sign in by phone after being "deleted".
+                        if (($user['role'] ?? '') === 'deleted') {
+                            $error = 'This account has been deactivated. Please contact Picklers support.';
+                        } else {
+                            $throttle->clear($identifier);
 
-                        AuthMiddleware::login($user['id']);
-                        // Direct all sign-ins to player account dashboard (app.php)
-                        $redirect = \Picklers\Helpers\Url::to('app.php');
-                        if ($isAjax) {
-                            return $this->jsonSuccess([
-                                'redirect' => $redirect,
-                                'user' => $this->sanitizeUser($user)
-                            ], 'Successfully signed in!');
+                            AuthMiddleware::login($user['id']);
+                            // Direct all sign-ins to player account dashboard (app.php)
+                            $redirect = \Picklers\Helpers\Url::to('app.php');
+                            if ($isAjax) {
+                                return $this->jsonSuccess([
+                                    'redirect' => $redirect,
+                                    'user' => $this->sanitizeUser($user)
+                                ], 'Successfully signed in!');
+                            }
+                            return $this->redirect($redirect);
                         }
-                        return $this->redirect($redirect);
                     } else {
                         $result = $throttle->recordFailure($identifier);
                         if ($result['locked']) {
@@ -148,43 +155,68 @@ class AuthController extends BaseController {
             $name = trim((string)$request->input('name', ''));
             $email = trim((string)$request->input('email', ''));
             $phone = trim((string)$request->input('phone', ''));
+            if ($phone !== '') {
+                $phone = \Picklers\Helpers\Format::phMobile($phone) ?? $phone;
+            }
             $password = (string)$request->input('password', '');
             $intentRole = (string)$request->input('role', 'player');
 
             if (empty($name) || empty($email) || empty($password)) {
                 $error = 'Please fill in all required fields (Name, Email, Password).';
-            } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            } elseif (mb_strlen($name) > 120 || preg_match('/[<>]/', $name)) {
+                // users.name is VARCHAR(120): under STRICT_TRANS_TABLES a longer
+                // value is a hard SQL error, not a truncation. Angle brackets
+                // have no place in a person's name and are rejected outright.
+                $error = 'Please enter a valid name (up to 120 characters, no < or >).';
+            } elseif (strlen($email) > 120 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $error = 'Please enter a valid email address.';
-            } elseif (strlen($password) < 8) {
-                $error = 'Password must be at least 8 characters long.';
-            } elseif (!preg_match('/[0-9]/', $password)) {
-                $error = 'Password must contain at least one number.';
+            } elseif ($phone !== '' && (strlen($phone) > 32 || !preg_match('/^[0-9+()\-\s]{7,32}$/', $phone))) {
+                $error = 'Please enter a valid mobile number.';
+            } elseif (($policyError = AuthService::passwordPolicyError($password)) !== null) {
+                $error = $policyError;
             } else {
                 $existing = $this->authService->getUserByEmailOrPhone($email);
+                // Phone is a sign-in identifier too: two accounts sharing one
+                // number made sign-in by phone resolve to whichever row the
+                // database happened to return first.
+                $phoneTaken = $phone !== '' && $this->authService->getUserByEmailOrPhone($phone) !== null;
                 if ($existing) {
                     $error = 'An account with this email address already exists. Please sign in instead.';
+                } elseif ($phoneTaken) {
+                    $error = 'This mobile number is already linked to another account.';
                 } else {
                     // Security: Strictly enforce 'player' role at registration.
                     // Owners must go through the owner-application pipeline and be approved.
-                    $user = $this->authService->createUser([
-                        'name' => $name,
-                        'email' => $email,
-                        'phone' => $phone,
-                        'password_hash' => password_hash($password, PASSWORD_BCRYPT),
-                        'role' => 'player',
-                        'is_admin' => 0,
-                        'is_owner' => 0
-                    ]);
-
-                    AuthMiddleware::login($user['id']);
-                    $redirect = ($intentRole === 'owner') ? 'owner-application' : 'app';
-                    if ($isAjax) {
-                        return $this->jsonSuccess([
-                            'redirect' => $redirect,
-                            'user' => $this->sanitizeUser($user)
-                        ], 'Account created successfully!');
+                    try {
+                        $user = $this->authService->createUser([
+                            'name' => $name,
+                            'email' => $email,
+                            'phone' => $phone !== '' ? $phone : null,
+                            'password_hash' => password_hash($password, PASSWORD_BCRYPT),
+                            'role' => 'player',
+                            'is_admin' => 0,
+                            'is_owner' => 0
+                        ]);
+                    } catch (\Throwable $e) {
+                        // Two sign-ups racing for the same email both pass the
+                        // lookup above; the UNIQUE index rejects the second.
+                        error_log('[PICKLERS Auth] createUser failed: ' . $e->getMessage());
+                        $user = null;
                     }
-                    return $this->redirect($redirect);
+
+                    if (empty($user['id'])) {
+                        $error = 'We could not create your account. If you already registered, please sign in instead.';
+                    } else {
+                        AuthMiddleware::login($user['id']);
+                        $redirect = ($intentRole === 'owner') ? 'owner-application' : 'app';
+                        if ($isAjax) {
+                            return $this->jsonSuccess([
+                                'redirect' => $redirect,
+                                'user' => $this->sanitizeUser($user)
+                            ], 'Account created successfully!');
+                        }
+                        return $this->redirect($redirect);
+                    }
                 }
             }
         }

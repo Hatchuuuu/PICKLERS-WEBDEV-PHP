@@ -64,6 +64,10 @@ $router->get('/admin.php', [AdminController::class, 'index']);
 $router->post('/admin', [AdminController::class, 'handle']);
 $router->post('/admin.php', [AdminController::class, 'handle']);
 $router->post('/admin/api', [AdminController::class, 'handle']);
+// Owner-application documents (permits, government IDs) are private files
+// outside the web root; only an administrator can stream them.
+$router->get('/admin/document', [AdminController::class, 'document']);
+$router->get('/admin/document.php', [AdminController::class, 'document']);
 
 // ------------------------------------------------------------------------------
 // Central REST / AJAX API

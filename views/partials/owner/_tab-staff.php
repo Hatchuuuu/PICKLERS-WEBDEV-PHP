@@ -24,13 +24,24 @@
     <?php foreach ($staffMembers as $st): ?>
       <div class="staff-member-card">
         <div class="staff-member-info">
-          <div class="staff-avatar-box">
-            <span><?php echo strtoupper(substr($st['name'], 0, 1)); ?></span>
+          <?php 
+            $stAvatar = trim($st['avatar_url'] ?? ($st['avatar'] ?? ''));
+            $stInitial = strtoupper(substr(trim($st['name'] ?? 'S'), 0, 1)) ?: 'S';
+          ?>
+          <div class="staff-avatar-ring" style="position:relative; width:44px; height:44px; min-width:44px; border-radius:50%; padding:2px; background:linear-gradient(135deg, #00D98B 0%, #00E5FF 100%); box-shadow:0 0 12px rgba(0,217,139,0.4), 0 0 4px rgba(0,229,255,0.5); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <div style="width:100%; height:100%; border-radius:50%; overflow:hidden; background:#08101F; display:flex; align-items:center; justify-content:center;">
+              <?php if (!empty($stAvatar)): ?>
+                <img src="<?php echo htmlspecialchars($stAvatar); ?>" alt="Avatar" style="width:100%; height:100%; object-fit:cover; object-position:center 20%; border-radius:50%;" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">
+                <span style="display:none; font-weight:900; font-size:16px; color:#00D98B; font-family:'Montserrat', sans-serif; text-transform:uppercase;"><?php echo $stInitial; ?></span>
+              <?php else: ?>
+                <span style="font-weight:900; font-size:16px; color:#00D98B; font-family:'Montserrat', sans-serif; text-transform:uppercase;"><?php echo $stInitial; ?></span>
+              <?php endif; ?>
+            </div>
           </div>
           <div>
             <div class="staff-name-text"><?php echo htmlspecialchars($st['name']); ?></div>
             <div class="staff-sub-detail">
-              <?php echo htmlspecialchars($st['email']); ?> &bull; <span style="color:var(--pk-text-muted, #94A3B8);">Joined <?php echo $st['date']; ?></span>
+              <?php echo htmlspecialchars($st['email']); ?> &bull; <span style="color:var(--pk-text-muted, #94A3B8);">Joined <?php echo htmlspecialchars((string)$st['date']); ?></span>
             </div>
           </div>
         </div>

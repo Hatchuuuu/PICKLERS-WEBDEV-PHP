@@ -154,13 +154,9 @@ function executeEndCourtSession() {
     }
   }
 
-  // This used to call 'toggle_court_status', which only ever flips
-  // courts.status — a field the dashboard's dynamic occupancy calculation
-  // doesn't consult for a real, timed booking. The card looked cleared for
-  // this one page view, but the very next dashboard load recomputed
-  // "occupied" straight from the booking's own end time and showed it right
-  // back. 'end_court_session' actually flags the active booking itself
-  // (see Database::endCourtSessionEarly()) so it stays freed.
+  // end_court_session flags the active booking itself (see
+  // Database::endCourtSessionEarly()). Dashboard occupancy is computed from
+  // bookings, so changing courts.status alone would not free the court.
   fetch('owner.php?action=end_court_session', {
     method: 'POST',
     headers: {
@@ -246,13 +242,34 @@ function escapeHtmlAttr(str) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// A value passed as a string argument inside an inline on* attribute: JSON
+// makes it a valid JS string literal, HTML-escaping keeps it in the attribute.
+// Escaping only ' is not enough; a " would end the attribute.
+function jsAttr(value) {
+  return escapeHtmlAttr(JSON.stringify(String(value == null ? '' : value)));
+}
+
 function renderRequestCard(req) {
   const id = escapeHtmlAttr(req.id);
   const name = escapeHtmlAttr(req.name);
-  const nameJs = String(req.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const isOP = Boolean(req.is_open_play) || (req.booking_type === 'open_play') || (req.type_label && req.type_label.toLowerCase().includes('open play')) || (req.id && (String(req.id).startsWith('PKL-OP-') || String(req.id).startsWith('op_')));
+  const typeText = isOP ? 'Open Play' : 'Court Reservation';
+  const typeColor = isOP ? '#38BDF8' : '#00D98B';
+  const avatarUrl = req.player_avatar || req.avatar_url || req.avatar || '';
+  const initials = req.name ? req.name.trim().substr(0, 1).toUpperCase() : 'P';
+  const avatarHtml = avatarUrl
+    ? `<img src="${escapeHtmlAttr(avatarUrl)}" alt="Avatar" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`
+    : `<span>${escapeHtmlAttr(initials)}</span>`;
+
   return `<div class="request-card-v2" id="req_card_${id}">
-    <div class="req-card-top-row">
-      <span class="req-player-name">${name}</span>
+    <div class="req-card-top-row" style="align-items:center; gap:10px;">
+      <div class="user-avatar-circle-sm" style="width:36px; height:36px; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+        ${avatarHtml}
+      </div>
+      <div style="flex:1; min-width:0;">
+        <span class="req-player-name">${name}</span>
+        <div style="font-size:11.5px; font-weight:700; color:${typeColor}; letter-spacing:0.02em; margin-top:1px;">${typeText}</div>
+      </div>
       <span class="req-payment-method-badge">${escapeHtmlAttr(req.badge || 'GCASH')}</span>
     </div>
     <div class="req-details-col">
@@ -261,11 +278,11 @@ function renderRequestCard(req) {
     </div>
     <div class="req-price-cyan">${escapeHtmlAttr(req.fee)}</div>
     <div class="req-actions-row">
-      <button type="button" class="btn-req-accept-v2" onclick="acceptBooking('${id}', '${nameJs}')">
+      <button type="button" class="btn-req-accept-v2" onclick="acceptBooking(${jsAttr(req.id)}, ${jsAttr(req.name)})">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         <span>Accept</span>
       </button>
-      <button type="button" class="btn-req-decline-v2" onclick="openDeclineModal('${id}', '${nameJs}')">
+      <button type="button" class="btn-req-decline-v2" onclick="openDeclineModal(${jsAttr(req.id)}, ${jsAttr(req.name)})">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         <span>Decline</span>
       </button>
@@ -286,15 +303,19 @@ const REQUESTS_EMPTY_STATE_HTML = `<div style="text-align:center; padding:36px 2
 // booking's occupancy, which is an acceptable gap since Accept/Decline here
 // already update that request's own card immediately.
 let requestsQueueRefreshInFlight = false;
-function refreshRequestsQueue() {
+function refreshRequestsQueue(onNewRequests) {
   if (requestsQueueRefreshInFlight) return;
   requestsQueueRefreshInFlight = true;
+  const knownIds = new Set(Array.from(document.querySelectorAll('#requestsList .request-card-v2'))
+    .map(card => card.id.replace(/^req_card_/, '')));
 
   fetch('api.php?action=get_pending_requests', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(r => r.json())
     .then(res => {
       requestsQueueRefreshInFlight = false;
       if (!res || !res.success || !Array.isArray(res.requests)) return;
+      const added = res.requests.filter(r => !knownIds.has(String(r.id))).length;
+      if (added > 0 && typeof onNewRequests === 'function') onNewRequests(added);
 
       const list = document.getElementById('requestsList');
       if (!list) return;
@@ -344,6 +365,7 @@ function acceptBooking(reqId, playerName) {
       if (res.success) {
         removeRequestCard(reqId);
         showToast('Booking accepted! Confirmed notification sent to ' + playerName + '.');
+        setTimeout(() => window.location.reload(), 450);
       } else {
         if (acceptBtn) acceptBtn.disabled = false;
         if (declineBtn) declineBtn.disabled = false;
@@ -392,6 +414,7 @@ function confirmDecline() {
         activeDeclineId = null;
         closeModal('declineModal');
         showToast('Reservation declined. Player hold refunded to wallet.');
+        setTimeout(() => window.location.reload(), 450);
       } else {
         showToast(res.message || 'Failed to decline booking. Please try again.');
       }
@@ -651,11 +674,8 @@ async function startScanningLoop() {
 
 let checkinVerifyInFlight = false;
 
-// This used to parse the scanned string CLIENT-SIDE ONLY and always show
-// "Pass Verified & Checked In!" — literally any QR code, or any text typed
-// into the manual box, "verified" successfully with no server involved.
-// This now asks the server (action=verify_checkin) whether the code maps to
-// a real, confirmed booking at this facility before claiming anything.
+// The server (action=verify_checkin) decides whether the code maps to a real,
+// confirmed booking at this facility for today; nothing is verified locally.
 function onQrCodeDetected(qrData) {
   if (checkinVerifyInFlight) return;
   checkinVerifyInFlight = true;
@@ -745,14 +765,6 @@ function playSuccessChime() {
   }
 }
 
-// Open Play Tab Switching
-function switchOpenPlayTab(tab) {
-  document.getElementById('btnSegActive').classList.toggle('active', tab === 'active');
-  document.getElementById('btnSegCompleted').classList.toggle('active', tab === 'completed');
-  document.getElementById('openPlayActiveGrid').style.display = tab === 'active' ? 'grid' : 'none';
-  document.getElementById('openPlayCompletedGrid').style.display = tab === 'completed' ? 'grid' : 'none';
-}
-
 
 // Payout Request
 let payoutRequestInFlight = false;
@@ -779,11 +791,8 @@ function dispatchPayout() {
   const btn = form ? form.querySelector('button[type="submit"]') : null;
   if (btn) { btn.disabled = true; btn.innerText = 'Processing Request...'; }
 
-  // This used to be a setTimeout()-and-toast with no server call at all —
-  // the owner was told a real payout of their real earnings was "submitted"
-  // when nothing was ever recorded. request_payout() (OwnerController) has
-  // always existed and actually validates + persists the request; this just
-  // connects the button to it.
+  // request_payout (OwnerController) validates the amount against the
+  // available balance and records the request.
   fetch('owner.php?action=request_payout', {
     method: 'POST',
     headers: {
@@ -852,7 +861,7 @@ function loadChatThread(partnerId) {
     .then(res => {
       if (res.success) renderChatThread(res.messages);
     })
-    .catch(() => {});
+    .catch(() => { });
 }
 
 function selectConversation(partnerId, name, avatarUrl, itemEl) {
@@ -1028,19 +1037,19 @@ function submitEditCourtForm(e) {
         // Update Edit button onclick attribute
         const editBtn = currentEditingCourtCard.querySelector('.btn-edit-dark');
         if (editBtn) {
-          editBtn.setAttribute('onclick', `openEditCourtModal('${courtId.replace(/'/g, "\\'")}', '${name.replace(/'/g, "\\'")}', '${surface.replace(/'/g, "\\'")}', '${rate}', this)`);
+          editBtn.setAttribute('onclick', `openEditCourtModal(${JSON.stringify(String(courtId))}, ${JSON.stringify(String(name))}, ${JSON.stringify(String(surface))}, '${rate}', this)`);
         }
 
         // Update Host Open Play button onclick attribute
         const hostBtn = currentEditingCourtCard.querySelector('.btn-host-openplay-active');
         if (hostBtn) {
-          hostBtn.setAttribute('onclick', `openHostOpenPlayForCourt('${name.replace(/'/g, "\\'")}', '${surface.replace(/'/g, "\\'")}')`);
+          hostBtn.setAttribute('onclick', `openHostOpenPlayForCourt(${JSON.stringify(String(name))}, ${JSON.stringify(String(surface))})`);
         }
 
         // Update Disable/Enable button onclick attribute
         const disableBtn = currentEditingCourtCard.querySelector('.btn-disable-red, .btn-enable-green');
         if (disableBtn) {
-          disableBtn.setAttribute('onclick', `toggleCourtActive('${courtId.replace(/'/g, "\\'")}', '${name.replace(/'/g, "\\'")}', this)`);
+          disableBtn.setAttribute('onclick', `toggleCourtActive(${JSON.stringify(String(courtId))}, ${JSON.stringify(String(name))}, this)`);
         }
       }
 
@@ -1172,7 +1181,7 @@ function toggleCourtActive(courtId, courtName, btnEl) {
       // Keep the Disable/Enable button's own onclick attribute in sync with the new state.
       const refreshedBtn = card.querySelector('.btn-disable-red, .btn-enable-green');
       if (refreshedBtn) {
-        refreshedBtn.setAttribute('onclick', `toggleCourtActive('${courtId.replace(/'/g, "\\'")}', '${(courtName || '').replace(/'/g, "\\'")}', this)`);
+        refreshedBtn.setAttribute('onclick', `toggleCourtActive(${JSON.stringify(String(courtId))}, ${JSON.stringify(String(courtName || ''))}, this)`);
       }
     })
     .catch(err => {
@@ -1307,8 +1316,8 @@ function executeCancelOpenPlay() {
   const courtName = pendingCancelCourtName || '';
 
   closeModal('cancelOpenPlayModal');
-  showToast('✓ "' + title + '" cancelled. Player entry fees 100% refunded.', 'success');
 
+  // The toast reports what the server actually cancelled and refunded.
   fetch('owner.php?action=cancel_open_play', {
     method: 'POST',
     headers: {
@@ -1327,10 +1336,16 @@ function executeCancelOpenPlay() {
   })
     .then(r => r.json())
     .then(res => {
-      setTimeout(() => { window.location.reload(); }, 500);
+      if (res && res.success) {
+        showToast('✓ ' + (res.message || ('"' + title + '" cancelled.')), 'success');
+        setTimeout(() => { window.location.reload(); }, 900);
+      } else {
+        showToast((res && res.message) || 'Could not cancel this session. Please try again.');
+      }
     })
     .catch(() => {
-      setTimeout(() => { window.location.reload(); }, 500);
+      showToast('Network error — the session may not have been cancelled. Refreshing…');
+      setTimeout(() => { window.location.reload(); }, 1200);
     });
 }
 window.executeCancelOpenPlay = executeCancelOpenPlay;
@@ -1371,18 +1386,6 @@ function switchOpenPlayTab(tab) {
 }
 window.switchOpenPlayTab = switchOpenPlayTab;
 
-function filterCourtsList(val) {
-  const query = (val || '').toLowerCase().trim();
-  const cards = document.querySelectorAll('.court-item-card');
-  cards.forEach(card => {
-    const courtName = card.getAttribute('data-court-name') || '';
-    if (!query || courtName.includes(query)) {
-      card.style.display = 'flex';
-    } else {
-      card.style.display = 'none';
-    }
-  });
-}
 window.filterCourtsList = filterCourtsList;
 
 let addCourtInFlight = false;
@@ -1511,11 +1514,16 @@ function submitHostOpenPlayForm(e) {
 
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   const court = document.getElementById('modalTargetCourtName')?.textContent || 'Court 2';
-  const date = document.getElementById('openPlayDateInput')?.value || todayStr;
+  // The Everyday / Unlimited toggles only restyled their buttons: the specific
+  // date and the hidden cap input were submitted regardless, so a recurring
+  // session was published for one day and an "unlimited" one capped at 20.
+  const everyday = document.getElementById('openPlayDatePickerWrap')?.style.display === 'none';
+  const unlimited = document.getElementById('openPlayCapWrap')?.style.display === 'none';
+  const date = everyday ? 'Everyday' : (document.getElementById('openPlayDateInput')?.value || todayStr);
   const start = document.getElementById('openPlayStartTime')?.value || '6:00 AM';
   const end = document.getElementById('openPlayEndTime')?.value || '11:00 PM';
   const fee = document.getElementById('openPlayFee')?.value || '250';
-  const cap = document.getElementById('openPlayCap')?.value || '20';
+  const cap = unlimited ? 'unlimited' : (document.getElementById('openPlayCap')?.value || '20');
 
   const btn = e.target.querySelector('button[type="submit"]');
   const restoreSubmitBtn = () => {
@@ -1619,17 +1627,52 @@ let pendingRevokeStaffName = '';
 let pendingRevokeStaffBtn = null;
 let revokeStaffInFlight = false;
 
+function checkRevokeConfirmInput(val) {
+  const btn = document.getElementById('btnExecuteRevoke');
+  const inputEl = document.getElementById('revokeConfirmInput');
+  if (!btn) return;
+
+  const isMatch = (val || '').trim().toUpperCase() === 'REVOKE';
+  btn.disabled = !isMatch;
+  if (isMatch) {
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+    if (inputEl) inputEl.style.borderColor = '#00D98B';
+  } else {
+    btn.style.opacity = '0.4';
+    btn.style.cursor = 'not-allowed';
+    if (inputEl) inputEl.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+  }
+}
+window.checkRevokeConfirmInput = checkRevokeConfirmInput;
+
 function promptRevokeStaff(staffId, staffName, btnEl) {
   pendingRevokeStaffId = staffId;
   pendingRevokeStaffName = staffName;
   pendingRevokeStaffBtn = btnEl;
   const nameEl = document.getElementById('revokeStaffTargetName');
   if (nameEl) nameEl.textContent = staffName;
+
+  const inputEl = document.getElementById('revokeConfirmInput');
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+  }
+  checkRevokeConfirmInput('');
+
   openModal('revokeStaffModal');
+  setTimeout(() => {
+    if (inputEl) inputEl.focus();
+  }, 100);
 }
 
 function executeRevokeStaff() {
   if (revokeStaffInFlight) return;
+
+  const inputEl = document.getElementById('revokeConfirmInput');
+  if (inputEl && (inputEl.value || '').trim().toUpperCase() !== 'REVOKE') {
+    return;
+  }
 
   const staffId = pendingRevokeStaffId;
   const staffName = pendingRevokeStaffName || 'Staff member';
@@ -1645,7 +1688,7 @@ function executeRevokeStaff() {
   }
 
   revokeStaffInFlight = true;
-  const confirmBtn = document.querySelector('#revokeStaffModal .btn-modal-danger');
+  const confirmBtn = document.getElementById('btnExecuteRevoke') || document.querySelector('#revokeStaffModal .btn-modal-danger');
   if (confirmBtn) confirmBtn.disabled = true;
 
   fetch('owner.php?action=revoke_staff', {
@@ -1699,15 +1742,6 @@ function executeRevokeStaff() {
 
 function removeStaffRow(staffId, staffName, btnEl) {
   promptRevokeStaff(staffId, staffName, btnEl);
-}
-
-function toggleHoursVisibility() {
-  const is24h = document.getElementById('toggleOpen24')?.checked;
-  const grid = document.getElementById('hoursGridInputs');
-  if (grid) {
-    grid.style.opacity = is24h ? '0.4' : '1';
-    grid.style.pointerEvents = is24h ? 'none' : 'auto';
-  }
 }
 
 // Theme Management (Synced with Player App)
@@ -1812,6 +1846,12 @@ async function markAllNotificationsAsRead() {
 function handleLogoUpload(input) {
   if (input.files && input.files[0]) {
     const file = input.files[0];
+    // Same limits the server enforces for a facility logo.
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type) || file.size > 2 * 1024 * 1024) {
+      input.value = '';
+      showToast('Please choose a PNG, JPG or WEBP image under 2MB.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = function (e) {
       const preview = document.getElementById('brandLogoPreview');
@@ -1919,135 +1959,69 @@ function toggleHoursVisibility() {
   }
 }
 
-// Payout Numbers Management & Verification (GCash & Maya)
+// Payout Numbers (GCash & Maya)
+//
+// There is no SMS verification: a number is saved (validated server-side) and
+// its badge reports only whether one is saved.
+function setPayoutStatus(type, state) {
+  const statusBadge = document.getElementById(`${type}StatusBadge`);
+  const statusText = document.getElementById(`${type}StatusText`);
+  const statusDot = document.getElementById(`${type}StatusDot`);
+  const saved = state === 'saved';
+  if (statusBadge) statusBadge.className = `payout-status-badge ${saved ? 'verified' : 'unverified'}`;
+  if (statusDot) statusDot.className = `status-dot ${saved ? 'green' : 'amber'}`;
+  if (statusText) {
+    statusText.textContent = saved ? 'Saved ✓' : (state === 'modified' ? 'Unsaved changes' : 'Not set');
+  }
+}
+
 function onPayoutNumberChange(type) {
   const input = document.getElementById(`${type}NumberInput`);
   if (!input) return;
 
-  // Restrict to numeric digits only
+  // Digits only, same 11-character limit the server enforces.
   input.value = input.value.replace(/\D/g, '').slice(0, 11);
-  const val = input.value;
-
-  const statusBadge = document.getElementById(`${type}StatusBadge`);
-  const statusText = document.getElementById(`${type}StatusText`);
-  const statusDot = document.getElementById(`${type}StatusDot`);
-  const btnOtp = document.getElementById(`btn${type.charAt(0).toUpperCase() + type.slice(1)}Otp`);
-  const inlineRow = document.getElementById(`${type}OtpInlineRow`);
-
-  if (inlineRow) inlineRow.style.display = 'none';
-
-  if (val.length < 11) {
-    if (statusBadge) { statusBadge.className = 'payout-status-badge unverified'; }
-    if (statusDot) { statusDot.className = 'status-dot amber'; }
-    if (statusText) { statusText.textContent = `⚠️ Enter 11 Digits (${val.length}/11)`; }
-    if (btnOtp) btnOtp.textContent = 'Verify / Send OTP';
+  if (input.value === input.defaultValue) {
+    setPayoutStatus(type, input.value ? 'saved' : 'empty');
   } else {
-    if (statusBadge) { statusBadge.className = 'payout-status-badge unverified'; }
-    if (statusDot) { statusDot.className = 'status-dot amber'; }
-    if (statusText) { statusText.textContent = `⚠️ Modified • Unverified`; }
-    if (btnOtp) btnOtp.textContent = `Send OTP to ${val}`;
+    setPayoutStatus(type, 'modified');
   }
 }
 
-function handlePayoutInlineOtp(type) {
-  const numberInput = document.getElementById(`${type}NumberInput`);
-  const otpInput = document.getElementById(`${type}OtpCodeInput`);
-  const btnAction = document.getElementById(`btn${type.charAt(0).toUpperCase() + type.slice(1)}OtpAction`);
+function savePayoutNumber(type) {
+  const input = document.getElementById(`${type}NumberInput`);
+  const btn = document.getElementById(`btn${type.charAt(0).toUpperCase() + type.slice(1)}OtpAction`);
+  if (!input) return;
 
-  if (!numberInput || !otpInput || !btnAction) return;
+  const name = type === 'gcash' ? 'GCash' : 'Maya';
+  const val = input.value.replace(/\D/g, '');
+  if (val !== '' && !/^09\d{9}$/.test(val)) {
+    showToast(`Please enter a valid 11-digit ${name} number starting with 09.`, 'error');
+    input.focus();
+    return;
+  }
 
-  const isVerifyMode = btnAction.classList.contains('verify-mode');
-
-  if (!isVerifyMode) {
-    // STEP 1: SEND OTP
-    const val = numberInput.value.trim();
-    if (!val || !val.startsWith('09') || val.length !== 11) {
-      showToast('Please enter a valid 11-digit mobile number');
-      numberInput.focus();
-      return;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>Saving…</span>';
+  }
+  Promise.resolve(saveFacilitySettings(null, true)).then(data => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Save</span>';
     }
-
-    // Generate 6-digit OTP
-    const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-    otpInput.value = generatedCode;
-
-    // Transition layout: hide mobile number input, show OTP code input
-    numberInput.style.display = 'none';
-    otpInput.style.display = 'block';
-    otpInput.focus();
-
-    // Update button to Verify
-    btnAction.classList.add('verify-mode');
-    btnAction.innerHTML = '<span>Verify</span>';
-
-    const name = type === 'gcash' ? 'GCash' : 'Maya';
-    showToast(`OTP Code Sent: ${generatedCode}`);
-  } else {
-    // STEP 2: VERIFY OTP
-    const otpCode = otpInput.value.trim();
-    if (!otpCode || otpCode.length < 4) {
-      showToast('Please enter the verification OTP code');
-      otpInput.focus();
-      return;
+    if (data && data.success) {
+      showToast(val ? `${name} number saved.` : `${name} number removed.`, 'success');
+    } else {
+      showToast((data && data.message) || `Your ${name} number was not saved. Please try again.`, 'error');
     }
-
-    // Transition back: show verified number
-    otpInput.style.display = 'none';
-    numberInput.style.display = 'block';
-
-    // Update button to Verified
-    btnAction.classList.remove('verify-mode');
-    btnAction.classList.add('verified-mode');
-    btnAction.innerHTML = '<span>✓ Verified</span>';
-
-    // Update channel status badge
-    const statusBadge = document.getElementById(`${type}StatusBadge`);
-    const statusText = document.getElementById(`${type}StatusText`);
-
-    if (statusBadge) statusBadge.className = 'payout-status-badge verified';
-    if (statusText) statusText.textContent = 'Linked & Verified ✓';
-
-    const name = type === 'gcash' ? 'GCash' : 'Maya';
-    saveFacilitySettings(null, true);
-    showToast(`${name} Linked Successfully!`, 'success');
-  }
+  });
 }
-
-function resetPayoutOtpInput(type) {
-  const numberInput = document.getElementById(`${type}NumberInput`);
-  const otpInput = document.getElementById(`${type}OtpCodeInput`);
-  const btnAction = document.getElementById(`btn${type.charAt(0).toUpperCase() + type.slice(1)}OtpAction`);
-
-  if (numberInput) {
-    numberInput.style.display = 'block';
-    numberInput.focus();
-  }
-  if (otpInput) otpInput.style.display = 'none';
-  if (btnAction) {
-    btnAction.classList.remove('verify-mode', 'verified-mode');
-    btnAction.innerHTML = '<span>Send</span>';
-  }
-}
-
-function onPayoutNumberChange(type) {
-  const btnAction = document.getElementById(`btn${type.charAt(0).toUpperCase() + type.slice(1)}OtpAction`);
-  if (btnAction && btnAction.classList.contains('verified-mode')) {
-    btnAction.classList.remove('verified-mode');
-    btnAction.innerHTML = '<span>Send</span>';
-  }
-}
-
 function saveFacilitySettings(event, isSilent = false) {
   if (event) event.preventDefault();
 
-  // This used to save GCash/Maya numbers and the three payment toggles to
-  // localStorage ONLY — never sent to the server at all — so they vanished
-  // on a different device/browser or if site data was ever cleared, and
-  // nothing server-side could ever actually read them. It also defaulted a
-  // blank number field to a fake-looking placeholder number ('09123489758'/
-  // '09987654321') and submitted THAT as if it were the owner's real payout
-  // number. Both are fixed: everything below now goes to
-  // update_facility_settings() for real, and a blank field stays blank.
+  // Everything below is saved server-side by update_facility_settings; a
+  // blank payout number stays blank.
   const gcashNum = document.getElementById('gcashNumberInput')?.value?.trim() || '';
   const mayaNum = document.getElementById('mayaNumberInput')?.value?.trim() || '';
   const facName = document.getElementById('facilityNameInput')?.value?.trim() || '';
@@ -2076,10 +2050,14 @@ function saveFacilitySettings(event, isSilent = false) {
   formData.append('gcash_enabled', gcashEnabled ? '1' : '0');
   formData.append('maya_enabled', mayaEnabled ? '1' : '0');
   formData.append('cash_on_site', cashOnSite ? '1' : '0');
+  // A newly picked logo is uploaded together with the other settings.
+  const logoInput = document.getElementById('logoFileInput');
+  const logoFile = logoInput && logoInput.files ? logoInput.files[0] : null;
+  if (logoFile) formData.append('logo', logoFile);
   const csrfToken = getCsrfToken();
   if (csrfToken) formData.append('csrf_token', csrfToken);
 
-  fetch('owner.php?action=update_facility_settings', {
+  return fetch('owner.php?action=update_facility_settings', {
     method: 'POST',
     body: formData,
     headers: {
@@ -2090,13 +2068,22 @@ function saveFacilitySettings(event, isSilent = false) {
     .then(r => r.json())
     .then(data => {
       if (data && data.success) {
+        if (logoFile && logoInput) logoInput.value = '';
+        ['gcash', 'maya'].forEach(type => {
+          const numberInput = document.getElementById(`${type}NumberInput`);
+          if (!numberInput) return;
+          numberInput.defaultValue = numberInput.value;
+          setPayoutStatus(type, numberInput.value ? 'saved' : 'empty');
+        });
         if (!isSilent) showToast('Facility settings & payout numbers updated successfully!', 'success');
       } else {
         if (!isSilent) showToast((data && data.message) || 'Failed to update settings', 'error');
       }
+      return data;
     })
     .catch(() => {
       if (!isSilent) showToast('Network error — settings may not have saved. Please try again.', 'error');
+      return null;
     });
 }
 
@@ -2106,6 +2093,7 @@ function filterDailyRev(filterType, btn) {
   btns.forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
 
+  const currentMonth = document.getElementById('dailyRevenueTable')?.getAttribute('data-current-month') || '';
   const rows = document.querySelectorAll('#dailyRevenueTable tbody tr');
   rows.forEach(r => {
     const month = r.getAttribute('data-month');
@@ -2113,8 +2101,8 @@ function filterDailyRev(filterType, btn) {
     const rev = parseFloat(r.getAttribute('data-rev') || '0');
 
     let show = true;
-    if (filterType === 'september') {
-      show = (month === 'september');
+    if (filterType === 'month') {
+      show = (month === currentMonth);
     } else if (filterType === 'weekends') {
       show = isWeekend;
     } else if (filterType === 'high') {
@@ -2257,6 +2245,10 @@ function initLiveCourtTimers() {
           data.pbar.style.width = '0%';
           data.pbar.className = 'court-timer-progress-bar-red';
         }
+        if (left <= -2 && !data.reloaded) {
+          data.reloaded = true;
+          setTimeout(() => window.location.reload(), 300);
+        }
       }
     });
 
@@ -2290,14 +2282,18 @@ function syncNotifBellDot(hasUnread) {
 // and Database::getPendingBookingRequests()) rather than just prompting the
 // owner to reload the page.
 if (window.PickSync) {
+  // 'bookings' is a platform-wide channel: announce only requests that are
+  // actually new in THIS owner's queue, not every booking made on Picklers.
   PickSync.on('bookings', () => {
-    refreshRequestsQueue();
-    showToast('New booking activity — your Requests queue just updated.');
+    refreshRequestsQueue(added => {
+      showToast(`${added} new booking request${added === 1 ? '' : 's'} in your queue.`);
+    });
   });
   PickSync.on('unread_notifications', count => syncNotifBellDot((count || 0) > 0));
   PickSync.start();
 }
 
+// Both arguments must already be HTML-escaped; only the <mark> is added here.
 function highlightMatchText(text, query) {
   if (!query) return text;
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2336,22 +2332,24 @@ function renderPlayerAutocomplete(box, users, query, type = 'staff') {
 
   box.innerHTML = users.map(u => {
     const initial = (u.name || 'P').charAt(0).toUpperCase();
-    const nameHighlighted = highlightMatchText(u.name || '', query);
+    // Names and emails are player-controlled: HTML-escape them for markup and
+    // pass them to handlers through jsAttr().
+    const nameHighlighted = highlightMatchText(escapeHtmlAttr(u.name || ''), escapeHtmlAttr(query));
     const emailStr = u.email ? u.email : '';
     const clickHandler = type === 'staff'
-      ? `selectStaffPlayer('${(u.name || '').replace(/'/g, "\\'")}', '${emailStr.replace(/'/g, "\\'")}')`
-      : `selectWalkinPlayer('${(u.name || '').replace(/'/g, "\\'")}')`;
+      ? `selectStaffPlayer(${jsAttr(u.name || '')}, ${jsAttr(emailStr)})`
+      : `selectWalkinPlayer(${jsAttr(u.name || '')})`;
 
     const avatarInner = u.avatar_url && u.avatar_url.trim() && !u.avatar_url.includes('unsplash.com')
-      ? `<img src="${(u.avatar_url || '').replace(/"/g, '&quot;')}" alt="${(u.name || '').replace(/"/g, '&quot;')}">`
-      : `<span>${initial}</span>`;
+      ? `<img src="${escapeHtmlAttr(u.avatar_url)}" alt="${escapeHtmlAttr(u.name || '')}">`
+      : `<span>${escapeHtmlAttr(initial)}</span>`;
 
     return `
       <div class="autocomplete-item" onclick="${clickHandler}">
         <div class="autocomplete-avatar">${avatarInner}</div>
         <div class="autocomplete-info">
           <div class="autocomplete-item-name">${nameHighlighted}</div>
-          <div class="autocomplete-item-email">${emailStr || 'No email registered'}</div>
+          <div class="autocomplete-item-email">${escapeHtmlAttr(emailStr) || 'No email registered'}</div>
         </div>
       </div>
     `;
@@ -2363,12 +2361,7 @@ function renderPlayerAutocomplete(box, users, query, type = 'staff') {
 function searchPlayersLocalAndApi(query, callback) {
   const q = (query || '').trim().toLowerCase();
 
-  // This used to show 10 hardcoded fake names ("Marcus Vance", "Maria
-  // Santos", ...) instantly, merged in with real accounts from
-  // action=search_players once that request resolved — indistinguishable
-  // from a real match. An owner adding staff or logging a walk-in could
-  // easily pick one of the fake entries, believing they'd found a real
-  // registered player. Real accounts only now.
+  // Only real registered accounts are suggested.
   fetch('api.php?action=search_players&q=' + encodeURIComponent(q))
     .then(r => r.json())
     .then(data => {
@@ -2988,12 +2981,12 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
 
       if (roster.length === 0) {
         listEl.innerHTML = `
-          <div style="text-align: center; padding: 40px 20px; background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 16px;">
-            <div style="width: 48px; height: 48px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color: #FFB800; margin: 0 auto 12px;">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
+          <div style="text-align: center; padding: 60px 24px; background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 18px; flex: 1; min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color: #FFB800; margin: 0 auto 14px;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
             </div>
-            <div style="font-size: 14px; font-weight: 700; color: #FFFFFF; margin-bottom: 4px;">No Players Joined Yet</div>
-            <div style="font-size: 12px; color: #94A3B8; max-width: 280px; margin: 0 auto;">Players who book or register for this hosted Open Play session will appear here in real-time.</div>
+            <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">No Players Joined Yet</div>
+            <div style="font-size: 12.5px; color: #94A3B8; max-width: 320px; margin: 0 auto; line-height: 1.5;">Players who book or register for this hosted Open Play session will appear here in real-time.</div>
           </div>
         `;
         return;
@@ -3011,12 +3004,12 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
       listEl.innerHTML = roster.map((player, idx) => {
         const initials = player.name ? player.name.trim().substr(0, 1).toUpperCase() : 'P';
         const isPaid = (player.payment_status || '').toLowerCase().includes('paid');
-        const avatarUrl = player.avatar_url || '';
+        const avatarUrl = player.avatar_url || player.avatar || player.player_avatar || '';
 
         return `
           <div class="roster-player-item" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(20, 32, 54, 0.8)); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); transition: all 0.25s ease;" onmouseover="this.style.borderColor='rgba(0, 217, 139, 0.35)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 8px 24px rgba(0, 217, 139, 0.12)';" onmouseout="this.style.borderColor='rgba(255, 255, 255, 0.09)'; this.style.transform='none'; this.style.boxShadow='0 4px 16px rgba(0, 0, 0, 0.3)';">
-            <div class="user-avatar-circle-sm" style="width: 42px; height: 42px;">
-              ${avatarUrl ? `<img src="${safeHtmlStr(avatarUrl)}" alt="Avatar">` : `<span>${safeHtmlStr(initials)}</span>`}
+            <div class="user-avatar-circle-sm" style="width: 42px; height: 42px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+              ${avatarUrl ? `<img src="${safeHtmlStr(avatarUrl)}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">` : `<span>${safeHtmlStr(initials)}</span>`}
             </div>
             <div style="flex: 1; min-width: 0;">
               <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;">${safeHtmlStr(player.name)}</div>
@@ -3045,4 +3038,114 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
     });
 }
 window.openOpenPlayRosterModal = openOpenPlayRosterModal;
+
+// Court Schedule Roster Modal Handler
+function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedBookings) {
+  const titleEl = document.getElementById('courtScheduleTitle');
+  const subtitleEl = document.getElementById('courtScheduleSubtitle');
+  const listEl = document.getElementById('courtScheduleList');
+  const countEl = document.getElementById('courtScheduleCountBadge');
+
+  if (titleEl) titleEl.textContent = `${courtName || 'Court'} Schedule`;
+  if (subtitleEl) subtitleEl.textContent = `Court Reservations • Scheduled Players`;
+
+  let upcoming = [];
+  let completed = [];
+
+  try {
+    upcoming = (typeof upcomingBookings === 'string') ? JSON.parse(upcomingBookings) : (upcomingBookings || []);
+  } catch (e) { upcoming = []; }
+
+  try {
+    completed = (typeof completedBookings === 'string') ? JSON.parse(completedBookings) : (completedBookings || []);
+  } catch (e) { completed = []; }
+
+  const allBookings = [...upcoming, ...completed];
+  const totalCount = allBookings.length;
+
+  if (countEl) {
+    countEl.textContent = `${totalCount} ${totalCount === 1 ? 'Player' : 'Players'} Scheduled`;
+  }
+
+  if (!listEl) return;
+
+  if (totalCount === 0) {
+    listEl.innerHTML = `
+      <div style="text-align: center; padding: 60px 24px; background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 18px; flex: 1; min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color: #FFB800; margin: 0 auto 14px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
+        </div>
+        <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">No Bookings Scheduled Yet</div>
+        <div style="font-size: 12.5px; color: #94A3B8; max-width: 320px; margin: 0 auto; line-height: 1.5;">Confirmed court reservations and player schedules for this court will appear here in real-time.</div>
+      </div>
+    `;
+    openModal('courtScheduleModal');
+    return;
+  }
+
+  let html = '';
+
+  if (upcoming.length > 0) {
+    html += `<div style="font-size: 11px; font-weight: 800; color: #00D98B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Upcoming Bookings</div>`;
+    html += upcoming.map(b => {
+      const name = b.user_name || b.author_name || 'Player';
+      const initial = name.trim().substr(0, 1).toUpperCase();
+      const timeStr = b.time || 'Scheduled';
+      const avatarUrl = b.user_avatar || b.avatar_url || b.avatar || '';
+      const avatarHtml = avatarUrl
+        ? `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; padding: 2px; background: linear-gradient(135deg, #00D98B, #00B871); flex-shrink: 0;"><img src="${safeHtmlStr(avatarUrl)}" alt="${safeHtmlStr(name)}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;" /></div>`
+        : `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #00D98B, #00B871); display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-weight: 800; font-size: 14px; flex-shrink: 0;"><span>${safeHtmlStr(initial)}</span></div>`;
+
+      return `
+        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(20, 32, 54, 0.8)); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            ${avatarHtml}
+            <div>
+              <div style="font-size: 14px; font-weight: 800; color: #FFFFFF;">${safeHtmlStr(name)}</div>
+              <div style="font-size: 11.5px; color: #94A3B8;">🕒 ${safeHtmlStr(timeStr)}</div>
+            </div>
+          </div>
+          <span style="font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; background: rgba(0, 217, 139, 0.14); border: 1px solid rgba(0, 217, 139, 0.3); color: #00D98B; text-transform: uppercase;">
+            Confirmed
+          </span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (completed.length > 0) {
+    if (upcoming.length > 0) {
+      html += `<div style="height: 1px; background: rgba(255, 255, 255, 0.08); margin: 8px 0;"></div>`;
+    }
+    html += `<div style="font-size: 11px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Completed Today</div>`;
+    html += completed.map(b => {
+      const name = b.user_name || b.author_name || 'Player';
+      const initial = name.trim().substr(0, 1).toUpperCase();
+      const timeStr = b.time || 'Completed';
+      const avatarUrl = b.user_avatar || b.avatar_url || b.avatar || '';
+      const avatarHtml = avatarUrl
+        ? `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; padding: 2px; background: rgba(148, 163, 184, 0.3); flex-shrink: 0;"><img src="${safeHtmlStr(avatarUrl)}" alt="${safeHtmlStr(name)}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;" /></div>`
+        : `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; background: rgba(148, 163, 184, 0.2); display: flex; align-items: center; justify-content: center; color: #94A3B8; font-weight: 800; font-size: 14px; flex-shrink: 0;"><span>${safeHtmlStr(initial)}</span></div>`;
+
+      return `
+        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(20, 32, 54, 0.5)); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 16px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            ${avatarHtml}
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: #CBD5E1;">${safeHtmlStr(name)}</div>
+              <div style="font-size: 11.5px; color: #64748B;">🕒 ${safeHtmlStr(timeStr)}</div>
+            </div>
+          </div>
+          <span style="font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; background: rgba(148, 163, 184, 0.14); border: 1px solid rgba(148, 163, 184, 0.3); color: #94A3B8; text-transform: uppercase;">
+            Completed
+          </span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  listEl.innerHTML = html;
+  openModal('courtScheduleModal');
+}
+window.openCourtScheduleModal = openCourtScheduleModal;
 

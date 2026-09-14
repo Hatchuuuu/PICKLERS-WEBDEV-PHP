@@ -6242,23 +6242,33 @@
     }
 
     .booking-badge-count {
-      position: static;
+      position: relative;
+      top: -3.5px;
+      margin-left: 3px;
+      display: inline;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      color: #FF3B30 !important;
       background: transparent !important;
-      color: inherit;
-      font-size: 13.5px;
-      font-weight: 700;
       border: none !important;
       box-shadow: none !important;
+      outline: none !important;
       padding: 0;
-      margin: 0;
-      display: inline;
-      line-height: inherit;
+      vertical-align: top;
       transition: color 0.2s ease;
     }
 
-    .booking-subnav-btn.active .booking-badge-count {
+    .booking-subnav-btn:not(.active) .booking-badge-count {
+      color: #FF3B30 !important;
       background: transparent !important;
-      color: #00D98B !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+
+    .booking-subnav-btn.active .booking-badge-count {
+      color: #FF3B30 !important;
+      background: transparent !important;
       border: none !important;
       box-shadow: none !important;
       font-weight: 800 !important;
@@ -6855,17 +6865,12 @@
       transform: none !important;
     }
 
-    html.light .booking-badge-count {
-      background: #F1F5F9 !important;
-      color: var(--pk-text-secondary) !important;
-      border: 1px solid #E2E8F0 !important;
-    }
-
+    html.light .booking-badge-count,
     html.light .booking-subnav-btn.active .booking-badge-count {
-      background: #DCFCE7 !important;
-      color: var(--pk-accent-emerald-text) !important;
-      border: 1px solid #86EFAC !important;
-      font-weight: 800 !important;
+      background: transparent !important;
+      color: #FF3B30 !important;
+      border: none !important;
+      box-shadow: none !important;
     }
 
     /* Rounded Pill Tabs in Light Mode (Explore Page & Open Play) */

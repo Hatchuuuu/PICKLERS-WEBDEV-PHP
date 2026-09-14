@@ -45,13 +45,24 @@ final class OpenPlayRolloverTest extends TestCase {
         $this->assertSame(date('Y-m-d'), Database::getMatchTargetDate($everydayActive), 'Everyday match before end time targets today');
         $this->assertSame($todayFormatted, Database::getMatchDisplayDate($everydayActive), 'Everyday match before end time displays today formatted date');
 
-        // 3. Everyday match after end time
-        $pastEndTime = date('g:i A', strtotime('-2 hours'));
+        // 3. Everyday match after end time. The window must start before it
+        // ends on the same day: a fixed "8:00 AM" start with an end of now−2h
+        // is an OVERNIGHT session whenever the suite runs before 10 AM, which
+        // (correctly) does not roll over — the fixture, not the code, was wrong.
+        if ((int)date('G') >= 3) {
+            $pastStartTime = date('g:i A', strtotime('-3 hours'));
+            $pastEndTime = date('g:i A', strtotime('-2 hours'));
+        } else {
+            // Too early for a same-day window 2-3 hours back: use one that
+            // started at midnight and ended a minute ago.
+            $pastStartTime = '12:00 AM';
+            $pastEndTime = date('g:i A', max(strtotime('today') + 60, strtotime('-1 minute')));
+        }
         $everydayPassed = [
             'id' => 'test_everyday_tomorrow',
             'facility_id' => 1,
             'date' => 'Everyday',
-            'time' => '8:00 AM - ' . $pastEndTime
+            'time' => $pastStartTime . ' - ' . $pastEndTime
         ];
         $tomorrowStr = date('Y-m-d', strtotime('+1 day'));
         $this->assertFalse(Database::isMatchExpired($everydayPassed), 'Everyday match past end time is not expired (rolls over)');
@@ -66,7 +77,7 @@ final class OpenPlayRolloverTest extends TestCase {
             'facility_name' => 'Cebu IT Park Pickle Center',
             'location' => 'Apas, Cebu City',
             'date' => 'Everyday',
-            'time' => '8:00 AM - ' . $pastEndTime,
+            'time' => $pastStartTime . ' - ' . $pastEndTime,
             'level' => 'Advanced',
             'current_players' => 3,
             'max_players' => 4,

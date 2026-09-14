@@ -11,6 +11,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# User uploads (private documents live in /storage; logos are user content)
+/public/uploads/permits/*
+!/public/uploads/permits/.htaccess
+/public/uploads/facilities/*
+!/public/uploads/facilities/.htaccess
+
 # Temporary / Scratch scripts
 /scratch/
 /storage/
@@ -26,6 +32,7 @@ logs/
 # Runtime state (regenerated automatically, must not be committed)
 /database/.schema_version*
 /database/.seeded
+/database/.court_names_normalized
 /database/login_attempts.json
 /database/cache/
 /database_test/

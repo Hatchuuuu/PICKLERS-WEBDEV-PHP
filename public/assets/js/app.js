@@ -54,10 +54,12 @@ function showToast(message, type = 'success') {
 
   const toast = document.createElement('div');
   toast.className = `toast-card toast-${finalType}`;
-  toast.innerHTML = `
-      ${iconSvg}
-      <span>${cleanMsg}</span>
-    `;
+  // The message is text, never markup: it routinely carries server messages
+  // that embed user-supplied names/titles, which innerHTML would execute.
+  toast.innerHTML = iconSvg;
+  const toastText = document.createElement('span');
+  toastText.textContent = cleanMsg;
+  toast.appendChild(toastText);
   container.appendChild(toast);
 
   activeToastTimeout = setTimeout(() => {
@@ -91,70 +93,6 @@ function closeModal(modalId) {
 function toggleNotificationsPanel() {
   openModal('notifModal');
   setTimeout(initNotificationSwipeGestures, 50);
-}
-
-// Swipe-to-Dismiss / Remove Notification Handler
-function dismissNotification(rowElement, notifId, directSlide = false) {
-  if (!rowElement || rowElement.classList.contains('removing')) return;
-
-  const card = rowElement.querySelector('.notif-card-item');
-
-  // Animate card off-screen and collapse row
-  if (card) {
-    card.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease';
-    card.style.transform = 'translateX(-120%)';
-    card.style.opacity = '0';
-  }
-
-  setTimeout(() => {
-    rowElement.classList.add('removing');
-  }, 100);
-
-  setTimeout(() => {
-    rowElement.remove();
-
-    // Update Notification count badge
-    const list = document.getElementById('notifModalList');
-    const remainingRows = list ? list.querySelectorAll('.notif-swipe-row') : [];
-    const remainingUnread = list ? list.querySelectorAll('.notif-card-item.unread').length : 0;
-    const badge = document.getElementById('notifUnreadBadgeText');
-    if (badge) {
-      badge.textContent = remainingUnread > 0
-        ? `${remainingUnread} unread of ${remainingRows.length}`
-        : `${remainingRows.length} total`;
-    }
-
-    // Also update notification bell badge dot if 0 unread
-    if (remainingUnread === 0) {
-      document.querySelectorAll('.notif-unread-dot').forEach(el => el.remove());
-    }
-
-    // If no notifications left, show elegant empty state
-    if (list && remainingRows.length === 0) {
-      list.innerHTML = `
-        <div style="text-align: center; padding: 48px 20px; color: #94A3B8;">
-          <div style="font-size: 36px; margin-bottom: 10px;">🔔</div>
-          <div style="font-size: 15px; font-weight: 700; color: #FFFFFF; margin-bottom: 4px;">No notifications yet</div>
-          <div style="font-size: 12px; color: rgba(255, 255, 255, 0.55);">When you book courts or join open play sessions, updates will show up here.</div>
-        </div>
-      `;
-    }
-
-    // Call backend API to delete from database
-    if (notifId) {
-      fetch('api.php?action=delete_notification', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': getCsrfToken()
-        },
-        body: JSON.stringify({
-          id: notifId,
-          csrf_token: getCsrfToken()
-        })
-      }).catch(err => console.error('Failed to delete notification:', err));
-    }
-  }, 350);
 }
 
 // Initialize swipe gestures for all notification items
@@ -304,6 +242,14 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// A value passed as a string argument inside an inline on* attribute. JSON
+// encoding makes it a valid JS string literal and HTML-escaping keeps it inside
+// the attribute. (The browser decodes entities before the handler runs, so
+// escapeHtml() alone does not protect a quoted JS string.)
+function jsAttr(value) {
+  return escapeHtml(JSON.stringify(String(value == null ? '' : value)));
+}
+
 // Helper: CSRF Token Getter
 function getCsrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -354,78 +300,6 @@ function toggleOtherVenues() {
   } else {
     sec.style.display = 'none';
     if (btn) btn.innerHTML = '<span>Show Other Facilities ▾</span>';
-  }
-}
-
-// Community Tag Insertion Helper
-function insertPostTag(tag) {
-  const ta = document.getElementById('communityPostInput');
-  if (!ta) return;
-  if (!ta.value.includes(tag)) {
-    ta.value = ta.value.trim() ? `${ta.value.trim()} ${tag} ` : `${tag} `;
-  }
-  ta.focus();
-}
-
-// Community Post Submission
-function submitCommunityPost() {
-  const ta = document.getElementById('communityPostInput');
-  if (!ta || !ta.value.trim()) {
-    showToast('Please type something to post to the community', 'error');
-    return;
-  }
-  const text = ta.value.trim();
-  const feed = document.getElementById('communityFeedList');
-  if (feed) {
-    const newPost = document.createElement('div');
-    newPost.className = 'community-post-card';
-    newPost.style.animation = 'modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards';
-    newPost.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <div class="user-avatar-circle-sm" style="width:38px; height:38px; font-size:15px;">P</div>
-              <div>
-                <div style="font-size:14px; font-weight:800; color:#FFFFFF;">PICKLERS Dev</div>
-                <div style="font-size:12px; color:#64748B;">Just now • Verified Player</div>
-              </div>
-            </div>
-            <span class="ref-court-tag" style="color:#00D98B; border-color:rgba(0, 217, 139,0.3);">#Community</span>
-          </div>
-          <p style="font-size:14px; color:#E2E8F0; line-height:1.6; margin:0 0 16px;">
-            ${escapeHtml(text)}
-          </p>
-          <div style="display:flex; gap:20px; border-top:1px solid rgba(255,255,255,0.06); padding-top:12px; font-size:13px; color:#94A3B8;">
-            <button type="button" onclick="togglePostLike(this)" style="background:transparent; border:none; color:inherit; font-size:inherit; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-              <span>❤️</span> <span class="like-count">1</span> Like
-            </button>
-            <button type="button" onclick="showToast('Comments feature opens reply thread', 'info')" style="background:transparent; border:none; color:inherit; font-size:inherit; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-              <span>💬</span> 0 Comments
-            </button>
-            <button type="button" onclick="showToast('Link copied to clipboard!', 'success')" style="background:transparent; border:none; color:inherit; font-size:inherit; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-              <span>↗</span> Share
-            </button>
-          </div>
-        `;
-    feed.insertBefore(newPost, feed.firstChild);
-  }
-  ta.value = '';
-  showToast('✓ Post shared with Picklers community!', 'success');
-}
-
-// Toggle Post Like Counter
-function togglePostLike(btn) {
-  const countEl = btn.querySelector('.like-count');
-  if (!countEl) return;
-  let count = parseInt(countEl.textContent, 10) || 0;
-  if (btn.classList.contains('liked')) {
-    btn.classList.remove('liked');
-    countEl.textContent = Math.max(0, count - 1);
-    btn.style.color = '#94A3B8';
-  } else {
-    btn.classList.add('liked');
-    countEl.textContent = count + 1;
-    btn.style.color = '#EF4444';
-    showToast('❤️ Liked post', 'success');
   }
 }
 
@@ -501,16 +375,6 @@ function applyQuickSort(sortVal) {
   if (radio) radio.checked = true;
   updateFilterBadgeCounter();
   filterFacilitiesLive();
-}
-
-// Filter Modal: Segmented Control Selection
-function selectFilterType(type) {
-  ['fTypeAll', 'fTypeIndoor', 'fTypeOutdoor'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-  });
-  const btn = document.getElementById(`fType${type}`);
-  if (btn) btn.classList.add('active');
 }
 
 // Filter Modal: Apply Action
@@ -672,7 +536,10 @@ function renderFacilitiesGrid(facilities) {
     const typeNormalized = /indoor/i.test(typeStr) ? 'Indoor' : 'Outdoor';
     const minPrice = parseFloat(f.min_price ?? f.price_numeric ?? 140) || 140;
     const maxPrice = parseFloat(f.max_price ?? f.price_numeric ?? minPrice) || minPrice;
-    const ratingNum = parseFloat(f.rating ?? 4.8) || 4.8;
+    // A score is shown only for venues that have reviews; one without any is
+    // labelled "New venue" rather than given a placeholder rating.
+    const ratingNum = parseFloat(f.rating) || 0;
+    const reviewCount = parseInt(f.reviews, 10) || 0;
     const priceHtml = minPrice < maxPrice
       ? `₱${minPrice.toFixed(0)} - ₱${maxPrice.toFixed(0)}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span>`
       : `₱${minPrice.toFixed(0)}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span>`;
@@ -689,7 +556,7 @@ function renderFacilitiesGrid(facilities) {
       <div class="app-facility-card facility-card-item" onclick="openFacilityDetail(${f.id})" style="cursor:pointer;" data-id="${f.id}" data-name="${escapeHtml(f.name)}" data-loc="${escapeHtml(f.location)}" data-lat="${f.latitude || 9.3065}" data-lng="${f.longitude || 123.3050}" data-type="${typeNormalized}" data-price="${minPrice}" data-price-max="${maxPrice}" data-rating="${ratingNum}">
         <div class="card-thumb-wrap">
           <img src="${escapeHtml(f.image)}" alt="${escapeHtml(f.name)}" class="card-thumb-img" loading="lazy" onerror="this.onerror=null; this.removeAttribute('src'); this.style.background='var(--pk-bg-card-hover, #162D4D)';">
-          <button type="button" class="card-heart-btn${f.is_favorited ? ' favorited' : ''}" onclick="event.stopPropagation(); toggleFavoriteFacility(this, ${f.id}, '${escapeHtml(f.name).replace(/'/g, "\\'")}')" title="${f.is_favorited ? 'Remove from favorites' : 'Add to favorites'}">
+          <button type="button" class="card-heart-btn${f.is_favorited ? ' favorited' : ''}" onclick="event.stopPropagation(); toggleFavoriteFacility(this, ${f.id}, ${jsAttr(f.name)})" title="${f.is_favorited ? 'Remove from favorites' : 'Add to favorites'}">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
           </button>
         </div>
@@ -709,10 +576,12 @@ function renderFacilitiesGrid(facilities) {
             <span>${escapeHtml(formattedHours)}</span>
           </div>
           <div style="font-size:12px; color:#94A3B8; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
-            <span class="facility-transit-text">${escapeHtml(f.transit || '🛵 5 min · 🚗 10 min')}</span>
+            <span class="facility-transit-text">${escapeHtml(f.transit && f.transit.trim() !== '' ? f.transit : '🛵 10 min · 🚗 18 min')}</span>
             <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
-              <span style="color:#F59E0B; font-weight:800;">★ ${ratingNum.toFixed(1)}</span>
-              <span style="color:var(--pk-text-muted, #94A3B8);">(${f.reviews ?? 100} reviews)</span>
+              ${reviewCount > 0
+                ? `<span style="color:#F59E0B; font-weight:800;">★ ${ratingNum.toFixed(1)}</span>
+              <span style="color:var(--pk-text-muted, #94A3B8);">(${reviewCount} reviews)</span>`
+                : `<span style="color:var(--pk-text-muted, #94A3B8); font-weight:700;">New venue</span>`}
             </div>
           </div>
           <div class="card-meta-row" style="margin-top:auto; gap: 8px;">
@@ -740,6 +609,18 @@ function renderFacilitiesGrid(facilities) {
  * right now — the grid (#facilitiesGrid) or an open facility's own court
  * list (#facilityDetailView) — in response to a PickSync 'facilities' or
  * 'courts' change. Exactly one of the two exists in the DOM at a time. */
+// The Bookings tab is server-rendered. When this account's own bookings
+// change (an owner accepts or declines, a cancellation or session end lands),
+// reload it — but never out from under an open dialog; wait for it to close.
+function refreshOwnBookingsView() {
+  if (!document.getElementById('bookingPanel_upcoming')) return;
+  if (document.querySelector('.ux-open')) {
+    setTimeout(refreshOwnBookingsView, 4000);
+    return;
+  }
+  window.location.reload();
+}
+
 function silentRefreshDiscover() {
   if (document.getElementById('facilitiesGrid')) {
     fetch('api.php?action=facilities')
@@ -780,6 +661,14 @@ if (window.PickSync) {
   PickSync.on('facilities', silentRefreshDiscover);
   PickSync.on('courts', silentRefreshDiscover);
   PickSync.on('unread_notifications', count => syncNotifBellDot((count || 0) > 0));
+  PickSync.on('my_bookings', refreshOwnBookingsView);
+  PickSync.on('wallet_balance', balance => {
+    const amount = parseFloat(balance);
+    if (isNaN(amount)) return;
+    document.querySelectorAll('.wallet-balance-val, .wallet-balance-num').forEach(el => {
+      el.textContent = `₱${Math.round(amount).toLocaleString('en-US')}`;
+    });
+  });
   PickSync.onSessionEnded(triggerSessionEndedAlert);
   PickSync.start();
 }
@@ -1261,8 +1150,10 @@ function openFacilityDetail(facilityId) {
                     <div style="font-size:13px; color:rgba(255,255,255,0.8); display:flex; align-items:center; gap:8px;">
                       <span>📍 ${escapeHtml(f.location)}</span>
                       <span>•</span>
-                      <span style="color:#F59E0B; font-weight:800;">★ ${escapeHtml(f.rating)}</span>
-                      <span style="color:rgba(255,255,255,0.5);">(${escapeHtml(f.reviews || 98)} reviews)</span>
+                      ${(parseInt(f.reviews, 10) || 0) > 0
+                        ? `<span style="color:#F59E0B; font-weight:800;">★ ${(parseFloat(f.rating) || 0).toFixed(1)}</span>
+                      <span style="color:rgba(255,255,255,0.5);">(${parseInt(f.reviews, 10)} reviews)</span>`
+                        : `<span style="color:rgba(255,255,255,0.6); font-weight:700;">New venue</span>`}
                     </div>
                   </div>
                   <div style="text-align:right;">
@@ -1373,14 +1264,16 @@ function renderDetailCourtsList(courts, facility) {
       : (isAvail ? 'cursor:pointer;' : '');
     const cardOnClick = isClosed
       ? `onclick="event.stopPropagation(); showToast('Facility is currently closed (${escapeHtml(facility.hours || '6am - 10pm')}). Bookings unavailable after operating hours.', 'warning')"`
-      : (isAvail ? `onclick="bookCourtDirectToPayment(${facility.id}, '${escapeHtml(String(c.id || '')).replace(/'/g, "\\'")}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${priceNum}, '${escapeHtml(c.surface || 'Hard').replace(/'/g, "\\'")}', '${escapeHtml(c.type || 'Indoor').replace(/'/g, "\\'")}', '${escapeHtml(facility.name || '').replace(/'/g, "\\'")}')"` : '');
+      : (isAvail ? `onclick="bookCourtDirectToPayment(${facility.id}, ${jsAttr(c.id || '')}, ${jsAttr(displayTitle)}, ${priceNum}, ${jsAttr(c.surface || 'Hard')}, ${jsAttr(c.type || 'Indoor')}, ${jsAttr(facility.name || '')})"` : '');
 
     return `
           <div class="${cardClass}" data-court-type="${escapeHtml(typeNormalized)}" style="${cardStyle}" ${cardOnClick}>
             <div class="court-card-top-row">
               <h4 class="court-card-title">${escapeHtml(displayTitle)}</h4>
               <div style="display:flex; align-items:center; gap:8px;">
-                ${dotHtml}
+                ${isHostedOP ? `
+                  <span class="badge-hosted-openplay" style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800; font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-block; white-space: nowrap;">HOSTED OPEN PLAY</span>
+                ` : dotHtml}
               </div>
             </div>
 
@@ -1393,21 +1286,33 @@ function renderDetailCourtsList(courts, facility) {
                   </button>
                 </div>
               ` : (isAvail ? `
-                <button type="button" class="btn-court-book-now" onclick="event.stopPropagation(); bookCourtDirectToPayment(${facility.id}, '${escapeHtml(String(c.id || '')).replace(/'/g, "\\'")}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${priceNum}, '${escapeHtml(c.surface || 'Hard').replace(/'/g, "\\'")}', '${escapeHtml(c.type || 'Indoor').replace(/'/g, "\\'")}', '${escapeHtml(facility.name || '').replace(/'/g, "\\'")}')">
+                <button type="button" class="btn-court-book-now" onclick="event.stopPropagation(); bookCourtDirectToPayment(${facility.id}, ${jsAttr(c.id || '')}, ${jsAttr(displayTitle)}, ${priceNum}, ${jsAttr(c.surface || 'Hard')}, ${jsAttr(c.type || 'Indoor')}, ${jsAttr(facility.name || '')})">
                   Book Now
                 </button>
-              ` : `
+              ` : (isHostedOP ? `
                 <div class="court-action-col">
-                  ${isHostedOP ? `
-                    <span class="badge-hosted-openplay" style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800; font-size: 10px; font-weight: 800; padding: 5px 12px; border-radius: 9999px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-block; white-space: nowrap;">HOSTED OPEN PLAY</span>
+                  ${(c.user_joined || (c.open_play_match && (c.open_play_match.is_joined || c.open_play_match.user_joined)) || (window.userJoinedMatchIds && c.open_play_match && window.userJoinedMatchIds[String(c.open_play_match.id)]) || (window.userJoinedFacilityIds && facility && window.userJoinedFacilityIds[String(facility.id)])) ? `
+                    <button type="button" class="btn-openplay-join" style="background: rgba(0, 217, 139, 0.15); color: #00D98B; border: 1px solid rgba(0, 217, 139, 0.3); cursor: default;" disabled onclick="event.stopPropagation();">
+                      Joined
+                    </button>
                   ` : `
-                    ${occupancyHtml}
-                    <button type="button" class="btn-court-occupied" disabled>
-                      Occupied
+                    <button type="button" class="btn-openplay-join" onclick="event.stopPropagation(); ${
+                      (c.open_play_match && c.open_play_match.id)
+                        ? `joinOpenPlay(${jsAttr(c.open_play_match.id)}, ${jsAttr(facility.name || '')}, ${jsAttr(c.open_play_match.type || 'Open Play Session')}, ${jsAttr(c.open_play_match.date || '')}, ${jsAttr(c.open_play_match.time || '')}, ${parseFloat(c.open_play_match.price) || priceNum}, ${jsAttr(c.open_play_match.level || 'All Levels')}, ${jsAttr(facility.location || '')})`
+                        : `window.location.href='app.php?tab=explore&search=${encodeURIComponent(facility.name || '')}'`
+                    }">
+                      Join
                     </button>
                   `}
                 </div>
-              `)}
+              ` : `
+                <div class="court-action-col">
+                  ${occupancyHtml}
+                  <button type="button" class="btn-court-occupied" disabled>
+                    Occupied
+                  </button>
+                </div>
+              `))}
             </div>
           </div>
         `;
@@ -1460,30 +1365,70 @@ function fetchAndApplySlotAvailability(facilityId, courtId, dateStr, onComplete)
     });
 }
 
+function parseStartTimeHour(slotStr) {
+  if (!slotStr) return 7;
+  const startPart = slotStr.split(/–|-/)[0].trim();
+  const match = startPart.match(/^(\d+):(\d+)\s*(AM|PM)?/i);
+  if (!match) return 7;
+  let hour = parseInt(match[1], 10);
+  const ampm = match[3] ? match[3].toUpperCase() : '';
+
+  if (ampm === 'PM' && hour < 12) hour += 12;
+  if (ampm === 'AM' && hour === 12) hour = 0;
+
+  return hour;
+}
+
+function getMinAllowedStartIdx(dateStr) {
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const isToday = !dateStr || dateStr.includes(todayStr) || dateStr.includes(now.getFullYear().toString());
+
+  if (!isToday) return 0;
+
+  const curH = now.getHours();
+  const curM = now.getMinutes();
+  let targetH = curM > 0 ? curH + 1 : curH;
+
+  for (let i = 0; i < QB_TIMES.length; i++) {
+    const h = parseStartTimeHour(QB_TIMES[i]);
+    if (h >= targetH) {
+      return i;
+    }
+  }
+  return QB_TIMES.length - 2;
+}
+
 function findNextFreeSlotForCourt(facilityId, courtName, dateStr) {
-  const d = new Date();
-  const currentH = d.getHours();
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const isToday = !dateStr || dateStr.includes(todayStr) || dateStr.includes(now.getFullYear().toString());
+
+  const currentH = now.getHours();
+  const currentM = now.getMinutes();
+  let targetH = currentM > 0 ? currentH + 1 : currentH;
 
   for (const slot of ALL_COURT_TIME_SLOTS) {
     const slotInfo = fetchedSlotAvailabilityMap[slot];
     if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') continue;
 
-    const parts = slot.split('–')[0].trim().split(':');
-    let slotH = parseInt(parts[0], 10);
-    const isPm = slot.includes('PM') && !slot.startsWith('12');
-    if (isPm) slotH += 12;
-    if (slot.startsWith('12') && slot.includes('AM')) slotH = 0;
-
-    const isToday = !dateStr || dateStr.includes(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    if (isToday && slotH <= currentH) continue;
+    const slotH = parseStartTimeHour(slot);
+    if (isToday && slotH < targetH) continue;
     return slot;
   }
-  return '10:00 AM – 11:00 AM';
+
+  for (const slot of ALL_COURT_TIME_SLOTS) {
+    const slotInfo = fetchedSlotAvailabilityMap[slot];
+    if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') continue;
+    return slot;
+  }
+
+  return '7:00 AM – 8:00 AM';
 }
 
 let pendingCourtBookingData = null;
 let cbStartIdx = 1; // Default 7:00 AM
-let cbEndIdx = 6;   // Default 12:00 PM (5 hours)
+let cbEndIdx = 6;   // Default 12:00 PM
 let cbSelectedDateStr = 'Thu Sep 10 2026';
 
 function openConfirmBookingModal(data) {
@@ -1534,8 +1479,18 @@ function openConfirmBookingModal(data) {
       else if (sIdx !== -1) cbEndIdx = Math.min(QB_TIMES.length - 1, sIdx + (data.duration || 1));
     }
   } else {
-    cbStartIdx = 1; // 7:00 AM
-    cbEndIdx = 6;   // 12:00 PM
+    const minIdx = getMinAllowedStartIdx(cbSelectedDateStr);
+    cbStartIdx = minIdx;
+    cbEndIdx = Math.min(QB_TIMES.length - 1, cbStartIdx + 1);
+  }
+
+  // Clamp cbStartIdx to not be less than minIdx for selected date
+  const minIdx = getMinAllowedStartIdx(cbSelectedDateStr);
+  if (cbStartIdx < minIdx) {
+    cbStartIdx = minIdx;
+    if (cbEndIdx <= cbStartIdx) {
+      cbEndIdx = Math.min(QB_TIMES.length - 1, cbStartIdx + 1);
+    }
   }
 
   fetchAndApplySlotAvailability(data.facilityId, data.courtId || '', cbSelectedDateStr);
@@ -1574,9 +1529,11 @@ function renderConfirmBookingTimes() {
   const endActiveEl = document.getElementById('cbEndActive');
   const endNextEl = document.getElementById('cbEndNext');
 
+  const minIdx = getMinAllowedStartIdx(cbSelectedDateStr);
+
   // Start Time Column
   if (startPrevEl) {
-    if (cbStartIdx > 0) {
+    if (cbStartIdx > minIdx) {
       startPrevEl.textContent = QB_TIMES[cbStartIdx - 1];
       startPrevEl.style.visibility = 'visible';
       startPrevEl.style.pointerEvents = 'auto';
@@ -1705,8 +1662,9 @@ function handleConfirmTimeWheel(e, type) {
 }
 
 function shiftConfirmStartTime(delta) {
+  const minIdx = getMinAllowedStartIdx(cbSelectedDateStr);
   let newIdx = cbStartIdx + delta;
-  if (newIdx < 0) newIdx = 0;
+  if (newIdx < minIdx) newIdx = minIdx;
   if (newIdx >= QB_TIMES.length - 1) newIdx = QB_TIMES.length - 2;
   cbStartIdx = newIdx;
   if (cbEndIdx <= cbStartIdx) {
@@ -1733,6 +1691,15 @@ function selectConfirmBookingDate(btn, dateFull) {
     btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }
   cbSelectedDateStr = dateFull;
+
+  const minIdx = getMinAllowedStartIdx(cbSelectedDateStr);
+  if (cbStartIdx < minIdx) {
+    cbStartIdx = minIdx;
+    if (cbEndIdx <= cbStartIdx) {
+      cbEndIdx = Math.min(QB_TIMES.length - 1, cbStartIdx + 1);
+    }
+  }
+
   if (pendingCourtBookingData) {
     fetchAndApplySlotAvailability(pendingCourtBookingData.facilityId, pendingCourtBookingData.courtId || '', cbSelectedDateStr);
   } else {
@@ -1754,11 +1721,9 @@ function bookCourtDirectToPayment(facilityId, courtId = '', courtName = 'Court 1
 
   openConfirmBookingModal({
     facilityId,
-    // The real court id from the facility's own courts list — this is what
-    // the server prices and locks against. courtName below stays purely
-    // cosmetic (it only ever feeds a display label); a court name mangled by
-    // any of this file's display-cleanup regexes can no longer cause the
-    // wrong court to be priced or booked once an id is present.
+    // The court id from the facility's own courts list is what the server
+    // prices and locks against. courtName is display-only, so display
+    // formatting can never cause the wrong court to be priced or booked.
     courtId,
     courtName,
     price,
@@ -1927,7 +1892,9 @@ function joinOpenPlay(matchId, facilityName = '', matchType = 'Open Play', date 
 // ========================================================================
 // Community Tab Controllers (§11 Flowchart)
 // ========================================================================
-let currentChatPartnerId = 'usr_dave';
+// Set by selectChatPartner(); null until a conversation is chosen, so a
+// message is never sent to a default recipient.
+let currentChatPartnerId = null;
 
 function switchCommunitySubTab(subTab) {
   // 1. Update sub-nav button active classes
@@ -1950,116 +1917,9 @@ function switchCommunitySubTab(subTab) {
   }
 }
 
-function insertPostTag(tag) {
-  const input = document.getElementById('communityPostInput');
-  if (!input) return;
-  const current = input.value.trim();
-  if (!current.includes(tag)) {
-    input.value = current ? `${current} ${tag}` : tag;
-  }
-  input.focus();
-}
-
-function submitCommunityPost() {
-  const input = document.getElementById('communityPostInput');
-  const content = (input?.value || '').trim();
-  if (!content) {
-    showToast('Please write something before posting', 'error');
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append('action', 'create_post');
-  formData.append('content', content);
-  formData.append('csrf_token', getCsrfToken());
-
-  fetch('api', {
-    method: 'POST',
-    headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-    body: formData
-  })
-    .then(r => r.json())
-    .then(data => {
-      if (data.success) {
-        showToast('✓ Post shared with the community!', 'success');
-        input.value = '';
-
-        // Prepend post to feed list
-        const feedList = document.getElementById('communityFeedList');
-        if (feedList && data.post) {
-          const p = data.post;
-          const newPostEl = document.createElement('div');
-          newPostEl.className = 'community-post-card';
-          newPostEl.setAttribute('data-post-id', p.id);
-          newPostEl.innerHTML = `
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-                <div style="display:flex; align-items:center; gap:12px;">
-                  <div class="community-avatar" style="background:#065F46; color:#34D399;">
-                    ${escapeHtml((p.author_name || 'Me').substring(0, 2).toUpperCase())}
-                  </div>
-                  <div>
-                    <div style="font-size:14px; font-weight:800; color:#FFFFFF;">${escapeHtml(p.author_name || 'You')}</div>
-                    <div style="font-size:12px; color:#64748B;">Just now • Verified Player</div>
-                  </div>
-                </div>
-                <span class="ref-court-tag" style="color:#00D98B; border-color:rgba(0, 217, 139,0.3);">#Community</span>
-              </div>
-              <p style="font-size:14px; color:#E2E8F0; line-height:1.6; margin:0 0 16px;">
-                ${escapeHtml(p.content)}
-              </p>
-              <div style="display:flex; gap:20px; border-top:1px solid rgba(255,255,255,0.06); padding-top:12px; font-size:13px; color:#94A3B8;">
-                <button type="button" onclick="togglePostLike(this, '${p.id}')" style="background:transparent; border:none; color:inherit; font-size:inherit; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                  <span>❤️</span> <span class="like-count">1</span> Likes
-                </button>
-                <button type="button" onclick="showToast('Reply comments loaded', 'info')" style="background:transparent; border:none; color:inherit; font-size:inherit; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                  <span>💬</span> 0 Comments
-                </button>
-                <button type="button" onclick="showToast('Link copied to clipboard!', 'success')" style="background:transparent; border:none; color:inherit; font-size:inherit; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                  <span>↗</span> Share
-                </button>
-              </div>
-            `;
-          feedList.insertBefore(newPostEl, feedList.firstChild);
-        }
-      } else {
-        showToast(data.message || 'Could not publish post', 'error');
-      }
-    })
-    .catch(() => {
-      showToast('✓ Post shared with the community!', 'success');
-      input.value = '';
-    });
-}
-
-function togglePostLike(btn, postId) {
-  const countEl = btn.querySelector('.like-count');
-  if (countEl) {
-    let count = parseInt(countEl.textContent, 10) || 0;
-    if (btn.classList.contains('liked')) {
-      btn.classList.remove('liked');
-      btn.style.color = 'inherit';
-      countEl.textContent = Math.max(0, count - 1);
-    } else {
-      btn.classList.add('liked');
-      btn.style.color = '#EF4444';
-      countEl.textContent = count + 1;
-    }
-  }
-
-  if (postId) {
-    const formData = new FormData();
-    formData.append('action', 'like_post');
-    formData.append('post_id', postId);
-    formData.append('csrf_token', getCsrfToken());
-
-    fetch('api', {
-      method: 'POST',
-      headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-      body: formData
-    }).catch(() => { });
-  }
-}
-
+// insertPostTag, submitCommunityPost and togglePostLike are defined once, in
+// the "Community Feed Post & Likes" section. Earlier copies were shadowed and
+// reported a post as shared even when the request failed.
 function filterPlayersDirectory(query) {
   const q = (query || '').toLowerCase().trim();
   const items = document.querySelectorAll('.player-directory-item');
@@ -2128,6 +1988,10 @@ function sendDirectChatMessage() {
   const input = document.getElementById('chatMessageInput');
   const content = (input?.value || '').trim();
   if (!content) return;
+  if (!currentChatPartnerId) {
+    showToast('Choose who to message first.', 'error');
+    return;
+  }
 
   const stream = document.getElementById('chatMessagesStream');
   if (stream) {
@@ -2152,22 +2016,30 @@ function sendDirectChatMessage() {
   })
     .then(r => r.json())
     .then(data => {
-      if (data.auto_reply && stream) {
-        setTimeout(() => {
-          const inBubble = document.createElement('div');
-          inBubble.className = 'chat-bubble-incoming';
-          inBubble.textContent = data.auto_reply;
-          stream.appendChild(inBubble);
-          stream.scrollTop = stream.scrollHeight;
-        }, 800);
+      // The bubble above is optimistic; a failed send must say so.
+      if (!data || !data.success) {
+        showToast((data && data.message) || 'Message not sent. Please try again.', 'error');
       }
     })
-    .catch(() => { });
+    .catch(() => {
+      showToast('Network error — message not sent.', 'error');
+    });
 }
 
 // ========================================================================
 // Bookings Tab Controllers (§8 Flowchart)
 // ========================================================================
+function markBookingSubTabSeen(subTab) {
+  if (!subTab) return;
+  const badge = document.getElementById(`bookingBadge_${subTab}`);
+  if (badge) {
+    badge.style.display = 'none';
+  }
+  try {
+    localStorage.setItem(`seen_booking_badge_${subTab}`, 'true');
+  } catch (e) {}
+}
+
 function switchBookingSubTab(subTab) {
   ['upcoming', 'completed', 'refunds', 'cancelled', 'wallet'].forEach(tab => {
     const btn = document.getElementById(`bookingSubTabBtn_${tab}`);
@@ -2181,6 +2053,8 @@ function switchBookingSubTab(subTab) {
     }
   });
 
+  markBookingSubTabSeen(subTab);
+
   // Update URL query state without page reload
   try {
     const url = new URL(window.location.href);
@@ -2189,6 +2063,20 @@ function switchBookingSubTab(subTab) {
     window.history.replaceState({}, '', url);
   } catch (e) { }
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+  ['upcoming', 'completed', 'refunds', 'cancelled'].forEach(tab => {
+    try {
+      const btn = document.getElementById(`bookingSubTabBtn_${tab}`);
+      const isSeen = localStorage.getItem(`seen_booking_badge_${tab}`) === 'true';
+      const isActive = btn && btn.classList.contains('active');
+      if (isSeen || isActive) {
+        const badge = document.getElementById(`bookingBadge_${tab}`);
+        if (badge) badge.style.display = 'none';
+      }
+    } catch (e) {}
+  });
+});
 
 function openQrPassModal(bookingId, facilityName, courtName, date, time, bookingType) {
   const isOP = (bookingType === 'open_play') || (String(bookingId).startsWith('PKL-OP-'));
@@ -2268,21 +2156,51 @@ function filterBookingCards(btn, type) {
   }
 }
 
-function promptCancelBooking(bookingId, bookingDate) {
+function promptCancelBooking(bookingId, bookingDate, refundEligible, paymentMethod) {
   const targetInput = document.getElementById('cancelTargetBookingId');
   if (targetInput) targetInput.value = bookingId;
 
   const subtext = document.getElementById('cancelModalSubtext');
   const noticeBox = document.getElementById('cancelRefundNoticeBox');
+  const noticeTitle = document.getElementById('cancelRefundNoticeTitle');
   const detailsText = document.getElementById('cancelRefundDetailsText');
 
   if (subtext) {
-    subtext.textContent = bookingDate
-      ? `Are you sure you want to cancel reservation #${bookingId} for ${bookingDate}?`
+    let cleanDate = String(bookingDate || '').trim();
+    const match = cleanDate.match(/Everyday\s*\(([^)]+)\)/i);
+    if (match && match[1]) {
+      cleanDate = match[1];
+    } else if (cleanDate.toLowerCase() === 'everyday') {
+      cleanDate = '';
+    }
+
+    subtext.textContent = cleanDate
+      ? `Are you sure you want to cancel reservation #${bookingId} for ${cleanDate}?`
       : `Are you sure you want to cancel reservation #${bookingId}?`;
   }
-  if (noticeBox && detailsText) {
-    detailsText.textContent = `Cancellation is being made within the safe cancellation window. 100% of your court fee will be refunded back to your Pickle Credits wallet.`;
+
+  // Mirrors the refund rule Database::cancelBooking() applies: only Pickle
+  // Credits payments cancelled at least 24 hours ahead are refunded in-app.
+  const method = String(paymentMethod || '');
+  let title = 'No refund applies';
+  let details = 'This booking starts within 24 hours, so no refund is issued under the cancellation policy.';
+  let eligible = false;
+  if (refundEligible === '1' || refundEligible === true) {
+    eligible = true;
+    title = 'Full refund to Pickle Credits';
+    details = 'You are cancelling at least 24 hours before play, so your Pickle Credits payment is refunded in full.';
+  } else if (method === 'Pay at Venue') {
+    title = 'Nothing to refund';
+    details = 'This is a Pay at Venue booking, so nothing has been charged.';
+  } else if (method && method !== 'Pickle Credits') {
+    title = 'Refund handled by the facility';
+    details = `This booking was paid via ${method}. In-app refunds only apply to Pickle Credits, so please contact the facility about your payment.`;
+  }
+  if (noticeTitle) noticeTitle.textContent = title;
+  if (detailsText) detailsText.textContent = details;
+  if (noticeBox) {
+    noticeBox.style.background = eligible ? 'var(--pk-status-success-bg)' : 'rgba(255,184,0,0.10)';
+    noticeBox.style.borderColor = eligible ? 'var(--pk-status-success)' : 'rgba(255,184,0,0.45)';
   }
 
   openModal('cancelBookingModal');
@@ -2313,15 +2231,21 @@ function executeBookingCancellation() {
   })
     .then(r => r.json())
     .then(data => {
-      closeModal('cancelBookingModal');
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Yes, Cancel';
       }
-      showToast('✓ Booking cancelled. 100% refund added to Pickle Credits!', 'success');
+      // Report what the server actually did: a cancellation can be refused
+      // (the session already started), and one inside 24 hours carries no refund.
+      if (!data || !data.success) {
+        showToast((data && data.message) || 'Could not cancel this booking. Please try again.', 'error');
+        return;
+      }
+      closeModal('cancelBookingModal');
+      showToast(data.message || 'Booking cancelled.', 'success');
       setTimeout(() => {
         window.location.href = 'app.php?tab=bookings&sub=cancelled';
-      }, 800);
+      }, 1200);
     })
     .catch(() => {
       if (btn) {
@@ -2555,77 +2479,9 @@ function submitTopUp() {
 // ========================================================================
 // Settings Tab Controllers (§13 Flowchart)
 // ========================================================================
-function triggerAvatarUpload() {
-  const fileInput = document.getElementById('avatarFileInput');
-  if (fileInput) fileInput.click();
-}
-
-function handleAvatarUpload(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
-  if (!file.type.startsWith('image/')) {
-    showToast('Please select a valid image file', 'error');
-    return;
-  }
-
-  if (file.size > 5 * 1024 * 1024) {
-    showToast('Image size exceeds 5MB limit', 'error');
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    const dataUrl = e.target.result;
-    const container = document.getElementById('settingsAvatarContainer');
-    if (container) {
-      container.innerHTML = `<img id="settingsHeroAvatarImg" src="${dataUrl}" alt="Avatar" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
-    }
-
-    // Send to backend API
-    const formData = new FormData();
-    formData.append('action', 'update_profile');
-    formData.append('avatar_url', dataUrl);
-    formData.append('csrf_token', getCsrfToken());
-
-    fetch('api', {
-      method: 'POST',
-      headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-      body: formData
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.success) {
-          showToast('✓ Avatar updated successfully!', 'success');
-        } else {
-          showToast(data.message || 'Avatar saved locally', 'info');
-        }
-      })
-      .catch(() => {
-        showToast('✓ Avatar updated!', 'success');
-      });
-  };
-  reader.readAsDataURL(file);
-}
-
-function toggleSocialAccount(provider, btn) {
-  if (btn.textContent.trim() === 'Connect') {
-    btn.textContent = 'Connected ✓';
-    btn.style.color = '#00D98B';
-    btn.style.borderColor = 'rgba(0, 217, 139,0.4)';
-    showToast(`✓ Linked with ${provider}!`, 'success');
-  } else {
-    btn.textContent = 'Connect';
-    btn.style.color = 'inherit';
-    btn.style.borderColor = 'rgba(255,255,255,0.12)';
-    showToast(`Unlinked ${provider}`, 'info');
-  }
-}
-
-function promptChangePassword() {
-  openModal('passwordModal');
-}
-
+// triggerAvatarUpload, handleAvatarUpload, toggleSocialAccount and
+// promptChangePassword are defined once, further down. The copies that sat
+// here were shadowed (the later declaration wins) and faked success offline.
 async function submitPasswordChange() {
   const currentP = document.getElementById('currentPassInput')?.value.trim();
   const newP = document.getElementById('newPassInput')?.value.trim();
@@ -2639,8 +2495,9 @@ async function submitPasswordChange() {
     showToast('Please enter a new password.', 'error');
     return;
   }
-  if (newP.length < 6) {
-    showToast('New password must be at least 6 characters long.', 'error');
+  // Same rule the server enforces for sign-up, changes and admin resets.
+  if (newP.length < 8 || !/[0-9]/.test(newP)) {
+    showToast('New password must be at least 8 characters and include a number.', 'error');
     return;
   }
   if (confP !== undefined && newP !== confP) {
@@ -2680,7 +2537,9 @@ async function submitPasswordChange() {
       if (document.getElementById('confirmPassInput')) document.getElementById('confirmPassInput').value = '';
       showToast('✓ ' + (data.message || 'Password updated successfully!'), 'success');
     } else {
-      showToast(data.error || 'Failed to update password.', 'error');
+      // jsonError() sends the reason as `message`; `error` alone always fell
+      // through to the generic text ("current password is incorrect" was lost).
+      showToast(data.message || data.error || 'Failed to update password.', 'error');
     }
   } catch (err) {
     console.error(err);
@@ -2739,172 +2598,11 @@ function formatPHPhoneInput(input) {
   } else {
     input.value = '+63 ' + digits.substring(0, 3) + ' ' + digits.substring(3, 6) + ' ' + digits.substring(6);
   }
-
-  // Update Send OTP button state depending on 10-digit mobile completion
-  const otpBtn = document.getElementById('btnSendModalPhoneOtp');
-  if (otpBtn) {
-    if (digits.length === 10 && !otpBtn.dataset.countdown) {
-      otpBtn.disabled = false;
-      otpBtn.style.background = 'rgba(0, 217, 139, 0.16)';
-      otpBtn.style.border = '1px solid rgba(0, 217, 139, 0.45)';
-      otpBtn.style.color = '#00D98B';
-      otpBtn.style.cursor = 'pointer';
-      otpBtn.style.boxShadow = '0 2px 8px rgba(0,217,139,0.15)';
-    } else if (!otpBtn.dataset.countdown) {
-      otpBtn.disabled = true;
-      otpBtn.style.background = 'transparent';
-      otpBtn.style.border = '1px solid rgba(255, 255, 255, 0.1)';
-      otpBtn.style.color = 'rgba(255, 255, 255, 0.3)';
-      otpBtn.style.cursor = 'not-allowed';
-      otpBtn.style.boxShadow = 'none';
-    }
-  }
 }
 
-let modalPhoneOtpTimer = null;
-let currentGeneratedOtp = null;
-
-function sendModalPhoneOtp() {
-  const phoneInput = document.getElementById('modalProfilePhoneInput');
-  const otpBtn = document.getElementById('btnSendModalPhoneOtp');
-  if (!phoneInput || !otpBtn) return;
-
-  const digits = phoneInput.value.replace(/\D/g, '');
-  if (digits.length < 10) {
-    if (typeof showToast === 'function') showToast('Please complete 10-digit mobile number first.', 'error');
-    return;
-  }
-
-  currentGeneratedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-  const otpGroup = document.getElementById('modalPhoneOtpVerificationGroup');
-  const demoHint = document.getElementById('modalOtpDemoHint');
-  const otpCodeInput = document.getElementById('modalPhoneOtpCodeInput');
-  if (otpGroup) otpGroup.style.display = 'block';
-  if (demoHint) demoHint.textContent = `Demo Code: ${currentGeneratedOtp}`;
-  if (otpCodeInput) {
-    otpCodeInput.value = '';
-    otpCodeInput.focus();
-  }
-
-  if (typeof showToast === 'function') {
-    showToast(`✓ OTP Code ${currentGeneratedOtp} sent to ${phoneInput.value}`, 'success');
-  }
-
-  let seconds = 60;
-  otpBtn.disabled = true;
-  otpBtn.dataset.countdown = 'true';
-  otpBtn.style.background = 'transparent';
-  otpBtn.style.border = '1px solid rgba(255, 255, 255, 0.12)';
-  otpBtn.style.color = 'rgba(255, 255, 255, 0.4)';
-  otpBtn.style.cursor = 'not-allowed';
-  otpBtn.style.boxShadow = 'none';
-  otpBtn.textContent = `Resend (${seconds}s)`;
-
-  clearInterval(modalPhoneOtpTimer);
-  modalPhoneOtpTimer = setInterval(() => {
-    seconds--;
-    if (seconds > 0) {
-      otpBtn.textContent = `Resend (${seconds}s)`;
-    } else {
-      clearInterval(modalPhoneOtpTimer);
-      delete otpBtn.dataset.countdown;
-      otpBtn.textContent = 'Resend OTP';
-      const currentDigits = phoneInput.value.replace(/\D/g, '');
-      if (currentDigits.length >= 10) {
-        otpBtn.disabled = false;
-        otpBtn.style.background = 'rgba(0, 217, 139, 0.16)';
-        otpBtn.style.border = '1px solid rgba(0, 217, 139, 0.45)';
-        otpBtn.style.color = '#00D98B';
-        otpBtn.style.cursor = 'pointer';
-        otpBtn.style.boxShadow = '0 2px 8px rgba(0,217,139,0.15)';
-      }
-    }
-  }, 1000);
-}
-
-function verifyModalPhoneOtp() {
-  const otpCodeInput = document.getElementById('modalPhoneOtpCodeInput');
-  const verifyBtn = document.getElementById('btnVerifyModalOtp');
-  if (!otpCodeInput) return;
-
-  const enteredCode = otpCodeInput.value.trim();
-  if (enteredCode.length !== 6) {
-    if (typeof showToast === 'function') showToast('Please enter the 6-digit OTP code', 'error');
-    return;
-  }
-
-  if (enteredCode === currentGeneratedOtp || enteredCode === '123456') {
-    if (typeof showToast === 'function') showToast('✓ Phone number verified successfully!', 'success');
-    if (verifyBtn) {
-      verifyBtn.style.background = '#00D98B';
-      verifyBtn.style.color = '#0A121F';
-      verifyBtn.textContent = 'Verified ✓';
-      verifyBtn.disabled = true;
-    }
-    const demoHint = document.getElementById('modalOtpDemoHint');
-    if (demoHint) demoHint.textContent = 'Status: Verified ✓';
-  } else {
-    if (typeof showToast === 'function') showToast('Invalid OTP code. Please try again.', 'error');
-  }
-}
-
-function saveModalProfileChanges() {
-  const name = document.getElementById('modalProfileNameInput')?.value?.trim();
-  const phone = document.getElementById('modalProfilePhoneInput')?.value?.trim();
-  const level = document.getElementById('modalProfileLevelSelect')?.value;
-
-  if (!name) {
-    showToast('Name cannot be empty', 'error');
-    return;
-  }
-
-  const btn = document.getElementById('btnModalSaveProfile');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
-  }
-
-  const formData = new FormData();
-  formData.append('action', 'update_profile');
-  formData.append('name', name);
-  if (phone) formData.append('phone', phone);
-  if (level) formData.append('level', level);
-  formData.append('csrf_token', getCsrfToken());
-
-  fetch('api', {
-    method: 'POST',
-    headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-    body: formData
-  })
-    .then(r => r.json())
-    .then(data => {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'Save Changes';
-      }
-      closeModal('editAccountModal');
-
-      // Update DOM labels
-      const nameRow = document.getElementById('settingsRowNameDisplay');
-      const phoneRow = document.getElementById('settingsRowPhoneDisplay');
-      const heroName = document.getElementById('settingsHeroNameDisplay');
-      if (nameRow) nameRow.textContent = name;
-      if (heroName) heroName.textContent = name;
-      if (phoneRow) phoneRow.textContent = phone || 'Not connected';
-
-      showToast('✓ Profile updated successfully!', 'success');
-    })
-    .catch(() => {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'Save Changes';
-      }
-      closeModal('editAccountModal');
-      showToast('✓ Profile updated!', 'success');
-    });
-}
-
+// Phone numbers are validated (format and uniqueness) by update_profile on the
+// server; there is no SMS verification step. saveModalProfileChanges() lives
+// under "Settings Tab Supporting Handlers".
 // ========================================================================
 // Quick Book & Payment Review Controllers
 // ========================================================================
@@ -2926,9 +2624,12 @@ function renderQuickBookTimes() {
   const endActiveEl = document.getElementById('qbEndActive');
   const endNextEl = document.getElementById('qbEndNext');
 
+  const dateVal = document.getElementById('qbSelectedDateFull')?.value || document.getElementById('qbSelectedDate')?.value || '';
+  const minIdx = getMinAllowedStartIdx(dateVal);
+
   // Start Time Column
   if (startPrevEl) {
-    if (qbStartIdx > 0) {
+    if (qbStartIdx > minIdx) {
       startPrevEl.textContent = QB_TIMES[qbStartIdx - 1];
       startPrevEl.style.visibility = 'visible';
       startPrevEl.style.pointerEvents = 'auto';
@@ -3004,8 +2705,10 @@ function handleTimeWheel(e, type) {
 }
 
 function shiftStartTime(delta) {
+  const dateVal = document.getElementById('qbSelectedDateFull')?.value || document.getElementById('qbSelectedDate')?.value || '';
+  const minIdx = getMinAllowedStartIdx(dateVal);
   let newIdx = qbStartIdx + delta;
-  if (newIdx < 0) newIdx = 0;
+  if (newIdx < minIdx) newIdx = minIdx;
   if (newIdx >= QB_TIMES.length - 1) newIdx = QB_TIMES.length - 2;
   qbStartIdx = newIdx;
   if (qbEndIdx <= qbStartIdx) {
@@ -3037,6 +2740,15 @@ function selectQuickBookDate(btn, dateFull, dateLabel) {
 
   const dateFullInput = document.getElementById('qbSelectedDateFull');
   if (dateFullInput) dateFullInput.value = dateFull;
+
+  const minIdx = getMinAllowedStartIdx(dateFull);
+  if (qbStartIdx < minIdx) {
+    qbStartIdx = minIdx;
+    if (qbEndIdx <= qbStartIdx) {
+      qbEndIdx = Math.min(QB_TIMES.length - 1, qbStartIdx + 1);
+    }
+  }
+  renderQuickBookTimes();
 }
 
 function openQuickBookModal(facilityId, courtName = 'Court 2', price = 180, facilityName = 'Pickleball Facility', surface = 'Hard', type = 'Indoor') {
@@ -3058,9 +2770,10 @@ function openQuickBookModal(facilityId, courtName = 'Court 2', price = 180, faci
   const typeInput = document.getElementById('qbSelectedCourtType');
   if (typeInput) typeInput.value = type;
 
-  // Initialize slot states matching 7:00 AM – 12:00 PM (5 hours)
-  qbStartIdx = 1; // 7:00 AM
-  qbEndIdx = 6;   // 12:00 PM
+  const dateVal = document.getElementById('qbSelectedDateFull')?.value || document.getElementById('qbSelectedDate')?.value || '';
+  const minIdx = getMinAllowedStartIdx(dateVal);
+  qbStartIdx = minIdx;
+  qbEndIdx = Math.min(QB_TIMES.length - 1, qbStartIdx + 1);
   renderQuickBookTimes();
 
   // Reset to Step 1 (Config View)
@@ -3204,7 +2917,7 @@ function proceedToPaymentFromQuickBook() {
           }
 
           return `
-            <div class="qb-avail-court-card" onclick="bookCourtFromQuickBookResults('${c.id || '1'}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${cRate}, '${escapeHtml(cSurf).replace(/'/g, "\\'")}', '${escapeHtml(cType).replace(/'/g, "\\'")}')" style="cursor:pointer;">
+            <div class="qb-avail-court-card" onclick="bookCourtFromQuickBookResults(${jsAttr(c.id || '1')}, ${jsAttr(displayTitle)}, ${cRate}, ${jsAttr(cSurf)}, ${jsAttr(cType)})" style="cursor:pointer;">
               <div class="qb-avail-court-info">
                 <div class="qb-avail-court-top">
                   <span class="qb-avail-court-name">${escapeHtml(displayTitle)}</span>
@@ -3218,7 +2931,7 @@ function proceedToPaymentFromQuickBook() {
                   <span class="qb-avail-total-pill">₱${cTotal.toFixed(0)} total (${durHours}h)</span>
                 </div>
               </div>
-              <button type="button" class="qb-btn-book-now" onclick="event.stopPropagation(); bookCourtFromQuickBookResults('${c.id || '1'}', '${escapeHtml(displayTitle).replace(/'/g, "\\'")}', ${cRate}, '${escapeHtml(cSurf).replace(/'/g, "\\'")}', '${escapeHtml(cType).replace(/'/g, "\\'")}')">
+              <button type="button" class="qb-btn-book-now" onclick="event.stopPropagation(); bookCourtFromQuickBookResults(${jsAttr(c.id || '1')}, ${jsAttr(displayTitle)}, ${cRate}, ${jsAttr(cSurf)}, ${jsAttr(cType)})">
                 <span>Book Now</span>
               </button>
             </div>
@@ -3255,12 +2968,9 @@ function bookCourtFromQuickBookResults(courtId, courtName, price, surface, type)
 
   closeModal('quickBookModal');
 
-  // Prompt confirmation modal before proceeding to payment review
-  openConfirmBookingModal({
+  // Direct redirection to Payment & Review Checkout view
+  openPaymentReview(
     facilityId,
-    // Was already received as this function's first argument but never
-    // passed on from here — Quick Book bookings priced/booked by name only,
-    // same as the facility-detail path.
     courtId,
     courtName,
     price,
@@ -3269,8 +2979,8 @@ function bookCourtFromQuickBookResults(courtId, courtName, price, surface, type)
     facilityName,
     dateStr,
     timeRange,
-    duration: durHours
-  });
+    durHours
+  );
 }
 
 let currentBookingBaseTotal = 396;
@@ -3492,15 +3202,8 @@ function applyVoucherCode() {
     return;
   }
 
-  // This used to check the code against three hardcoded strings
-  // (WELCOME10/PICKLE50/DINKFREE) and compute the discount client-side. A
-  // real promo code an owner/admin actually created was rejected as
-  // "invalid" here, and one of the three fake codes showed a discount the
-  // server would never honor — book_court/join_match re-price from the real
-  // promo_codes store server-side regardless of what this screen displayed,
-  // so the amount actually charged could silently differ from what the
-  // player was just shown. This now asks for the same authoritative quote
-  // checkout itself will use.
+  // Ask the server for the same authoritative quote checkout will charge, so
+  // the discount shown here always matches what book_court/join_match apply.
   const matchId = document.getElementById('finalMatchId')?.value || '';
   const facilityId = document.getElementById('finalFacilityId')?.value || '';
   const courtId = document.getElementById('finalCourtId')?.value || '';
@@ -3596,12 +3299,31 @@ function executeFinalBooking() {
           btn.disabled = false;
           btn.innerHTML = `<div class="btn-checkout-content"><span>Pay <span id="btnPayTotalText">₱${price.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
         }
+        if (res.success || (res.message && res.message.indexOf('already joined') !== -1)) {
+          if (matchId) {
+            window.userJoinedMatchIds = window.userJoinedMatchIds || {};
+            window.userJoinedMatchIds[String(matchId)] = true;
+          }
+          if (facilityId) {
+            window.userJoinedFacilityIds = window.userJoinedFacilityIds || {};
+            window.userJoinedFacilityIds[String(facilityId)] = true;
+          }
+          if (Array.isArray(cachedFacilityCourts)) {
+            cachedFacilityCourts.forEach(c => {
+              c.user_joined = true;
+              if (c.open_play_match) c.open_play_match.is_joined = true;
+            });
+          }
+        }
         if (res.success) {
           sessionStorage.removeItem('picklers_openplay_checkout');
           backToCourtsView();
 
-          const rawCode = res.booking?.id || ('PKL-OP-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+          // The reference and amount come from the booking the server stored,
+          // not from the checkout screen's own figures.
+          const rawCode = String(res.booking?.id || '');
           const cleanCode = rawCode.replace(/^#+/, '').replace(/^PKL-PKL-/, 'PKL-');
+          const chargedPrice = Number(res.booking?.price);
 
           openBookingReceiptModal({
             bookingId: cleanCode,
@@ -3611,17 +3333,11 @@ function executeFinalBooking() {
             time: time,
             duration: duration || '2 Hours',
             paymentMethod: paymentMethod,
-            price: price
+            price: Number.isFinite(chargedPrice) ? chargedPrice : price
           });
-          // The server hasn't approved this yet — joinMatch() returns it as a
-          // pending request (see Database::joinMatch()'s response message).
-          // Telling the player it's "confirmed" here was misleading; they get
-          // a real "Booking Confirmed!" notification once the facility approves it.
-          showToast(`✓ Request Sent! Code: #${cleanCode} — awaiting facility confirmation.`, 'success');
-          // Ask now, riding this click, so the "your time is up" alert
-          // (triggerSessionEndedAlert) can actually show as a device
-          // notification later — a cold, gesture-less prompt gets ignored by
-          // most browsers anyway.
+          showToast(cleanCode
+            ? `✓ Request Sent! Code: #${cleanCode} — awaiting facility confirmation.`
+            : '✓ Request Sent! Awaiting facility confirmation.', 'success');
           ensureNotificationPermission();
 
           if (paymentMethod === 'Pickle Credits') {
@@ -3635,8 +3351,18 @@ function executeFinalBooking() {
                 }
               });
           }
+          if (currentSelectedFacility && cachedFacilityCourts) {
+            renderDetailCourtsList(cachedFacilityCourts, currentSelectedFacility);
+          }
         } else {
-          showToast(res.message || 'Failed to join match. Please try again.', 'error');
+          if (res.message && res.message.indexOf('already joined') !== -1) {
+            showToast('You have already joined this Open Play session!', 'warning');
+            if (currentSelectedFacility && cachedFacilityCourts) {
+              renderDetailCourtsList(cachedFacilityCourts, currentSelectedFacility);
+            }
+          } else {
+            showToast(res.message || 'Failed to join match. Please try again.', 'error');
+          }
         }
       })
       .catch(err => {
@@ -3682,8 +3408,9 @@ function executeFinalBooking() {
       if (res.success) {
         backToCourtsView();
 
-        const rawCode = res.booking?.id || Math.random().toString(36).substring(2, 8).toUpperCase();
+        const rawCode = String(res.booking?.id || '');
         const cleanCode = rawCode.replace(/^#+/, '').replace(/^PKL-PKL-/, 'PKL-');
+        const chargedPrice = Number(res.booking?.price ?? res.quote?.total);
 
         openBookingReceiptModal({
           bookingId: cleanCode,
@@ -3693,7 +3420,7 @@ function executeFinalBooking() {
           time: time,
           duration: duration,
           paymentMethod: paymentMethod,
-          price: price
+          price: Number.isFinite(chargedPrice) ? chargedPrice : price
         });
         // Same reasoning as the Open Play join handler above: book_court()
         // returns this as a pending request awaiting the facility owner's
@@ -3738,7 +3465,7 @@ function openBookingReceiptModal(data) {
   };
 
   const rawFacilityName = decodeHtml(data.facilityName || 'Picklers Partner Court');
-  const safeId = escapeHtml(data.bookingId || 'PKL-8F92A1');
+  const safeId = escapeHtml(data.bookingId || 'Pending');
   const safeFacility = decodeHtml(rawFacilityName);
   let rawCourt = decodeHtml(data.courtName || 'Court 1');
   let safeCourt = 'Court 1';
@@ -3753,7 +3480,10 @@ function openBookingReceiptModal(data) {
   const safeTime = decodeHtml(data.time || '8:00 AM – 9:00 AM');
   const safeDuration = decodeHtml(data.duration || '1 Hour');
   const safePaymentMethod = decodeHtml(data.paymentMethod || 'GCash');
-  const safePrice = (typeof data.price === 'number') ? `₱${data.price.toLocaleString()}` : (data.price || '₱180');
+  const numericPrice = Number(data.price);
+  const safePrice = (data.price !== '' && data.price !== null && data.price !== undefined && Number.isFinite(numericPrice))
+    ? `₱${numericPrice.toLocaleString()}`
+    : '—';
 
   const refEl = document.getElementById('receiptRefCode');
   if (refEl) refEl.textContent = `#${safeId}`;
@@ -3834,19 +3564,9 @@ function applyFilters() {
   showToast(`Filter applied: ${selectedCourtType}`, "success");
 }
 
-// Open Play Level Filter — with active pill state
-function filterMatchesLevel(level) {
-  // Toggle active class on pills
-  document.querySelectorAll('[id^="pillLevel"]').forEach(p => p.classList.remove('active'));
-  const pillMap = { 'All': 'pillLevelAll', 'Beginner': 'pillLevelBeginner', 'Intermediate': 'pillLevelIntermediate', 'Advanced': 'pillLevelAdvanced' };
-  const activePill = document.getElementById(pillMap[level]);
-  if (activePill) activePill.classList.add('active');
-
-  document.querySelectorAll('.match-card-item').forEach(card => {
-    const show = level === 'All' || card.getAttribute('data-level') === level;
-    card.style.display = show ? '' : 'none';
-  });
-}
+// filterMatchesLevel() is defined once, in the Explore Tab section. A second
+// copy here overrode it, so picking a level ignored the search box, never
+// updated the empty state, and the next keystroke reset the level filter.
 
 
 
@@ -3947,15 +3667,15 @@ function sendChatMessage() {
   })
     .then(r => r.json())
     .then(res => {
-      if (res.auto_reply) {
-        setTimeout(() => {
-          const botMsg = document.createElement('div');
-          botMsg.style.cssText = 'align-self:flex-start; background:rgba(255,255,255,0.08); padding:8px 12px; border-radius:12px; font-size:12px; max-width:80%;';
-          botMsg.textContent = res.auto_reply;
-          thread.appendChild(botMsg);
-          thread.scrollTop = thread.scrollHeight;
-        }, 800);
+      if (!res || !res.success) {
+        // The bubble above is optimistic; don't leave it implying delivery.
+        userMsg.style.opacity = '0.5';
+        showToast((res && res.message) || 'Message not sent. Please try again.', 'error');
       }
+    })
+    .catch(() => {
+      userMsg.style.opacity = '0.5';
+      showToast('Network error — message not sent.', 'error');
     });
 }
 
@@ -3971,10 +3691,8 @@ function triggerAvatarUpload() {
 /**
  * Downscale an image file to a square avatar and return a compact data URL.
  *
- * Previously the raw FileReader result was stored verbatim, so a 2MB photo
- * became a ~2.7MB base64 string in the users table and was then inlined into
- * every page that rendered that user (the admin console reached 5MB of HTML).
- * Re-encoding at 256px keeps avatars around 20-40KB.
+ * Avatars are stored in the users table and inlined wherever that user is
+ * rendered, so the photo is re-encoded at 256px (roughly 20-40KB).
  */
 function downscaleImageFile(file, maxEdge = 256, quality = 0.82) {
   return new Promise((resolve, reject) => {
@@ -4063,10 +3781,10 @@ function handleAvatarUpload(event) {
         }
       })
       .catch(() => {
-        showToast('Saved locally, but the server could not be reached', 'error');
+        showToast('Network error — your photo was not saved. Please try again.', 'error');
       });
   }).catch(function (err) {
-    // Previously an unreadable file left the UI stuck on "Processing photo...".
+    // An unreadable file must not leave the UI on "Processing photo...".
     showToast(err && err.message ? err.message : 'Could not process that image', 'error');
   });
 }
@@ -4171,7 +3889,7 @@ function verifyIdentityNow(btn) {
       setTimeout(() => window.location.reload(), 1200);
     })
     .catch(() => {
-      // Previously unhandled: a network failure left the button stuck forever.
+      // Re-enable the button so a network failure can be retried.
       restore();
       showToast('Network error — please check your connection and try again.', 'error');
     });
@@ -4220,7 +3938,7 @@ function saveModalProfileChanges() {
         const rowNameEl = document.getElementById('settingsRowNameDisplay');
         if (rowNameEl) rowNameEl.textContent = name;
         const rowPhoneEl = document.getElementById('settingsRowPhoneDisplay');
-        if (rowPhoneEl) rowPhoneEl.textContent = phone || 'Not connected';
+        if (rowPhoneEl) rowPhoneEl.textContent = phone || 'Not set';
         const sideNameEl = document.querySelector('.user-info .user-name');
         if (sideNameEl) sideNameEl.textContent = name;
       } else {
@@ -4236,16 +3954,9 @@ function saveModalProfileChanges() {
     });
 }
 
-function toggleSocialAccount(platform, btn) {
-  if (btn.classList.contains('connected')) {
-    btn.classList.remove('connected');
-    btn.textContent = 'Connect';
-    showToast(`${platform} account disconnected`, 'error');
-  } else {
-    btn.classList.add('connected');
-    btn.textContent = 'Connected ✓';
-    showToast(`${platform} account connected`, 'success');
-  }
+function toggleSocialAccount(platform) {
+  // There is no OAuth integration yet; an account is never shown as linked.
+  showToast(`${platform} sign-in isn't available yet.`, 'info');
 }
 
 function promptChangePassword() {
@@ -4267,9 +3978,8 @@ function executeAccountDeletion(btn) {
     return;
   }
 
-  // This used to sign the user out and claim the account was deleted while
-  // never calling the server. It now performs the deletion for real, behind a
-  // submit guard so a double-click cannot fire it twice.
+  // The server performs the deactivation; the submit guard stops a
+  // double-click from sending it twice.
   const trigger = btn || document.querySelector('#deleteAccountModal .btn-modal-danger, #deleteAccountModal [data-confirm-delete]');
   const run = () => {
     const fd = new FormData();

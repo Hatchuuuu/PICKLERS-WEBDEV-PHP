@@ -64,8 +64,8 @@
                 <td style="color:#EF4444;">-₱<?php echo number_format($tx['fee'], 2); ?></td>
                 <td style="color:#00D98B; font-weight:800;">₱<?php echo number_format($tx['net'], 2); ?></td>
                 <td>
-                  <span class="<?php echo $tx['status'] === 'Settled' ? 'status-badge-settled' : 'status-badge-pending'; ?>">
-                    <?php echo $tx['status']; ?>
+                  <span class="<?php echo in_array($tx['status'], ['Confirmed', 'Completed'], true) ? 'status-badge-settled' : 'status-badge-pending'; ?>">
+                    <?php echo htmlspecialchars((string)$tx['status']); ?>
                   </span>
                 </td>
               </tr>
