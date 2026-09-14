@@ -4141,11 +4141,19 @@ function initRealTimeOpenPlaySync() {
           
           const btn = card.querySelector('.openplay-card-footer button');
           if (btn) {
-            if (isFull) {
+            const isUserJoined = btn.hasAttribute('data-user-joined') || btn.textContent.trim() === 'Joined';
+            if (isUserJoined) {
+              btn.disabled = true;
+              btn.textContent = 'Joined';
+              btn.setAttribute('data-user-joined', 'true');
+              btn.style.background = 'rgba(0, 217, 139, 0.15)';
+              btn.style.color = '#00D98B';
+              btn.style.border = '1px solid rgba(0, 217, 139, 0.3)';
+            } else if (isFull) {
               btn.disabled = true;
               btn.textContent = 'Full';
               btn.classList.add('disabled');
-            } else if (!btn.hasAttribute('data-user-joined')) {
+            } else {
               btn.disabled = false;
               btn.textContent = 'Join';
               btn.classList.remove('disabled');

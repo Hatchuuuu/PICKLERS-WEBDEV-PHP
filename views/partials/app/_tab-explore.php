@@ -141,7 +141,7 @@
             <!-- Join Action Button -->
             <div class="openplay-actions-group">
               <?php if ($joined): ?>
-                <button type="button" class="btn-openplay-join" id="btnJoinMatch_<?php echo $m['id']; ?>" style="background: rgba(0, 217, 139, 0.15); color: #00D98B; border: 1px solid rgba(0, 217, 139, 0.3);" disabled>
+                <button type="button" class="btn-openplay-join" id="btnJoinMatch_<?php echo $m['id']; ?>" data-user-joined="true" style="background: rgba(0, 217, 139, 0.15); color: #00D98B; border: 1px solid rgba(0, 217, 139, 0.3);" disabled>
                   Joined
                 </button>
               <?php elseif ($isFull): ?>
