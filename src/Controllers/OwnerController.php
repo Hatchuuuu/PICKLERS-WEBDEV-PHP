@@ -339,6 +339,9 @@ class OwnerController extends BaseController {
      */
     private function resolveOwnerFacilities(array $currentUser): array {
         $allFacilities = $this->facilityModel->all();
+        if (!empty($currentUser['is_admin'])) {
+            return $allFacilities;
+        }
 
         $staffFacilityIds = array_map('strval', \Picklers\Core\Database::get()->getStaffFacilityIdsForUser(
             (string)($currentUser['id'] ?? ''),

@@ -1092,7 +1092,6 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                         </td>
                         <td>
                           <div style="font-weight:800; color:#FFFFFF; font-size:13px;"><?php echo (int)($app['courts_count'] ?? 0); ?> Courts</div>
-                          <div style="font-size:11px; color:#94A3B8; font-weight:600;"><?php echo htmlspecialchars($app['court_surface'] ?? 'Standard'); ?></div>
                         </td>
                         <td>
                           <div style="display:flex; flex-direction:column; gap:4px;">
@@ -1871,7 +1870,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
           <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Facility Brand Name</span><strong id="appModalFacilityNameSub" style="color:#FFFFFF; font-size:14px; word-break:break-word;">—</strong></div>
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Physical Address</span><span id="appModalAddress" style="color:#E2E8F0; line-height:1.4; font-weight:600; word-break:break-word;">—</span></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Courts &amp; Surface</span><span id="appModalCourtsSurface" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Courts</span><span id="appModalCourtsSurface" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Operating Schedule</span><span id="appModalHours" style="color:#FFFFFF; font-weight:800; word-break:break-word;">—</span></div>
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Map Coordinates</span><span id="appModalCoords" style="font-family:monospace; color:#94A3B8; font-size:12px; word-break:break-all;">—</span></div>
           </div>
@@ -2097,8 +2096,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
 
       document.getElementById('appModalAddress').textContent = app.address || '—';
       const courts = parseInt(app.courts_count) || 0;
-      const surface = app.court_surface || 'Standard';
-      document.getElementById('appModalCourtsSurface').textContent = `${courts} Court${courts === 1 ? '' : 's'} (${surface})`;
+      document.getElementById('appModalCourtsSurface').textContent = `${courts} Court${courts === 1 ? '' : 's'}`;
       document.getElementById('appModalHours').textContent = app.operating_hours || '6:00 AM – 10:00 PM';
       
       if (app.latitude && app.longitude) {
