@@ -1190,7 +1190,7 @@ class Database {
                 'wallet_balance' => 9999.00,
                 'is_admin' => 1,
                 'is_dev' => 1,
-                'is_owner' => 1
+                'is_owner' => 0
             ],
             [
                 'id' => 'usr_player',
