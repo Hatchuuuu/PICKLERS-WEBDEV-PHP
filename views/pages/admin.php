@@ -1059,14 +1059,14 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                 <table class="admin-table">
                   <thead>
                     <tr>
-                      <th>Facility</th>
-                      <th>Applicant</th>
-                      <th>Entity</th>
-                      <th>Courts</th>
-                      <th>Documents</th>
-                      <th>Submitted</th>
-                      <th>Status</th>
-                      <th style="text-align:right; min-width:240px;">Action</th>
+                      <th style="width:20%;">Facility</th>
+                      <th style="width:18%;">Applicant</th>
+                      <th style="width:16%;">Entity</th>
+                      <th style="width:11%;">Courts</th>
+                      <th style="width:15%;">Documents</th>
+                      <th style="width:12%;">Submitted</th>
+                      <th style="width:8%;">Status</th>
+                      <th style="width:20%; text-align:left;">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1110,8 +1110,8 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                             <?php echo $st === 'pending_review' ? 'Pending' : htmlspecialchars(ucfirst($st)); ?>
                           </span>
                         </td>
-                        <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation()">
-                          <div style="display:inline-flex; align-items:center; justify-content:flex-end; gap:6px; white-space:nowrap;">
+                        <td style="text-align:left; white-space:nowrap;" onclick="event.stopPropagation()">
+                          <div style="display:flex; align-items:center; justify-content:flex-start; gap:6px; white-space:nowrap;">
                             <button type="button" class="mini-btn" style="background:rgba(0, 217, 139, 0.15); border:1px solid rgba(0, 217, 139, 0.35); color:#00D98B; font-weight:800; padding:6px 12px; border-radius:8px; white-space:nowrap; display:inline-flex; align-items:center; gap:4px;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">🔍 View Details &amp; Photos</button>
                             <?php if ($st === 'pending_review'): ?>
                               <button type="button" class="mini-btn" style="background:#00D98B; color:#0A121F; border:none; font-weight:800; padding:6px 12px; border-radius:8px; white-space:nowrap;" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
