@@ -424,16 +424,16 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
     .action-desc { font-size: 12px; color: var(--ink-muted); }
 
     /* Tables */
-    .table-wrap { overflow-x: auto; border: none; border-radius: 0; margin: 14px -22px -22px -22px; }
+    .table-wrap { overflow-x: hidden; border: none; border-radius: 0; margin: 14px -22px -22px -22px; }
     .admin-card > .table-wrap:first-child { margin-top: -22px; }
     .admin-card > .table-wrap:first-child th { border-top: none; }
-    .admin-table { width: 100%; border-collapse: collapse; text-align: left; min-width: 640px; }
+    .admin-table { width: 100%; border-collapse: collapse; text-align: left; min-width: 0; }
     .admin-table th {
-      padding: 13px 22px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 12px 14px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
       color: var(--ink-muted); border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle);
       background: rgba(0, 0, 0, 0.25); white-space: nowrap;
     }
-    .admin-table td { padding: 14px 22px; font-size: 13px; color: var(--ink-secondary); border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+    .admin-table td { padding: 12px 14px; font-size: 13px; color: var(--ink-secondary); border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
     .admin-table tbody tr:last-child td { border-bottom: none; }
     .admin-table tbody tr { transition: background 0.15s ease; }
     .admin-table tbody tr:hover { background: rgba(0, 217, 139, 0.035); }
@@ -1056,7 +1056,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
               </div>
             <?php else: ?>
               <div class="table-wrap searchable">
-                <table class="admin-table" style="min-width: 1050px;">
+                <table class="admin-table" style="width: 100%;">
                   <thead>
                     <tr>
                       <th style="width: 18%;">Facility</th>
