@@ -256,14 +256,15 @@ function renderRequestCard(req) {
   const typeText = isOP ? 'Open Play' : 'Court Reservation';
   const typeColor = isOP ? '#38BDF8' : '#00D98B';
   const avatarUrl = req.player_avatar || req.avatar_url || req.avatar || '';
+  const hasCustomAvatar = avatarUrl && !avatarUrl.includes('unsplash.com');
   const initials = req.name ? req.name.trim().substr(0, 1).toUpperCase() : 'P';
-  const avatarHtml = avatarUrl
-    ? `<img src="${escapeHtmlAttr(avatarUrl)}" alt="Avatar" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`
+  const avatarHtml = hasCustomAvatar
+    ? `<img src="${escapeHtmlAttr(avatarUrl)}" alt="Avatar">`
     : `<span>${escapeHtmlAttr(initials)}</span>`;
 
   return `<div class="request-card-v2" id="req_card_${id}">
     <div class="req-card-top-row" style="align-items:center; gap:10px;">
-      <div class="user-avatar-circle-sm" style="width:36px; height:36px; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+      <div class="user-avatar-circle-sm" style="width:38px; height:38px; flex-shrink:0;">
         ${avatarHtml}
       </div>
       <div style="flex:1; min-width:0;">

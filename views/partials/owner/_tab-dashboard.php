@@ -260,12 +260,13 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
         <div class="request-card-v2" id="req_card_<?= htmlspecialchars($req['id']) ?>">
           <div class="req-card-top-row" style="align-items:center; gap:10px;">
             <?php 
-              $reqAvatar = $req['player_avatar'] ?? ($req['avatar_url'] ?? ($req['avatar'] ?? null)); 
+              $reqAvatar = trim((string)($req['player_avatar'] ?? ($req['avatar_url'] ?? ($req['avatar'] ?? '')))); 
+              $hasCustomReqAvatar = !empty($reqAvatar) && stripos($reqAvatar, 'unsplash.com') === false;
               $reqInitials = !empty($req['name']) ? strtoupper(substr(trim((string)$req['name']), 0, 1)) : 'P';
             ?>
-            <div class="user-avatar-circle-sm" style="width: 36px; height: 36px; flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-              <?php if (!empty($reqAvatar)): ?>
-                <img src="<?= htmlspecialchars($reqAvatar) ?>" alt="Avatar" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">
+            <div class="user-avatar-circle-sm" style="width: 38px; height: 38px; flex-shrink: 0;">
+              <?php if ($hasCustomReqAvatar): ?>
+                <img src="<?= htmlspecialchars($reqAvatar) ?>" alt="Avatar">
               <?php else: ?>
                 <span><?= htmlspecialchars($reqInitials) ?></span>
               <?php endif; ?>
