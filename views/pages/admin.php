@@ -563,7 +563,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
       transform: translateY(0);
       box-shadow: none;
     }
-    .table-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .table-actions { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex-wrap: nowrap; }
     .mini-btn {
       background: var(--surface-interactive); border: 1px solid var(--border-subtle); color: var(--ink-primary);
       border-radius: 7px; padding: 5px 9px; font-size: 11px; cursor: pointer; font-weight: 600; font-family: var(--font-main);
@@ -1057,7 +1057,18 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
             <?php else: ?>
               <div class="table-wrap searchable">
                 <table class="admin-table">
-                  <thead><tr><th>Facility</th><th>Applicant</th><th>Entity</th><th>Courts</th><th>Documents</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Facility</th>
+                      <th>Applicant</th>
+                      <th>Entity</th>
+                      <th>Courts</th>
+                      <th>Documents</th>
+                      <th>Submitted</th>
+                      <th>Status</th>
+                      <th style="text-align:right; min-width:240px;">Action</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <?php foreach ($ownerApplications as $app): ?>
                       <?php
@@ -1068,43 +1079,43 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                       ?>
                       <tr style="cursor:pointer;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">
                         <td class="row-primary">
-                          <div style="font-weight:800; color:#FFFFFF;"><?php echo htmlspecialchars($app['facility_name'] ?? '—'); ?></div>
-                          <div style="font-size:11px; color:#94A3B8; margin-top:2px;"><?php echo htmlspecialchars($app['address'] ?? '—'); ?></div>
+                          <div style="font-weight:800; color:#FFFFFF; font-size:13.5px;"><?php echo htmlspecialchars($app['facility_name'] ?? '—'); ?></div>
+                          <div style="font-size:11px; color:#94A3B8; margin-top:2px; line-height:1.3;"><?php echo htmlspecialchars($app['address'] ?? '—'); ?></div>
                         </td>
                         <td>
-                          <div style="font-weight:700; color:#FFFFFF;"><?php echo htmlspecialchars($app['owner_name'] ?? '—'); ?></div>
-                          <span class="row-mono" style="font-size:11px; color:#38BDF8;"><?php echo htmlspecialchars($app['business_email'] ?? ''); ?></span>
+                          <div style="font-weight:700; color:#FFFFFF; font-size:13px;"><?php echo htmlspecialchars($app['owner_name'] ?? '—'); ?></div>
+                          <a href="mailto:<?php echo htmlspecialchars($app['business_email'] ?? ''); ?>" style="font-size:11.5px; color:#38BDF8; text-decoration:none; font-weight:600; font-family:monospace;" onclick="event.stopPropagation();"><?php echo htmlspecialchars($app['business_email'] ?? '—'); ?></a>
                         </td>
                         <td>
-                          <div><?php echo htmlspecialchars($app['entity_name'] ?? '—'); ?></div>
-                          <span class="row-mono" style="font-size:10.5px; color:#64748B;">Reg: <?php echo htmlspecialchars($app['reg_number'] ?? '—'); ?></span>
+                          <div style="font-weight:700; color:#E2E8F0; font-size:12.5px;"><?php echo htmlspecialchars($app['entity_name'] ?? '—'); ?></div>
+                          <div style="font-size:11px; color:#00D98B; font-family:monospace; font-weight:700; margin-top:2px;">Reg: <?php echo htmlspecialchars($app['reg_number'] ?? '—'); ?></div>
                         </td>
                         <td>
-                          <div style="font-weight:700; color:#FFFFFF;"><?php echo (int)($app['courts_count'] ?? 0); ?> Courts</div>
-                          <span style="font-size:11px; color:#94A3B8;"><?php echo htmlspecialchars($app['court_surface'] ?? 'Standard'); ?></span>
+                          <div style="font-weight:800; color:#FFFFFF; font-size:13px;"><?php echo (int)($app['courts_count'] ?? 0); ?> Courts</div>
+                          <div style="font-size:11px; color:#94A3B8; font-weight:600;"><?php echo htmlspecialchars($app['court_surface'] ?? 'Standard'); ?></div>
                         </td>
                         <td>
                           <div style="display:flex; flex-direction:column; gap:4px;">
-                            <span style="font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; background:<?php echo $hasPermit ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasPermit ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasPermit ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px;">
+                            <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $hasPermit ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasPermit ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasPermit ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px; width:fit-content;">
                               📄 Permit <?php echo $hasPermit ? '✓' : '—'; ?>
                             </span>
-                            <span style="font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; background:<?php echo $hasGovId ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasGovId ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasGovId ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px;">
+                            <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $hasGovId ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasGovId ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasGovId ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px; width:fit-content;">
                               🪪 Gov ID <?php echo $hasGovId ? '✓' : '—'; ?>
                             </span>
                           </div>
                         </td>
-                        <td style="font-size:12px; color:#94A3B8;"><?php echo htmlspecialchars($app['created_at'] ?? '—'); ?></td>
+                        <td style="font-size:12px; color:#94A3B8; font-weight:600; white-space:nowrap;"><?php echo htmlspecialchars($app['created_at'] ?? '—'); ?></td>
                         <td>
-                          <span class="status-pill <?php echo $st === 'pending_review' ? 'pending' : htmlspecialchars($st); ?>">
+                          <span class="status-pill <?php echo $st === 'pending_review' ? 'pending' : htmlspecialchars($st); ?>" style="text-transform:uppercase; font-weight:800; letter-spacing:0.5px; white-space:nowrap;">
                             <?php echo $st === 'pending_review' ? 'Pending' : htmlspecialchars(ucfirst($st)); ?>
                           </span>
                         </td>
-                        <td onclick="event.stopPropagation()">
-                          <div class="table-actions">
-                            <button type="button" class="mini-btn" style="background:rgba(0, 217, 139, 0.15); border:1px solid rgba(0, 217, 139, 0.4); color:#00D98B; font-weight:800;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">🔍 View Details &amp; Photos</button>
+                        <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation()">
+                          <div style="display:inline-flex; align-items:center; justify-content:flex-end; gap:6px; white-space:nowrap;">
+                            <button type="button" class="mini-btn" style="background:rgba(0, 217, 139, 0.15); border:1px solid rgba(0, 217, 139, 0.35); color:#00D98B; font-weight:800; padding:6px 12px; border-radius:8px; white-space:nowrap; display:inline-flex; align-items:center; gap:4px;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">🔍 View Details &amp; Photos</button>
                             <?php if ($st === 'pending_review'): ?>
-                              <button type="button" class="mini-btn" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
-                              <button type="button" class="mini-btn danger" onclick="rejectApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Reject</button>
+                              <button type="button" class="mini-btn" style="background:#00D98B; color:#0A121F; border:none; font-weight:800; padding:6px 12px; border-radius:8px; white-space:nowrap;" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
+                              <button type="button" class="mini-btn danger" style="background:rgba(239, 68, 68, 0.12); color:#F87171; border:1px solid rgba(239, 68, 68, 0.3); font-weight:700; padding:6px 12px; border-radius:8px; white-space:nowrap;" onclick="rejectApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Reject</button>
                             <?php endif; ?>
                           </div>
                         </td>
