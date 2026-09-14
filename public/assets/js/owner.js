@@ -3023,8 +3023,8 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
 
         return `
           <div class="roster-player-item" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(20, 32, 54, 0.8)); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); transition: all 0.25s ease;" onmouseover="this.style.borderColor='rgba(0, 217, 139, 0.35)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 8px 24px rgba(0, 217, 139, 0.12)';" onmouseout="this.style.borderColor='rgba(255, 255, 255, 0.09)'; this.style.transform='none'; this.style.boxShadow='0 4px 16px rgba(0, 0, 0, 0.3)';">
-            <div class="user-avatar-circle-sm" style="width: 42px; height: 42px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-              ${avatarUrl ? `<img src="${safeHtmlStr(avatarUrl)}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">` : `<span>${safeHtmlStr(initials)}</span>`}
+            <div class="user-avatar-circle-sm" style="width: 42px; height: 42px; flex-shrink: 0;">
+              ${avatarUrl ? `<img src="${safeHtmlStr(avatarUrl)}" alt="Avatar">` : `<span>${safeHtmlStr(initials)}</span>`}
             </div>
             <div style="flex: 1; min-width: 0;">
               <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;">${safeHtmlStr(player.name)}</div>
@@ -3108,8 +3108,8 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
       const timeStr = b.time || 'Scheduled';
       const avatarUrl = b.user_avatar || b.avatar_url || b.avatar || '';
       const avatarHtml = avatarUrl
-        ? `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; padding: 2px; background: linear-gradient(135deg, #00D98B, #00B871); flex-shrink: 0;"><img src="${safeHtmlStr(avatarUrl)}" alt="${safeHtmlStr(name)}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;" /></div>`
-        : `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #00D98B, #00B871); display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-weight: 800; font-size: 14px; flex-shrink: 0;"><span>${safeHtmlStr(initial)}</span></div>`;
+        ? `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; flex-shrink: 0;"><img src="${safeHtmlStr(avatarUrl)}" alt="${safeHtmlStr(name)}" /></div>`
+        : `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; flex-shrink: 0;"><span>${safeHtmlStr(initial)}</span></div>`;
 
       return `
         <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(20, 32, 54, 0.8)); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
@@ -3139,8 +3139,8 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
       const timeStr = b.time || 'Completed';
       const avatarUrl = b.user_avatar || b.avatar_url || b.avatar || '';
       const avatarHtml = avatarUrl
-        ? `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; padding: 2px; background: rgba(148, 163, 184, 0.3); flex-shrink: 0;"><img src="${safeHtmlStr(avatarUrl)}" alt="${safeHtmlStr(name)}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;" /></div>`
-        : `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; border-radius: 50%; background: rgba(148, 163, 184, 0.2); display: flex; align-items: center; justify-content: center; color: #94A3B8; font-weight: 800; font-size: 14px; flex-shrink: 0;"><span>${safeHtmlStr(initial)}</span></div>`;
+        ? `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; flex-shrink: 0;"><img src="${safeHtmlStr(avatarUrl)}" alt="${safeHtmlStr(name)}" /></div>`
+        : `<div class="user-avatar-circle-sm" style="width: 38px; height: 38px; flex-shrink: 0;"><span>${safeHtmlStr(initial)}</span></div>`;
 
       return `
         <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(20, 32, 54, 0.5)); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 16px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px;">
