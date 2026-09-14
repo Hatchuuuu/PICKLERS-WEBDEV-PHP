@@ -3841,14 +3841,27 @@ class Database {
         $courtId = trim($courtId);
 
         // The roster is the join requests of the session currently running on
-        // this exact court, limited to that session's own match_id.
+        // this exact court, aligned with getCourtsByFacilityUncached matching rules.
         $session = null;
+        $allCourts = $this->getCourtsByFacility($facilityId);
         foreach ($this->getMatchesByFacility($facilityId) as $m) {
             if (self::isMatchExpired($m)) continue;
-            $mCourt = trim((string)($m['court_name'] ?? $m['type'] ?? ''));
+            $mType = trim((string)($m['type'] ?? ''));
             $mCourtId = trim((string)($m['court_id'] ?? ''));
-            if (($courtId !== '' && $mCourtId !== '' && $mCourtId === $courtId)
-                || ($courtName !== '' && $mCourt !== '' && strcasecmp($mCourt, $courtName) === 0)) {
+            $mCourtName = trim((string)($m['court_name'] ?? ''));
+
+            $isMatchForCourt = false;
+            if ($courtId !== '' && $mCourtId !== '' && $mCourtId === $courtId) {
+                $isMatchForCourt = true;
+            } elseif ($courtName !== '' && $mCourtName !== '' && strcasecmp($mCourtName, $courtName) === 0) {
+                $isMatchForCourt = true;
+            } elseif ($courtName !== '' && $mType !== '' && strcasecmp($mType, $courtName) === 0) {
+                $isMatchForCourt = true;
+            } elseif (count($allCourts) === 1) {
+                $isMatchForCourt = true;
+            }
+
+            if ($isMatchForCourt) {
                 $session = $m;
                 break;
             }
@@ -3858,22 +3871,26 @@ class Database {
         }
 
         $sessionId = (string)($session['id'] ?? '');
-        $sessionCourt = trim((string)($session['type'] ?? $courtName));
+        $sessionCourt = trim((string)($session['court_name'] ?? $session['type'] ?? $courtName));
+        $sessionTitle = trim((string)($session['title'] ?? $session['type'] ?? ''));
         $sessionDate = strtolower(trim((string)($session['date'] ?? '')));
         $isRecurring = str_contains($sessionDate, 'everyday') || str_contains($sessionDate, 'daily');
         $targetDate = self::getMatchTargetDate($session);
 
         if ($this->isMySQL) {
             $stmt = $this->pdo->prepare(
-                "SELECT b.id, b.user_id, b.status, b.booking_date, b.payment_method, b.price, b.created_at,
+                "SELECT b.id, b.user_id, b.status, b.booking_date, b.payment_method, b.price, b.created_at, b.court_name, b.date,
                         u.name, u.email, u.level, u.avatar_url
                    FROM bookings b
               LEFT JOIN users u ON b.user_id = u.id
                   WHERE b.facility_id = ? AND b.status IN ('pending', 'confirmed', 'completed')
-                    AND (b.match_id = ? OR (b.match_id IS NULL AND b.id LIKE 'PKL-OP-%' AND b.court_name = ?))
+                    AND (
+                         (b.match_id IS NOT NULL AND b.match_id != '' AND b.match_id = ?)
+                      OR (b.id LIKE 'PKL-OP-%' AND (b.court_name = ? OR b.court_name = ? OR b.court_name = ?))
+                    )
                ORDER BY b.created_at DESC"
             );
-            $stmt->execute([$facilityId, $sessionId, $sessionCourt]);
+            $stmt->execute([$facilityId, $sessionId, $sessionCourt, $courtName, $sessionTitle]);
             $rows = $stmt->fetchAll();
         } else {
             $users = [];
@@ -3885,8 +3902,13 @@ class Database {
                 if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
                 if (!in_array((string)($b['status'] ?? ''), ['pending', 'confirmed', 'completed'], true)) continue;
                 $bMatchId = (string)($b['match_id'] ?? '');
-                $isJoin = $bMatchId === $sessionId
-                    || ($bMatchId === '' && str_starts_with((string)($b['id'] ?? ''), 'PKL-OP-') && (string)($b['court_name'] ?? '') === $sessionCourt);
+                $bCourtName = trim((string)($b['court_name'] ?? ''));
+                $isJoin = ($bMatchId !== '' && $bMatchId === $sessionId)
+                    || (str_starts_with((string)($b['id'] ?? ''), 'PKL-OP-') && (
+                        strcasecmp($bCourtName, $sessionCourt) === 0 ||
+                        strcasecmp($bCourtName, $courtName) === 0 ||
+                        strcasecmp($bCourtName, $sessionTitle) === 0
+                    ));
                 if (!$isJoin) continue;
                 $u = $users[(string)($b['user_id'] ?? '')] ?? [];
                 $rows[] = $b + [
@@ -3905,11 +3927,14 @@ class Database {
             // A recurring session is never recreated day to day: only the
             // current occurrence's players belong on today's roster.
             if ($isRecurring) {
-                $day = (string)($r['booking_date'] ?? '');
-                if ($day === '' && !empty($r['created_at'])) {
+                $rawDate = (string)($r['booking_date'] ?? $r['date'] ?? '');
+                $day = '';
+                if ($rawDate !== '') {
+                    $day = $this->resolveDisplayDate($rawDate) ?? (strtotime($rawDate) !== false ? date('Y-m-d', strtotime($rawDate)) : '');
+                } elseif (!empty($r['created_at'])) {
                     $day = date('Y-m-d', strtotime((string)$r['created_at']));
                 }
-                if ($day !== $targetDate) continue;
+                if ($day !== '' && $day !== $targetDate) continue;
             }
 
             $playerKey = (string)($r['user_id'] ?? '') !== '' ? (string)$r['user_id'] : strtolower((string)($r['email'] ?? $r['name'] ?? ''));
@@ -3928,6 +3953,27 @@ class Database {
                 'fee' => (float)($r['price'] ?? 0),
                 'time_ago' => !empty($r['created_at']) ? date('M j, g:i A', strtotime((string)$r['created_at'])) : 'Recent',
             ];
+        }
+
+        // Fallback for session host / initial registered spot when current_players > 0
+        if (empty($roster) && (!empty($session['host']) || (int)($session['current_players'] ?? 0) > 0)) {
+            $hostName = !empty($session['host']) ? trim((string)$session['host']) : 'Session Host';
+            $hostKey = strtolower($hostName);
+            if (!isset($seenPlayers[$hostKey])) {
+                $hostAvatar = !empty($session['host_avatar']) ? $session['host_avatar'] : ($session['user_avatar'] ?? ($session['avatar_url'] ?? ($session['avatar'] ?? null)));
+                $hostLevel = !empty($session['level']) ? $session['level'] : 'Host / Organizer';
+                $roster[] = [
+                    'id' => 'host_' . $sessionId,
+                    'name' => $hostName,
+                    'email' => '',
+                    'level' => $hostLevel,
+                    'avatar_url' => $hostAvatar,
+                    'status' => 'confirmed',
+                    'payment_status' => 'Session Host',
+                    'fee' => (float)($session['price'] ?? 0),
+                    'time_ago' => 'Session Host',
+                ];
+            }
         }
 
         return $roster;

@@ -24,7 +24,7 @@ final class OpenPlayAndSettingsSyncTest extends TestCase {
         $timeStr = $startStr . ' – ' . $endStr;
 
         $db->occupyCourt($facilityId, $courtName, 'Hosted Open Play', $timeStr);
-        $db->insertMatch([
+        $insertedMatch = $db->insertMatch([
             'facility_id' => $facilityId,
             'facility_name' => 'Incredoball Sports Center',
             'location' => 'Barangay Daro, Dumaguete City',
@@ -52,8 +52,12 @@ final class OpenPlayAndSettingsSyncTest extends TestCase {
         $this->assertSame('occupied', strtolower((string)($court1['status'] ?? '')), 'Hosted Open Play marks Court 1 as occupied in court listing');
         $this->assertSame('Hosted Open Play', $court1['occupied_by'] ?? null, 'Occupied by field indicates Hosted Open Play');
 
+        $roster = $db->getOpenPlayRoster($facilityId, $courtName);
+        $this->assertTrue(!empty($roster), 'Open Play roster for Court 1 is non-empty when a hosted session exists');
+        $this->assertSame('Ignacio Reyes', $roster[0]['name'] ?? null, 'Host entry appears in Open Play roster');
+
         // Cancel Open Play session
-        $db->deleteMatch('Evening Social Open Play', $facilityId, $courtName);
+        $db->deleteMatch((string)$insertedMatch['id'], $facilityId, $courtName);
         $db->clearCourtSession($courtName, $facilityId);
 
         $restoredCourts = $db->getCourtsByFacility($facilityId);
