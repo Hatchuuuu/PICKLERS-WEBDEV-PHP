@@ -183,7 +183,7 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
               <?php $schedCount = count($court['upcoming_bookings'] ?? []); ?>
               <button type="button" class="btn-court-players-trigger" onclick="openCourtScheduleModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', <?= htmlspecialchars(json_encode($court['upcoming_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($court['completed_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>)" title="View court schedule roster" style="background:transparent; border:none; color:#FFFFFF; padding:0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:2px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 <span>Schedule</span>
-                <sup style="position:relative; top:2px; color:#FFFFFF; font-size:11px; font-weight:800; margin-left:2px; line-height:1; pointer-events:none;"><?= $schedCount ?></sup>
+                <sup style="position:relative; top:-3px; color:#FFFFFF; font-size:10.5px; font-weight:800; margin-left:2px; line-height:1; pointer-events:none;"><?= $schedCount ?></sup>
               </button>
             <?php endif; ?>
           </div>
