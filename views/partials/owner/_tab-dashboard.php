@@ -177,15 +177,15 @@ $liveCourtsFullCount = count(array_filter($liveCourts, fn($c) => in_array($c['st
             <?php if (($court['dot'] ?? '') === 'amber' || !empty($court['has_open_play'])): ?>
               <button type="button" class="btn-court-players-trigger" onclick="openOpenPlayRosterModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', '<?= htmlspecialchars(addslashes($court['open_play_title'] ?? 'Open Play Session')) ?>')" title="View joined players list and profiles" style="background: transparent; border: none; color: #FFFFFF; padding: 0; font-size: 12px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1; transition: all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                <span>Players ▾</span>
+                <span>Players</span>
               </button>
             <?php else: ?>
               <?php $schedCount = count($court['upcoming_bookings'] ?? []); ?>
-              <button type="button" class="btn-court-players-trigger" onclick="openCourtScheduleModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', <?= htmlspecialchars(json_encode($court['upcoming_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($court['completed_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>)" title="View court schedule roster" style="position:relative; background:transparent; border:none; color:#FFFFFF; padding:0 8px 0 0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
-                <span>Schedule ▾</span>
-                <span style="position:absolute; top:-7px; right:-6px; background:#00D98B; color:#05111E; font-size:10px; font-weight:900; min-width:16px; height:16px; border-radius:9999px; display:inline-flex; align-items:center; justify-content:center; padding:0 4px; box-shadow:0 0 8px rgba(0,217,139,0.5); border:1px solid #08101F; line-height:1; pointer-events:none;">
+              <button type="button" class="btn-court-players-trigger" onclick="openCourtScheduleModal('<?= htmlspecialchars(addslashes($court['id'])) ?>', '<?= htmlspecialchars(addslashes($court['name'])) ?>', <?= htmlspecialchars(json_encode($court['upcoming_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($court['completed_bookings'] ?? []), ENT_QUOTES, 'UTF-8') ?>)" title="View court schedule roster" style="position:relative; background:transparent; border:none; color:#FFFFFF; padding:0 8px 0 0; font-size:12px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:3px; line-height:1; transition:all 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+                <span>Schedule</span>
+                <sup style="position:absolute; top:-5px; right:-6px; color:#00D98B; font-size:11px; font-weight:900; line-height:1; pointer-events:none;">
                   <?= $schedCount ?>
-                </span>
+                </sup>
               </button>
             <?php endif; ?>
           </div>
