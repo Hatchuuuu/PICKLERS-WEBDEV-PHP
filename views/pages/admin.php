@@ -1088,7 +1088,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                         </td>
                         <td>
                           <div style="font-weight:700; color:#E2E8F0; font-size:12.5px;"><?php echo htmlspecialchars($app['entity_name'] ?? '—'); ?></div>
-                          <div style="font-size:11px; color:#00D98B; font-family:monospace; font-weight:700; margin-top:2px;">Reg: <?php echo htmlspecialchars($app['reg_number'] ?? '—'); ?></div>
+                          <div style="font-size:11px; color:#94A3B8; font-family:monospace; font-weight:600; margin-top:2px;">Reg: <span style="color:#FFFFFF; font-weight:700;"><?php echo htmlspecialchars($app['reg_number'] ?? '—'); ?></span></div>
                         </td>
                         <td>
                           <div style="font-weight:800; color:#FFFFFF; font-size:13px;"><?php echo (int)($app['courts_count'] ?? 0); ?> Courts</div>
@@ -1096,10 +1096,10 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                         </td>
                         <td>
                           <div style="display:flex; flex-direction:column; gap:4px;">
-                            <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $hasPermit ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasPermit ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasPermit ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px; width:fit-content;">
+                            <span style="font-size:10px; font-weight:800; padding:3px 9px; border-radius:9999px; background:<?php echo $hasPermit ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)'; ?>; color:<?php echo $hasPermit ? '#FFFFFF' : '#64748B'; ?>; border:1px solid <?php echo $hasPermit ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px; width:fit-content;">
                               📄 Permit <?php echo $hasPermit ? '✓' : '—'; ?>
                             </span>
-                            <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:<?php echo $hasGovId ? 'rgba(0,217,139,0.15)' : 'rgba(255,255,255,0.05)'; ?>; color:<?php echo $hasGovId ? '#00D98B' : '#64748B'; ?>; border:1px solid <?php echo $hasGovId ? 'rgba(0,217,139,0.3)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px; width:fit-content;">
+                            <span style="font-size:10px; font-weight:800; padding:3px 9px; border-radius:9999px; background:<?php echo $hasGovId ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)'; ?>; color:<?php echo $hasGovId ? '#FFFFFF' : '#64748B'; ?>; border:1px solid <?php echo $hasGovId ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)'; ?>; display:inline-flex; align-items:center; gap:4px; width:fit-content;">
                               🪪 Gov ID <?php echo $hasGovId ? '✓' : '—'; ?>
                             </span>
                           </div>
@@ -1112,10 +1112,10 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                         </td>
                         <td style="text-align:left; white-space:nowrap;" onclick="event.stopPropagation()">
                           <div style="display:flex; align-items:center; justify-content:flex-start; gap:6px; white-space:nowrap;">
-                            <button type="button" class="mini-btn" style="background:rgba(0, 217, 139, 0.15); border:1px solid rgba(0, 217, 139, 0.35); color:#00D98B; font-weight:800; padding:6px 12px; border-radius:8px; white-space:nowrap; display:inline-flex; align-items:center; gap:4px;" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">🔍 View Details &amp; Photos</button>
+                            <button type="button" class="mini-btn" style="background:rgba(255, 255, 255, 0.08); border:1px solid rgba(255, 255, 255, 0.22); color:#FFFFFF; font-weight:800; padding:6px 14px; border-radius:8px; white-space:nowrap; display:inline-flex; align-items:center; gap:5px; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.18)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'" onclick="openApplicationDetails(<?php echo $jsonApp; ?>)">🔍 View Details &amp; Photos</button>
                             <?php if ($st === 'pending_review'): ?>
-                              <button type="button" class="mini-btn" style="background:#00D98B; color:#0A121F; border:none; font-weight:800; padding:6px 12px; border-radius:8px; white-space:nowrap;" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
-                              <button type="button" class="mini-btn danger" style="background:rgba(239, 68, 68, 0.12); color:#F87171; border:1px solid rgba(239, 68, 68, 0.3); font-weight:700; padding:6px 12px; border-radius:8px; white-space:nowrap;" onclick="rejectApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Reject</button>
+                              <button type="button" class="mini-btn" style="background:#FFFFFF; color:#0D1A2D; border:none; font-weight:800; padding:6px 14px; border-radius:8px; white-space:nowrap; transition:all 0.2s;" onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='#FFFFFF'" onclick="approveApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Approve</button>
+                              <button type="button" class="mini-btn danger" style="background:rgba(239, 68, 68, 0.12); color:#F87171; border:1px solid rgba(239, 68, 68, 0.3); font-weight:700; padding:6px 14px; border-radius:8px; white-space:nowrap; transition:all 0.2s;" onclick="rejectApplication('<?php echo htmlspecialchars((string)($app['user_id'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($app['id'] ?? '')); ?>')">Reject</button>
                             <?php endif; ?>
                           </div>
                         </td>
@@ -1828,52 +1828,52 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
 
   <!-- ===== OWNER APPLICATION DETAILS INSPECTOR MODAL ===== -->
   <div class="modal-overlay" id="appDetailsModal" style="z-index:9999;">
-    <div class="modal-box" style="max-width:780px; width:92%; max-height:90vh; overflow-y:auto; padding:28px; border-radius:20px; background:#0D1A2D; border:1px solid rgba(255,255,255,0.14); color:#FFFFFF; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
+    <div class="modal-box" style="max-width:760px; width:92%; max-height:90vh; overflow-y:auto; overflow-x:hidden; padding:28px; border-radius:20px; background:#0D1A2D; border:1px solid rgba(255,255,255,0.14); color:#FFFFFF; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
       <!-- Header -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:22px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:18px;">
-        <div>
+        <div style="min-width:0; flex:1; padding-right:12px;">
           <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; flex-wrap:wrap;">
-            <h2 id="appModalFacilityName" style="font-size:22px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.02em;">Facility Name</h2>
+            <h2 id="appModalFacilityName" style="font-size:22px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.02em; word-break:break-word;">Facility Name</h2>
             <span id="appModalStatusBadge" class="status-pill pending">Pending</span>
           </div>
-          <div style="font-size:12.5px; color:#94A3B8; margin:0; display:flex; align-items:center; gap:8px;">
+          <div style="font-size:12.5px; color:#94A3B8; margin:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <span>Submitted on <strong id="appModalSubmittedAt" style="color:#FFFFFF;">—</strong></span>
             <span>•</span>
-            <span>ID: <strong id="appModalAppId" style="font-family:monospace; color:#00D98B;">—</strong></span>
+            <span>ID: <strong id="appModalAppId" style="font-family:monospace; color:#FFFFFF; font-weight:800;">—</strong></span>
           </div>
         </div>
-        <button type="button" onclick="closeModal('appDetailsModal')" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; font-weight:800; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">✕</button>
+        <button type="button" onclick="closeModal('appDetailsModal')" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; font-weight:800; transition:all 0.2s; flex-shrink:0;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">✕</button>
       </div>
 
       <!-- Grid of Details -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:24px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px; margin-bottom:24px;">
         <!-- Box 1: Applicant & Business Entity -->
-        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px;">
-          <div style="font-size:11.5px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px; min-width:0;">
+          <div style="font-size:11.5px; font-weight:800; color:#FFFFFF; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             Applicant &amp; Operating Entity
           </div>
           <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Legal Applicant Name</span><strong id="appModalOwnerName" style="color:#FFFFFF; font-size:14px;">—</strong></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Business Email</span><a id="appModalEmail" href="#" style="color:#38BDF8; font-weight:700; text-decoration:none;">—</a></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Phone / Contact</span><span id="appModalPhone" style="color:#FFFFFF; font-weight:700;">—</span></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Registered Entity Name</span><span id="appModalEntityName" style="color:#FFFFFF; font-weight:700;">—</span></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">DTI / SEC Registration No.</span><span id="appModalRegNumber" style="font-family:monospace; color:#00D98B; font-weight:800; font-size:13.5px;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Legal Applicant Name</span><strong id="appModalOwnerName" style="color:#FFFFFF; font-size:14px; word-break:break-word;">—</strong></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Business Email</span><a id="appModalEmail" href="#" style="color:#38BDF8; font-weight:700; text-decoration:none; word-break:break-all;">—</a></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Phone / Contact</span><span id="appModalPhone" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Registered Entity Name</span><span id="appModalEntityName" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">DTI / SEC Registration No.</span><span id="appModalRegNumber" style="font-family:monospace; color:#FFFFFF; font-weight:800; font-size:13.5px; word-break:break-all;">—</span></div>
           </div>
         </div>
 
         <!-- Box 2: Facility & Court Operations -->
-        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px;">
-          <div style="font-size:11.5px; font-weight:800; color:#00D98B; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px; min-width:0;">
+          <div style="font-size:11.5px; font-weight:800; color:#FFFFFF; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
             Facility &amp; Court Specs
           </div>
           <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Facility Brand Name</span><strong id="appModalFacilityNameSub" style="color:#FFFFFF; font-size:14px;">—</strong></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Physical Address</span><span id="appModalAddress" style="color:#E2E8F0; line-height:1.4; font-weight:600;">—</span></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Courts &amp; Surface</span><span id="appModalCourtsSurface" style="color:#FFFFFF; font-weight:700;">—</span></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Operating Schedule</span><span id="appModalHours" style="color:#00D98B; font-weight:800;">—</span></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Map Coordinates</span><span id="appModalCoords" style="font-family:monospace; color:#94A3B8; font-size:12px;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Facility Brand Name</span><strong id="appModalFacilityNameSub" style="color:#FFFFFF; font-size:14px; word-break:break-word;">—</strong></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Physical Address</span><span id="appModalAddress" style="color:#E2E8F0; line-height:1.4; font-weight:600; word-break:break-word;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Courts &amp; Surface</span><span id="appModalCourtsSurface" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Operating Schedule</span><span id="appModalHours" style="color:#FFFFFF; font-weight:800; word-break:break-word;">—</span></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Map Coordinates</span><span id="appModalCoords" style="font-family:monospace; color:#94A3B8; font-size:12px; word-break:break-all;">—</span></div>
           </div>
         </div>
       </div>
@@ -1881,29 +1881,29 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
       <!-- Section 3: Uploaded Verification Documents & Photos -->
       <div style="margin-bottom:24px;">
         <div style="font-size:12px; font-weight:800; color:#FFFFFF; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px; display:flex; align-items:center; gap:8px;">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           Uploaded Verification Documents &amp; Photos
         </div>
         
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
           <!-- Mayor's Permit / Business License Card -->
-          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:12.5px; font-weight:800; color:#FFFFFF; display:flex; align-items:center; gap:6px;">📄 Mayor's Permit / License</span>
-              <span id="appModalPermitBadge" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:9999px; background:rgba(0,217,139,0.15); color:#00D98B; border:1px solid rgba(0,217,139,0.3);">ATTACHED</span>
+          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:12.5px; font-weight:800; color:#FFFFFF; display:flex; align-items:center; gap:6px; min-width:0;">📄 Mayor's Permit / License</span>
+              <span id="appModalPermitBadge" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:9999px; background:rgba(255,255,255,0.12); color:#FFFFFF; border:1px solid rgba(255,255,255,0.25); flex-shrink:0;">ATTACHED</span>
             </div>
-            <div id="appModalPermitPreview" style="min-height:160px; background:rgba(0,0,0,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px dashed rgba(255,255,255,0.15);">
+            <div id="appModalPermitPreview" style="min-height:170px; background:rgba(0,0,0,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px dashed rgba(255,255,255,0.15); min-width:0;">
               <!-- Rendered dynamically -->
             </div>
           </div>
 
           <!-- Government ID Card -->
-          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:12.5px; font-weight:800; color:#FFFFFF; display:flex; align-items:center; gap:6px;">🪪 Government Issued ID</span>
-              <span id="appModalGovIdBadge" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:9999px; background:rgba(0,217,139,0.15); color:#00D98B; border:1px solid rgba(0,217,139,0.3);">ATTACHED</span>
+          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:12.5px; font-weight:800; color:#FFFFFF; display:flex; align-items:center; gap:6px; min-width:0;">🪪 Government Issued ID</span>
+              <span id="appModalGovIdBadge" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:9999px; background:rgba(255,255,255,0.12); color:#FFFFFF; border:1px solid rgba(255,255,255,0.25); flex-shrink:0;">ATTACHED</span>
             </div>
-            <div id="appModalGovIdPreview" style="min-height:160px; background:rgba(0,0,0,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px dashed rgba(255,255,255,0.15);">
+            <div id="appModalGovIdPreview" style="min-height:170px; background:rgba(0,0,0,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px dashed rgba(255,255,255,0.15); min-width:0;">
               <!-- Rendered dynamically -->
             </div>
           </div>
@@ -2117,7 +2117,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
         footer.innerHTML = `
           <button type="button" class="btn-ghost-pill" onclick="closeModal('appDetailsModal')">Cancel</button>
           <button type="button" class="mini-btn danger" style="padding:10px 20px; font-weight:800; font-size:13px; border-radius:12px;" onclick="rejectApplication('${app.user_id}', '${app.id}'); closeModal('appDetailsModal');">Reject Application</button>
-          <button type="button" class="mini-btn" style="padding:10px 22px; font-weight:800; font-size:13px; border-radius:12px; background:#00D98B; color:#0A121F; border:none;" onclick="approveApplication('${app.user_id}', '${app.id}'); closeModal('appDetailsModal');">✓ Approve Application</button>
+          <button type="button" class="mini-btn" style="padding:10px 22px; font-weight:800; font-size:13px; border-radius:12px; background:#FFFFFF; color:#0A121F; border:none; transition:all 0.2s;" onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='#FFFFFF'" onclick="approveApplication('${app.user_id}', '${app.id}'); closeModal('appDetailsModal');">✓ Approve Application</button>
         `;
       } else {
         footer.innerHTML = `
@@ -2161,9 +2161,9 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
 
       if (badge) {
         badge.textContent = 'ATTACHED';
-        badge.style.background = 'rgba(0,217,139,0.15)';
-        badge.style.color = '#00D98B';
-        badge.style.borderColor = 'rgba(0,217,139,0.3)';
+        badge.style.background = 'rgba(255,255,255,0.12)';
+        badge.style.color = '#FFFFFF';
+        badge.style.borderColor = 'rgba(255,255,255,0.25)';
       }
 
       const cleanName = filename.trim();
