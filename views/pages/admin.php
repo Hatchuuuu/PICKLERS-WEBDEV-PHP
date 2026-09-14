@@ -1084,7 +1084,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
                         </td>
                         <td>
                           <div style="font-weight:700; color:#FFFFFF; font-size:13px; white-space:nowrap;"><?php echo htmlspecialchars($app['owner_name'] ?? '—'); ?></div>
-                          <a href="mailto:<?php echo htmlspecialchars($app['business_email'] ?? ''); ?>" style="font-size:11.5px; color:#38BDF8; text-decoration:none; font-weight:500; font-family:monospace; display:block; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;" onclick="event.stopPropagation();"><?php echo htmlspecialchars($app['business_email'] ?? '—'); ?></a>
+                          <a href="mailto:<?php echo htmlspecialchars($app['business_email'] ?? ''); ?>" style="font-size:11.5px; color:#FFFFFF; text-decoration:none; font-weight:500; font-family:monospace; display:block; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;" onclick="event.stopPropagation();"><?php echo htmlspecialchars($app['business_email'] ?? '—'); ?></a>
                         </td>
                         <td>
                           <div style="font-weight:700; color:#E2E8F0; font-size:12.5px; white-space:nowrap;"><?php echo htmlspecialchars($app['entity_name'] ?? '—'); ?></div>
@@ -1854,7 +1854,7 @@ $isSuperAdmin = ($currentUser['role'] ?? '') === 'admin' || !empty($currentUser[
           </div>
           <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Legal Applicant Name</span><strong id="appModalOwnerName" style="color:#FFFFFF; font-size:14px; word-break:break-word;">—</strong></div>
-            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Business Email</span><a id="appModalEmail" href="#" style="color:#38BDF8; font-weight:700; text-decoration:none; word-break:break-all;">—</a></div>
+            <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Business Email</span><a id="appModalEmail" href="#" style="color:#FFFFFF; font-weight:700; text-decoration:none; word-break:break-all;">—</a></div>
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Phone / Contact</span><span id="appModalPhone" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">Registered Entity Name</span><span id="appModalEntityName" style="color:#FFFFFF; font-weight:700; word-break:break-word;">—</span></div>
             <div><span style="color:#64748B; font-size:11px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px;">DTI / SEC Registration No.</span><span id="appModalRegNumber" style="font-family:monospace; color:#FFFFFF; font-weight:800; font-size:13.5px; word-break:break-all;">—</span></div>
