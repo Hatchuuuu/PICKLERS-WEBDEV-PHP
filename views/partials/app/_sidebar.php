@@ -49,17 +49,17 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
           <span>Admin Console</span>
         </a>
+      <?php else: ?>
+        <?php
+          $appDb = $db ?? \Picklers\Core\Database::get();
+          $isStaffUser = !empty($appDb->getStaffFacilityIdsForUser((string)($currentUser['id'] ?? ''), (string)($currentUser['email'] ?? '')));
+          $isApprovedOwner = !empty($currentUser['is_owner']) || ($currentUser['role'] ?? '') === 'owner' || $isStaffUser;
+        ?>
+        <a href="<?php echo $isApprovedOwner ? 'owner.php' : 'owner-application.php'; ?>" class="sidebar-signout-btn" title="Switch to Facility Owner Portal">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>
+          <span>Switch to Owner View</span>
+        </a>
       <?php endif; ?>
-
-      <?php
-        $appDb = $db ?? \Picklers\Core\Database::get();
-        $isStaffUser = !empty($appDb->getStaffFacilityIdsForUser((string)($currentUser['id'] ?? ''), (string)($currentUser['email'] ?? '')));
-        $isApprovedOwner = !empty($currentUser['is_owner']) || ($currentUser['role'] ?? '') === 'owner' || !empty($currentUser['is_admin']) || ($currentUser['role'] ?? '') === 'admin' || $isStaffUser;
-      ?>
-      <a href="<?php echo $isApprovedOwner ? 'owner.php' : 'owner-application.php'; ?>" class="sidebar-signout-btn" title="Switch to Facility Owner Portal">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>
-        <span>Switch to Owner View</span>
-      </a>
 
       <a href="javascript:void(0)" onclick="openModal('logoutModal')" class="sidebar-signout-btn" style="margin-top:2px;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
