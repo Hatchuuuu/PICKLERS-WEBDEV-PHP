@@ -1506,17 +1506,14 @@ function toggleOpenPlayCapMode(mode) {
 }
 
 let hostOpenPlayInFlight = false;
+let pendingHostOpenPlayData = null;
 
 function submitHostOpenPlayForm(e) {
   e.preventDefault();
   if (hostOpenPlayInFlight) return;
-  hostOpenPlayInFlight = true;
 
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   const court = document.getElementById('modalTargetCourtName')?.textContent || 'Court 2';
-  // The Everyday / Unlimited toggles only restyled their buttons: the specific
-  // date and the hidden cap input were submitted regardless, so a recurring
-  // session was published for one day and an "unlimited" one capped at 20.
   const everyday = document.getElementById('openPlayDatePickerWrap')?.style.display === 'none';
   const unlimited = document.getElementById('openPlayCapWrap')?.style.display === 'none';
   const date = everyday ? 'Everyday' : (document.getElementById('openPlayDateInput')?.value || todayStr);
@@ -1525,13 +1522,27 @@ function submitHostOpenPlayForm(e) {
   const fee = document.getElementById('openPlayFee')?.value || '250';
   const cap = unlimited ? 'unlimited' : (document.getElementById('openPlayCap')?.value || '20');
 
-  const btn = e.target.querySelector('button[type="submit"]');
-  const restoreSubmitBtn = () => {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="#08101F" stroke="none"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> <span>Host Open Play</span>';
-    }
-  };
+  pendingHostOpenPlayData = { court, date, start, end, fee, cap };
+
+  const elCourt = document.getElementById('confirmHostCourtName');
+  const elDateTime = document.getElementById('confirmHostDateTime');
+  const elFee = document.getElementById('confirmHostFee');
+  const elCap = document.getElementById('confirmHostCapacity');
+
+  if (elCourt) elCourt.textContent = court;
+  if (elDateTime) elDateTime.textContent = (date === 'Everyday' ? 'Everyday' : date) + ' (' + start + ' – ' + end + ')';
+  if (elFee) elFee.textContent = '₱' + Number(fee).toLocaleString() + ' / player';
+  if (elCap) elCap.textContent = cap === 'unlimited' ? 'Unlimited Players ∞' : 'Max ' + cap + ' Players';
+
+  openModal('confirmHostOpenPlayModal');
+}
+
+function executePublishHostOpenPlay() {
+  if (!pendingHostOpenPlayData || hostOpenPlayInFlight) return;
+  hostOpenPlayInFlight = true;
+
+  const { court, date, start, end, fee, cap } = pendingHostOpenPlayData;
+  const btn = document.getElementById('btnConfirmPublishHostOpenPlay');
   if (btn) { btn.disabled = true; btn.innerText = 'Publishing...'; }
 
   fetch('owner.php?action=host_open_play', {
@@ -1554,8 +1565,9 @@ function submitHostOpenPlayForm(e) {
     .then(r => r.json())
     .then(res => {
       hostOpenPlayInFlight = false;
-      restoreSubmitBtn();
+      if (btn) { btn.disabled = false; btn.innerText = 'Yes, Host Session'; }
       if (res.success) {
+        closeModal('confirmHostOpenPlayModal');
         closeModal('hostOpenPlayModal');
         showToast('✓ ' + (res.message || 'Open Play scheduled for ' + court + '!'), 'success');
         setTimeout(() => {
@@ -1564,13 +1576,15 @@ function submitHostOpenPlayForm(e) {
           window.location.href = targetUrl.toString();
         }, 400);
       } else {
-        showToast(res.message || 'Failed to publish Open Play session. Please try again.');
+        closeModal('confirmHostOpenPlayModal');
+        showToast('❌ ' + (res.message || 'Failed to publish Open Play session. Please try again.'));
       }
     })
     .catch(err => {
       hostOpenPlayInFlight = false;
-      restoreSubmitBtn();
-      showToast('Network error occurred while publishing Open Play session. Please try again.');
+      if (btn) { btn.disabled = false; btn.innerText = 'Yes, Host Session'; }
+      closeModal('confirmHostOpenPlayModal');
+      showToast('❌ Network error occurred while publishing Open Play session.');
     });
 }
 

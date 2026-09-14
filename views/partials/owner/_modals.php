@@ -525,6 +525,50 @@
     </div>
   </div>
 
+  <!-- 7b. Confirm Host Open Play Modal -->
+  <div class="app-modal-overlay" id="confirmHostOpenPlayModal">
+    <div class="modal-box-card" style="max-width:440px; text-align:center; padding: 26px 24px;">
+      <div style="padding:4px;">
+        <div class="confirm-modal-icon" style="background:rgba(255,184,0,0.15); color: var(--pk-brand-amber); border: 1px solid rgba(255,184,0,0.3); width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="var(--pk-brand-amber)" stroke="none"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+        </div>
+        <h3 class="confirm-modal-title" style="font-size: 19px; font-weight: 800; color: var(--pk-text-primary); margin-bottom: 6px;">Confirm Open Play Session?</h3>
+        <p class="confirm-modal-desc" style="font-size: 12.5px; color: var(--pk-text-muted); margin-bottom: 16px;">
+          Are you sure you want to host an Open Play session for this court? It will immediately become joinable for players on the app.
+        </p>
+
+        <!-- Summary Details Box -->
+        <div style="background: var(--pk-bg-surface); border: 1px solid rgba(255, 184, 0, 0.25); border-radius: 14px; padding: 14px 16px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Court</span>
+            <span style="font-size: 13px; font-weight: 800; color: var(--pk-brand-amber);" id="confirmHostCourtName">Court 2</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Date &amp; Time</span>
+            <span style="font-size: 12.5px; font-weight: 700; color: var(--pk-text-primary);" id="confirmHostDateTime">Mon, Sep 14 (6:00 AM - 11:00 PM)</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Player Fee</span>
+            <span style="font-size: 13px; font-weight: 800; color: var(--pk-status-success);" id="confirmHostFee">₱250 / player</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Capacity Limit</span>
+            <span style="font-size: 12.5px; font-weight: 700; color: var(--pk-text-primary);" id="confirmHostCapacity">Max 20 Players</span>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:12px;">
+          <button type="button" onclick="closeModal('confirmHostOpenPlayModal')" class="btn-modal-cancel" style="flex:1; padding: 11px 16px; border-radius: 10px; font-weight: 700;">
+            Go Back
+          </button>
+          <button type="button" id="btnConfirmPublishHostOpenPlay" onclick="executePublishHostOpenPlay()" style="flex:1; background: var(--pk-brand-amber); border: none; border-radius: 10px; color: var(--pk-bg-card); font-size: 13px; font-weight: 800; padding: 11px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--pk-brand-amber-hover)'" onmouseout="this.style.background='var(--pk-brand-amber)'">
+            Yes, Host Session
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
 
   <!-- 9. End Court Session Confirmation Modal -->
