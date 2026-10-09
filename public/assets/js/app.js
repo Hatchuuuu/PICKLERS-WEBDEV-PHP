@@ -2517,15 +2517,16 @@ async function submitPasswordChange() {
     formData.append('current_password', currentP);
     formData.append('new_password', newP);
     formData.append('confirm_password', confP);
-    if (window.PICKLERS_CSRF_TOKEN) {
-      formData.append('csrf_token', window.PICKLERS_CSRF_TOKEN);
-    }
+    formData.append('csrf_token', getCsrfToken());
 
-    const resp = await fetch('/api', {
+    // Relative URL like every other call: '/api' missed sub-directory installs,
+    // and the token came from an undefined global, so every change was refused.
+    const resp = await fetch('api.php', {
       method: 'POST',
       body: formData,
       headers: {
-        'X-Requested-With': 'XMLHttpRequest'
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': getCsrfToken()
       }
     });
 

@@ -1,0 +1,17 @@
+{% extends 'admin/base.html.twig' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block body %}
+<main class="pk-error-page">
+    <img src="{{ asset('assets/images/PICKLERS_OFFICIAL_LOGO.svg') }}" alt="PICKLERS" width="56" height="56">
+    <p class="pk-error-page__code">{{ status }}</p>
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    {% if (reference ?? null) and reference not in message %}<p class="pk-muted pk-small">Reference <span class="pk-mono">{{ reference }}</span></p>{% endif %}
+    <p class="pk-error-page__actions">
+        {% if status != 403 %}<a class="pk-btn pk-btn--primary" href="{{ path('admin_console') }}">Back to the admin console</a>{% endif %}
+        <a class="pk-btn pk-btn--ghost" href="{{ app_url }}">Go to the player app</a>
+    </p>
+</main>
+{% endblock %}

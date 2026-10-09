@@ -42,3 +42,11 @@ logs/
 
 # Isolated test-run state (schema stamp + seed flag for picklers_test)
 /database/.test-state/
+
+# Isolated browser/e2e fixture state (picklers_e2e)
+/database/.e2e-state/
+/database/.data/
+
+# Composer dependencies and Symfony runtime (cache, logs, generated secret)
+/vendor/
+/var/

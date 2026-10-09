@@ -1,0 +1,127 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+{% set c = panel.counts %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'users'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
+{% endset %}
+{{ ui.header('User Directory & Roles', c.active|number_format ~ ' active accounts · ' ~ c.verified|number_format ~ ' verified · ' ~ c.deactivated|number_format ~ ' deactivated', header_actions) }}
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter users">
+    <input type="hidden" name="tab" value="users">
+    <input type="hidden" name="sort" value="{{ q.sort }}"><input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    <label class="pk-field pk-field--inline"><span>Role</span>
+        <select name="role" data-autosubmit>
+            <option value="">All accounts</option>
+            {% for key, label in {player: 'Players', owner: 'Owners', admin: 'Administrators', privileged: 'Privileged admins', deleted: 'Deactivated'} %}
+                <option value="{{ key }}" {{ q.filter('role') == key ? 'selected' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>Verification</span>
+        <select name="verification" data-autosubmit>
+            <option value="">Any</option>
+            {% for s in ['verified', 'pending', 'unverified'] %}<option value="{{ s }}" {{ q.filter('verification') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+        </select>
+    </label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'users'}) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+<section class="pk-card pk-card--flush" aria-label="Users">
+    {% if page.isEmpty %}
+        {{ ui.empty('users', 'No accounts', 'Registered accounts appear here.', page.hasFilters, path('admin_console', {tab: 'users'})) }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Users table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Users, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    {{ ui.sort_header('User', 'name', page, 'users') }}
+                    <th scope="col">Contact</th>
+                    <th scope="col">Roles</th>
+                    <th scope="col">Verification</th>
+                    {{ ui.sort_header('Wallet', 'wallet_balance', page, 'users', {}, true) }}
+                    {{ ui.sort_header('Joined', 'created_at', page, 'users') }}
+                    <th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                {% for u in page.items %}
+                    {% set is_self = u.id == admin.id %}
+                    {% set deactivated = u.role == 'deleted' %}
+                    {% set is_admin_target = u.is_admin == 1 and not deactivated %}
+                    <tr class="{{ deactivated ? 'is-muted' }}">
+                        <td>
+                            <div class="pk-cell-media">
+                                {{ ui.avatar(u.name, u.avatar_url) }}
+                                <div><p class="pk-truncate"><button type="button" class="pk-link pk-strong" data-detail="user" data-id="{{ u.id }}" aria-label="Details for {{ u.name }}">{{ u.name }}</button>{{ is_self ? ' (you)' }}</p><p class="pk-muted pk-small pk-mono">{{ u.id }}</p></div>
+                            </div>
+                        </td>
+                        <td><p class="pk-truncate">{{ u.email ?: '—' }}</p><p class="pk-muted pk-small">{{ u.phone ?: '—' }}</p></td>
+                        <td>{% for label in role_labels(u) %}<span class="pk-role {{ label in ['Admin', 'Privileged admin'] ? 'pk-role--strong' }}">{{ label }}</span>{% endfor %}</td>
+                        <td>{{ ui.status(u.verification_status ?: 'unverified') }}</td>
+                        <td class="pk-num pk-nowrap">{{ u.wallet_balance|peso }}</td>
+                        <td class="pk-nowrap">{{ u.created_at|day }}</td>
+                        <td class="pk-actions">
+                            <div class="pk-menu" data-menu>
+                                <button type="button" class="pk-icon-btn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for {{ u.name }}" data-menu-button>{{ icon('more', 18) }}</button>
+                                <div class="pk-menu__list" role="menu" aria-label="Actions for {{ u.name }}" hidden>
+                                    {% if not deactivated %}
+                                        {% if is_granted('admin.users.verify') %}
+                                            <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_set_verification"
+                                                    data-params="{{ {user_id: u.id, status: u.verification_status == 'verified' ? 'unverified' : 'verified'}|json_encode }}"
+                                                    data-form="confirm-simple" data-title="{{ u.verification_status == 'verified' ? 'Revoke verification' : 'Verify account' }}" data-subject="{{ u.name }}">
+                                                {{ icon(u.verification_status == 'verified' ? 'x' : 'check-circle', 15) }}{{ u.verification_status == 'verified' ? 'Revoke verification' : 'Verify account' }}
+                                            </button>
+                                        {% endif %}
+                                        {% if not is_self %}
+                                            <p class="pk-menu__label" role="presentation">Set role</p>
+                                            {% for role, label in {player: 'Player', owner: 'Court owner', admin: 'Administrator'} %}
+                                                {% set needs_priv = role == 'admin' or is_admin_target %}
+                                                {% set current = primary_role(u) == role or (role == 'admin' and primary_role(u) == 'privileged') %}
+                                                {% if not needs_priv or is_granted('admin.users.role_admin') %}
+                                                    <button type="button" role="menuitemradio" aria-checked="{{ current ? 'true' : 'false' }}" class="pk-menu__item" {{ current ? 'disabled' }}
+                                                            data-action="admin_update_role" data-params="{{ {user_id: u.id, role: role}|json_encode }}"
+                                                            data-form="confirm-simple" data-title="Change role to {{ label }}" data-subject="{{ u.name }}">
+                                                        {{ icon(role == 'admin' ? 'shield' : (role == 'owner' ? 'building' : 'user'), 15) }}{{ label }}{% if current %}<span class="pk-menu__check" aria-hidden="true">✓</span>{% endif %}
+                                                    </button>
+                                                {% endif %}
+                                            {% endfor %}
+                                            <p class="pk-menu__label" role="presentation">Account</p>
+                                            {% if is_granted('admin.users.notify') %}
+                                                <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_send_notification" data-params="{{ {user_id: u.id}|json_encode }}" data-form="send-notice" data-subject="{{ u.name }}">{{ icon('bell', 15) }}Send notice</button>
+                                            {% endif %}
+                                            {% if is_granted('admin.wallet.adjust') %}
+                                                <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_adjust_wallet" data-params="{{ {user_id: u.id}|json_encode }}" data-form="adjust-wallet" data-subject="{{ u.name }} · balance {{ u.wallet_balance|peso }}">{{ icon('wallet', 15) }}Adjust wallet</button>
+                                            {% endif %}
+                                            {% if is_granted('admin.users.reset_password') and (not is_admin_target or is_granted('admin.users.role_admin')) %}
+                                                <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_reset_password" data-params="{{ {user_id: u.id}|json_encode }}" data-form="reset-password" data-subject="{{ u.name }}">{{ icon('terminal', 15) }}Reset password</button>
+                                            {% endif %}
+                                            {% if is_granted('admin.users.impersonate') and not is_admin_target %}
+                                                <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_impersonate" data-params="{{ {user_id: u.id}|json_encode }}" data-form="impersonate" data-subject="{{ u.name }}" data-after="impersonate">{{ icon('eye', 15) }}View app as this user</button>
+                                            {% endif %}
+                                            {% if is_granted('admin.users.deactivate') and (not is_admin_target or is_granted('admin.users.deactivate_admin')) %}
+                                                <button type="button" role="menuitem" class="pk-menu__item pk-menu__item--danger" data-action="admin_deactivate_user" data-params="{{ {user_id: u.id}|json_encode }}" data-form="deactivate-user" data-subject="{{ u.name }}">{{ icon('alert-triangle', 15) }}Deactivate account</button>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% elseif not is_self and is_granted('admin.users.deactivate') %}
+                                        <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_reactivate_user" data-params="{{ {user_id: u.id}|json_encode }}" data-form="confirm-simple" data-title="Reactivate account" data-subject="{{ u.name }}">{{ icon('check-circle', 15) }}Reactivate account</button>
+                                    {% endif %}
+                                    {% if not is_self and is_granted('admin.users.delete') and not is_admin_target %}
+                                        <button type="button" role="menuitem" class="pk-menu__item pk-menu__item--danger" data-action="admin_hard_delete_user" data-params="{{ {user_id: u.id}|json_encode }}" data-form="delete-user" data-subject="{{ u.name }}">{{ icon('trash', 15) }}Delete permanently…</button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'users') }}
+    {% endif %}
+    {% if not is_granted('admin.wallet.adjust') %}
+        <p class="pk-muted pk-small pk-card__foot">Wallet adjustments, administrator role changes, impersonation and permanent deletion need a privileged administrator.</p>
+    {% endif %}
+</section>

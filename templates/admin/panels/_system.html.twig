@@ -1,0 +1,93 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+
+{% set header_actions %}
+    {% if is_granted('admin.notifications.broadcast') %}
+        {{ ui.action_button('Broadcast a notice', 'admin_broadcast_notification', {}, {form: 'broadcast', class: 'pk-btn--primary', icon: 'bell'}) }}
+    {% endif %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'audit'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export audit CSV</a>
+{% endset %}
+{{ ui.header('System & Audit', 'Runtime health and the read-only, append-only record of every administrator action', header_actions) }}
+
+<section aria-labelledby="health-heading">
+    <h2 id="health-heading" class="pk-section-title">Health</h2>
+    <ul class="pk-facts">
+        {% for fact in panel.facts %}
+            <li class="pk-fact pk-fact--{{ fact.state }}">
+                <p class="pk-fact__label">{{ fact.label }}</p>
+                <p class="pk-fact__value"><span class="pk-fact__state">{{ fact.state == 'ok' ? 'OK' : (fact.state == 'warn' ? 'Check' : 'Problem') }}</span> {{ fact.value }}</p>
+                {% if fact.hint ?? null %}<p class="pk-small pk-muted">{{ fact.hint }}</p>{% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+</section>
+
+{% if panel.broadcasts is not empty %}
+    <section class="pk-card" aria-labelledby="broadcasts-heading">
+        <h2 class="pk-card__title" id="broadcasts-heading">{{ icon('bell', 17) }} Recent notices sent by administrators</h2>
+        <ul class="pk-list">
+            {% for b in panel.broadcasts %}
+                <li class="pk-list__row"><div class="pk-list__main"><p class="pk-strong">{{ b.title }}</p><p class="pk-muted pk-small">{{ b.audience == 'user' ? 'Individual notice' : 'Broadcast to ' ~ b.audience }} · {{ b.recipient_count|plural('recipient') }} · {{ b.sender }} · {{ b.created_at|when }}</p></div></li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endif %}
+
+<h2 class="pk-section-title" id="audit-heading">Audit trail</h2>
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter audit trail">
+    <input type="hidden" name="tab" value="system">
+    <input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    {% if q.filter('actor') %}<input type="hidden" name="actor" value="{{ q.filter('actor') }}">{% endif %}
+    <label class="pk-field pk-field--inline"><span>Area</span>
+        <select name="action" data-autosubmit>
+            <option value="">All actions</option>
+            {% for g in panel.action_groups %}<option value="{{ g }}" {{ q.filter('action') == g ? 'selected' }}>{{ g|capitalize }}</option>{% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>Outcome</span>
+        <select name="outcome" data-autosubmit>
+            <option value="">Any</option>
+            {% for o in ['success', 'failure', 'denied'] %}<option value="{{ o }}" {{ q.filter('outcome') == o ? 'selected' }}>{{ o|status_label }}</option>{% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>From</span><input type="date" name="from" value="{{ q.filter('from') }}" data-autosubmit></label>
+    <label class="pk-field pk-field--inline"><span>to</span><input type="date" name="to" value="{{ q.filter('to') }}" data-autosubmit></label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'system'}) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+<section class="pk-card pk-card--flush" aria-labelledby="audit-heading">
+    {% if page.isEmpty %}
+        {{ ui.empty('scroll', 'No audit events yet', 'Every administrator change, denial and failure is recorded here.', page.hasFilters, path('admin_console', {tab: 'system'})) }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Audit events" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Audit events, {{ page.total }} result(s), newest first</caption>
+                <thead><tr>
+                    {{ ui.sort_header('Time', 'occurred_at', page, 'system') }}
+                    <th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Outcome</th><th scope="col">Details</th>
+                </tr></thead>
+                <tbody>
+                {% for e in page.items %}
+                    <tr>
+                        <td class="pk-nowrap">{{ e.occurred_at|when('M j, Y · g:i:s A') }}<p class="pk-muted pk-small pk-mono" title="Correlation reference">{{ e.correlation_id|slice(0, 12) }}</p></td>
+                        <td><p>{{ e.actor_name ?: 'System' }}</p>{% if e.effective_user_id and e.effective_user_id != e.actor_user_id %}<p class="pk-small pk-warn">as {{ e.effective_user_id }}</p>{% endif %}</td>
+                        <td class="pk-mono pk-small">{{ e.action }}</td>
+                        <td class="pk-small">{{ e.target_type ?: '—' }}{% if e.target_id %}<p class="pk-mono pk-muted">{{ e.target_id }}</p>{% endif %}</td>
+                        <td>{{ ui.status(e.outcome) }}</td>
+                        <td class="pk-wrap pk-small">
+                            {% if e.reason %}<p><span class="pk-muted">Reason:</span> {{ e.reason }}</p>{% endif %}
+                            {% if e.changes is not empty %}
+                                <details><summary>Changes</summary><pre class="pk-pre">{{ e.changes|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_UNICODE') b-or constant('JSON_UNESCAPED_SLASHES')) }}</pre></details>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'system') }}
+    {% endif %}
+</section>

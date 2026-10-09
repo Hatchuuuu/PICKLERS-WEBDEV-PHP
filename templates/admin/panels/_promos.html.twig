@@ -1,0 +1,75 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'promos'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
+    {{ ui.action_button('Create promo code', 'admin_create_promo', {}, {form: 'create-promo', class: 'pk-btn--primary', icon: 'plus'}) }}
+{% endset %}
+{{ ui.header('Promo Codes', 'Discount campaigns, limits and every redemption', header_actions) }}
+
+<div class="pk-stats" role="group" aria-label="Promo totals">
+    <div class="pk-stat"><p class="pk-stat__label">Redeemable now</p><p class="pk-stat__value pk-positive">{{ panel.stats.redeemable }}</p><p class="pk-stat__hint">Active, unexpired, under their limit</p></div>
+    <div class="pk-stat"><p class="pk-stat__label">Redemptions</p><p class="pk-stat__value">{{ panel.stats.redemptions|number_format }}</p><p class="pk-stat__hint">Recorded with a booking</p></div>
+    <div class="pk-stat"><p class="pk-stat__label">Discounts granted</p><p class="pk-stat__value">{{ panel.stats.discount_total|peso }}</p><p class="pk-stat__hint">Sum of recorded redemption discounts</p></div>
+</div>
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter promo codes">
+    <input type="hidden" name="tab" value="promos">
+    <input type="hidden" name="sort" value="{{ q.sort }}"><input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    <label class="pk-field pk-field--inline"><span>State</span>
+        <select name="state" data-autosubmit>
+            <option value="">All</option>
+            {% for s in ['active', 'disabled', 'expired', 'exhausted', 'archived'] %}<option value="{{ s }}" {{ q.filter('state') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+        </select>
+    </label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'promos'}) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+<section class="pk-card pk-card--flush" aria-label="Promo codes">
+    {% if page.isEmpty %}
+        {{ ui.empty('tag', 'No promo codes yet', 'Use “Create promo code” to launch a discount campaign.', page.hasFilters, path('admin_console', {tab: 'promos'})) }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Promo codes table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Promo codes, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    {{ ui.sort_header('Code', 'code', page, 'promos') }}
+                    <th scope="col">Discount</th><th scope="col">Conditions</th>
+                    {{ ui.sort_header('Usage', 'times_used', page, 'promos', {}, true) }}
+                    {{ ui.sort_header('Expires', 'expires_at', page, 'promos') }}
+                    <th scope="col">State</th><th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                {% for p in page.items %}
+                    <tr>
+                        <td><span class="pk-code">{{ p.code }}</span> <button type="button" class="pk-icon-btn pk-icon-btn--sm" data-copy="{{ p.code }}" aria-label="Copy code {{ p.code }}">{{ icon('copy', 14) }}</button></td>
+                        <td class="pk-nowrap pk-strong">{{ p.discount_type in ['percentage', 'percent'] ? (p.discount_value + 0) ~ '% off' : (p.discount_value|peso) ~ ' off' }}</td>
+                        <td><p>{{ p.min_spend > 0 ? 'Min spend ' ~ (p.min_spend|peso) : 'No minimum spend' }}</p><p class="pk-muted pk-small">{{ p.user_limit > 0 ? 'Max ' ~ p.user_limit ~ ' per player' : 'No per-player limit' }}</p></td>
+                        <td class="pk-num pk-nowrap">
+                            {{ p.times_used }} / {{ p.usage_limit > 0 ? p.usage_limit : '∞' }}
+                            {% if p.usage_limit > 0 %}<span class="pk-meter" aria-hidden="true"><span style="width: {{ min(100, (p.times_used / p.usage_limit * 100)|round) }}%"></span></span>{% endif %}
+                        </td>
+                        <td class="pk-nowrap">{{ p.expires_at ? p.expires_at|day : 'No expiry' }}</td>
+                        <td>{{ ui.status(p.state) }}</td>
+                        <td class="pk-actions">
+                            {{ ui.detail_button('Redemptions', 'promo', p.id, {label: 'Details and redemptions for ' ~ p.code}) }}
+                            {% if p.state != 'archived' %}
+                                {% if p.status == 'active' %}
+                                    {{ ui.action_button('Disable', 'admin_toggle_promo', {promo_id: p.id}, {form: 'confirm-simple', title: 'Disable promo code', subject: p.code}) }}
+                                {% elseif p.state != 'expired' %}
+                                    {{ ui.action_button('Enable', 'admin_toggle_promo', {promo_id: p.id}, {form: 'confirm-simple', title: 'Enable promo code', subject: p.code}) }}
+                                {% endif %}
+                                {{ ui.action_button(p.redemptions > 0 ? 'Archive' : 'Delete', 'admin_delete_promo', {promo_id: p.id}, {form: p.redemptions > 0 ? 'archive-promo' : 'delete-promo', subject: p.code, class: 'pk-btn--danger pk-btn--sm'}) }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'promos') }}
+    {% endif %}
+</section>

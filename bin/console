@@ -1,0 +1,47 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+// PICKLERS — Symfony console (routes, container lint, Twig lint, migrations,
+// admin bootstrap commands). Uses the same bootstrap as the web front controller.
+
+use Picklers\Kernel;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+
+if (PHP_SAPI !== 'cli') {
+    exit("bin/console is CLI-only.\n");
+}
+
+// `--database=<name>` points this one process at another database (e.g. a
+// disposable rehearsal copy) without editing .env.
+foreach ($argv as $i => $arg) {
+    if (str_starts_with($arg, '--database=')) {
+        $_ENV['DB_DATABASE'] = substr($arg, 11);
+        putenv('DB_DATABASE=' . $_ENV['DB_DATABASE']);
+        unset($argv[$i]);
+    }
+    if (str_starts_with($arg, '--data-path=')) {
+        // Schema-stamp/fallback directory for that database; relative paths are
+        // resolved from the project root (the project path may contain spaces).
+        $dataPath = substr($arg, 12);
+        if (!preg_match('#^([A-Za-z]:)?[\\\\/]#', $dataPath)) {
+            $dataPath = dirname(__DIR__) . '/' . $dataPath;
+        }
+        define('DATA_PATH', $dataPath);
+        unset($argv[$i]);
+    }
+}
+$argv = array_values($argv);
+$_SERVER['argv'] = $argv;
+
+require dirname(__DIR__) . '/config/bootstrap.php';
+
+$input = new ArgvInput($argv);
+if (null !== $env = $input->getParameterOption(['--env', '-e'], null, true)) {
+    $_ENV['APP_ENV'] = $env;
+}
+
+$kernel = new Kernel(picklers_kernel_environment(), picklers_kernel_debug());
+$application = new Application($kernel);
+$application->run($input);

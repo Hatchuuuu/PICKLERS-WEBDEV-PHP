@@ -1,0 +1,46 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% import 'admin/details/_shared.html.twig' as d %}
+{% set p = record %}
+
+<header class="pk-detail__head">
+    <div>
+        <h2 class="pk-detail__title" id="detailTitle"><span class="pk-code">{{ p.code }}</span> {{ ui.status(p.state) }}</h2>
+        <p class="pk-muted pk-small">Created {{ p.created_at|when }}{{ p.created_by_name ? ' by ' ~ p.created_by_name }}{% if p.archived_at %} · archived {{ p.archived_at|when }}{{ p.archived_by_name ? ' by ' ~ p.archived_by_name }}{% endif %}</p>
+    </div>
+</header>
+
+<section class="pk-box">
+    <dl class="pk-dl pk-dl--cols">
+        <dt>Discount</dt><dd>{{ p.discount_type in ['percentage', 'percent'] ? (p.discount_value + 0) ~ '%' : p.discount_value|peso }}</dd>
+        <dt>Minimum spend</dt><dd>{{ p.min_spend > 0 ? p.min_spend|peso : 'None' }}</dd>
+        <dt>Usage</dt><dd>{{ p.times_used }} of {{ p.usage_limit > 0 ? p.usage_limit : 'unlimited' }}</dd>
+        <dt>Per player</dt><dd>{{ p.user_limit > 0 ? p.user_limit : 'Unlimited' }}</dd>
+        <dt>Expires</dt><dd>{{ p.expires_at ? p.expires_at|when ~ ' (Manila)' : 'Never' }}</dd>
+    </dl>
+</section>
+
+<section aria-labelledby="promo-redemptions">
+    <h3 class="pk-box__title" id="promo-redemptions">{{ icon('check-circle', 15) }} Redemptions ({{ p.redemption_rows|length }})</h3>
+    {% if p.redemption_rows is empty %}
+        <p class="pk-muted pk-small">Not redeemed yet{{ p.state != 'archived' ? ' — it can still be deleted outright' }}.</p>
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Redemptions" tabindex="0">
+            <table class="pk-table pk-table--compact">
+                <thead><tr><th scope="col">When</th><th scope="col">Player</th><th scope="col">Booking</th><th scope="col">Booking status</th><th scope="col" class="pk-num">Discount</th></tr></thead>
+                <tbody>
+                {% for r in p.redemption_rows %}
+                    <tr>
+                        <td class="pk-nowrap">{{ r.created_at|when }}</td>
+                        <td>{% if r.user_name %}<button type="button" class="pk-link" data-detail="user" data-id="{{ r.user_id }}">{{ r.user_name }}</button>{% else %}{{ r.user_id }}{% endif %}</td>
+                        <td>{% if r.booking_id %}<button type="button" class="pk-link pk-mono" data-detail="booking" data-id="{{ r.booking_id }}">#{{ r.booking_id }}</button>{% else %}—{% endif %}</td>
+                        <td>{{ r.booking_status ? ui.status(r.booking_status) : '—' }}</td>
+                        <td class="pk-num pk-nowrap">{{ r.discount_amount|peso }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</section>
+
+{{ d.history(p.history) }}

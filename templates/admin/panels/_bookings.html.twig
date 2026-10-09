@@ -1,0 +1,88 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'bookings'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
+{% endset %}
+{{ ui.header('Bookings & Matches', 'Court bookings and Open Play seats — status changes follow the same rules the venues use', header_actions) }}
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter bookings">
+    <input type="hidden" name="tab" value="bookings">
+    <input type="hidden" name="sort" value="{{ q.sort }}"><input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    {% if q.filter('user') %}<input type="hidden" name="user" value="{{ q.filter('user') }}">{% endif %}
+    <label class="pk-field pk-field--inline"><span>Status</span>
+        <select name="status" data-autosubmit>
+            <option value="">All</option>
+            {% for s in ['pending', 'upcoming', 'confirmed', 'completed', 'cancelled', 'declined'] %}<option value="{{ s }}" {{ q.filter('status') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>Payment</span>
+        <select name="payment" data-autosubmit>
+            <option value="">All</option>
+            {% for key, label in panel.payments %}<option value="{{ key }}" {{ q.filter('payment') == key ? 'selected' }}>{{ label }}</option>{% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>Type</span>
+        <select name="kind" data-autosubmit>
+            <option value="">All</option>
+            <option value="court" {{ q.filter('kind') == 'court' ? 'selected' }}>Court booking</option>
+            <option value="open_play" {{ q.filter('kind') == 'open_play' ? 'selected' }}>Open Play seat</option>
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>Facility</span>
+        <select name="facility" data-autosubmit>
+            <option value="">All facilities</option>
+            {% for f in panel.facility_options %}<option value="{{ f.id }}" {{ q.filter('facility') == (f.id ~ '') ? 'selected' }}>{{ f.name }}</option>{% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>Play date from</span><input type="date" name="from" value="{{ q.filter('from') }}" data-autosubmit></label>
+    <label class="pk-field pk-field--inline"><span>to</span><input type="date" name="to" value="{{ q.filter('to') }}" data-autosubmit></label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'bookings'}) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+{% if q.filter('user') %}<p class="pk-notice" role="status">Showing bookings for one player ({{ q.filter('user') }}). <a class="pk-link" data-panel-link href="{{ path('admin_console', q.params({user: null, page: 1})|merge({tab: 'bookings'})) }}">Show everyone</a></p>{% endif %}
+
+<section class="pk-card pk-card--flush" aria-label="Bookings">
+    {% if page.isEmpty %}
+        {{ ui.empty('calendar', 'No bookings recorded yet', 'Player reservations appear here as they come in.', page.hasFilters, path('admin_console', {tab: 'bookings'})) }}
+    {% else %}
+        <p class="pk-table-summary">{{ page.total|plural('booking') }} · listed price total {{ page.summary.value|peso }} <span class="pk-muted">(booking value, not money collected)</span></p>
+        <div class="pk-table-scroll" role="region" aria-label="Bookings table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Bookings, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    <th scope="col">Booking</th>
+                    <th scope="col">Player</th>
+                    <th scope="col">Facility &amp; court</th>
+                    {{ ui.sort_header('Play date', 'booking_date', page, 'bookings') }}
+                    {{ ui.sort_header('Price · payment', 'price', page, 'bookings', {}, true) }}
+                    <th scope="col">Status</th>
+                    <th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                {% for b in page.items %}
+                    <tr>
+                        <td class="pk-mono pk-nowrap"><button type="button" class="pk-link pk-mono" data-detail="booking" data-id="{{ b.id }}" aria-label="Details for booking {{ b.id }}">#{{ b.id }}</button>{% if b.is_open_play %}<p class="pk-small pk-muted">Open Play</p>{% endif %}</td>
+                        <td><p class="pk-truncate">{{ b.player_name ?: 'Unknown player' }}</p></td>
+                        <td><p class="pk-strong pk-truncate">{{ b.court_name ?: '—' }}</p><p class="pk-muted pk-small pk-truncate">{{ b.facility_name }}</p></td>
+                        <td class="pk-nowrap">{{ b.booking_date ? b.booking_date|day : (b.date ?: '—') }}<p class="pk-muted pk-small">{{ b.time }}</p></td>
+                        <td class="pk-num pk-nowrap">{{ b.price|peso }}<p class="pk-muted pk-small">{{ b.payment_method ?: '—' }}</p></td>
+                        <td>{{ ui.status(b.status) }}</td>
+                        <td class="pk-actions">
+                            {% if 'confirmed' in b.transitions %}
+                                {{ ui.action_button('Confirm', 'admin_update_booking_status', {booking_id: b.id, status: 'confirmed', expected_status: b.status}, {form: 'confirm-booking', subject: '#' ~ b.id, label: 'Confirm booking ' ~ b.id}) }}
+                            {% endif %}
+                            {% if 'cancelled' in b.transitions %}
+                                {{ ui.action_button('Cancel', 'admin_cancel_booking', {booking_id: b.id, expected_status: b.status}, {form: 'cancel-booking', subject: '#' ~ b.id ~ ' · ' ~ (b.payment_method ?: 'unknown payment') ~ ' · ' ~ (b.price|peso), class: 'pk-btn--danger pk-btn--sm', label: 'Cancel booking ' ~ b.id}) }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'bookings') }}
+    {% endif %}
+</section>

@@ -7,12 +7,9 @@ use Picklers\Repositories\UserRepository;
 
 class AuthService {
     /** Applies to sign-up, password changes and admin resets alike. */
-    public const PASSWORD_MIN_LENGTH = 8;
+    public const PASSWORD_MIN_LENGTH = \Picklers\Domain\PasswordPolicy::MIN_LENGTH;
 
-    private UserRepository $userRepo;
-
-    public function __construct(?UserRepository $userRepo = null) {
-        $this->userRepo = $userRepo ?? new UserRepository();
+    public function __construct(private readonly UserRepository $userRepo) {
     }
 
     /**
@@ -23,37 +20,31 @@ class AuthService {
      * @return string|null An error message, or null when the password is acceptable.
      */
     public static function passwordPolicyError(string $password): ?string {
-        if (strlen($password) < self::PASSWORD_MIN_LENGTH) {
-            return 'Password must be at least ' . self::PASSWORD_MIN_LENGTH . ' characters long.';
-        }
-        if (!preg_match('/[0-9]/', $password)) {
-            return 'Password must contain at least one number.';
-        }
-        return null;
+        return \Picklers\Domain\PasswordPolicy::error($password);
     }
 
     public function getUserById(string $id): ?array {
-        return $this->userRepo->findById($id);
+        return $this->userRepo->getUserById($id);
     }
 
     public function getUserByEmailOrPhone(string $identifier): ?array {
-        return $this->userRepo->findByEmailOrPhone($identifier);
+        return $this->userRepo->getUserByEmailOrPhone($identifier);
     }
 
     public function createUser(array $data): array {
-        return $this->userRepo->create($data);
+        return $this->userRepo->createUser($data);
     }
 
     public function updateUser(string $id, array $fields): array {
-        return $this->userRepo->update($id, $fields);
+        return $this->userRepo->updateUser($id, $fields);
     }
 
     public function getAllUsers(): array {
-        return $this->userRepo->all();
+        return $this->userRepo->getAllUsers();
     }
 
     public function deleteUser(string $id): bool {
-        return $this->userRepo->delete($id);
+        return $this->userRepo->deleteUser($id);
     }
 
     public function authenticate(string $identifier, string $password): ?array {
@@ -65,6 +56,15 @@ class AuthService {
 
         // Then check both user existence AND verification result
         if ($user && $verified && ($user['role'] ?? '') !== 'deleted') {
+            // Existing hashes keep working; an outdated algorithm/cost is
+            // transparently upgraded while the plaintext is in hand.
+            if (password_needs_rehash($passwordHash, PASSWORD_DEFAULT)) {
+                try {
+                    $this->userRepo->updateUser((string)$user['id'], ['password_hash' => password_hash($password, PASSWORD_DEFAULT)]);
+                } catch (\Throwable $e) {
+                    error_log('[PICKLERS Auth] password rehash skipped: ' . $e->getMessage());
+                }
+            }
             return $user;
         }
         return null;
@@ -95,7 +95,12 @@ class AuthService {
         }
 
         $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
-        $updatedUser = $this->userRepo->update($userId, ['password_hash' => $newHash]);
+        // password_changed_at signs out the account's OTHER sessions; the caller
+        // re-stamps the current one (AuthMiddleware::markAuthenticatedNow()).
+        $updatedUser = $this->userRepo->updateUser($userId, [
+            'password_hash' => $newHash,
+            'password_changed_at' => date('Y-m-d H:i:s'),
+        ]);
 
         return ['success' => true, 'user' => $updatedUser];
     }

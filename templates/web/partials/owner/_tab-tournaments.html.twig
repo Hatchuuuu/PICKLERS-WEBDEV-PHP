@@ -1,0 +1,115 @@
+{#
+  Owner Portal — Tournaments tab.
+
+  A list of the facility's events. Everything that touches a bracket (seeding,
+  results, advancement) lives on the console at /app/owner/tournaments/{id}, so
+  this stays a hub: create, review, open.
+
+  tournaments: {ongoing: [], upcoming: [], completed: []}
+#}
+{% macro card(t) %}
+    {% set heading = tournament_heading(t) %}
+    <article class="tt-card" data-tournament="{{ t.id }}">
+      <div class="tt-card-head">
+        <div class="tt-card-heading">
+          <h3 class="tt-title">{{ heading.title }}</h3>
+
+          {% if heading.ref != '' %}
+            <div class="tt-ref-code" style="margin-top:2px; margin-bottom:6px;">
+              {{ heading.ref }}
+            </div>
+          {% endif %}
+
+          <p class="tt-meta" style="margin-bottom:6px;">
+            {% if heading.dates != '' %}<span>{{ heading.dates }}</span>{% endif %}
+          </p>
+
+          <div class="tt-details" style="margin-top:2px;">
+            <span>{{ t.category }}</span>
+            <span class="tt-details-sep">•</span>
+            <span>{{ t.format_label }}</span>
+            {% if t.pairing_mode == 'mix' %}
+              <span class="tt-details-sep">•</span>
+              <span>🎲 Mix / Partner Draw</span>
+            {% elseif not (t.is_singles ?? null) %}
+              <span class="tt-details-sep">•</span>
+              <span>Fixed Teammates</span>
+            {% endif %}
+          </div>
+        </div>
+
+          <button type="button" class="tt-btn tt-btn--icon" title="Delete tournament"
+                  aria-label="Delete {{ t.title }}"
+                  onclick="deleteTournament('{{ t.id }}', '{{ addslashes(t.title) }}')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+      </div>
+
+      <div class="tt-card-foot">
+        <a class="tt-btn tt-btn--primary" href="{{ url_to('/app/owner/tournaments/' ~ t.id|url_encode) }}">
+          {{ t.has_bracket ? 'Open Bracket' : 'Set Up Bracket' }}
+        </a>
+      </div>
+
+    </article>
+{% endmacro %}
+
+{% macro empty_state(heading, body, withCta = false) %}
+    <div class="tt-empty">
+      <div class="tt-empty-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+      </div>
+      <h3>{{ heading }}</h3>
+      <p>{{ body }}</p>
+      {% if withCta %}
+        <button type="button" class="tt-btn tt-btn--primary" onclick="openModal('createTournamentModal')">+ Create Tournament</button>
+      {% endif %}
+    </div>
+{% endmacro %}
+
+<div class="owner-topbar">
+  <div class="owner-topbar-title-wrap">
+    <h1>Tournaments</h1>
+    <p>Host leagues, cups, and run brackets live.</p>
+  </div>
+  <button type="button" class="btn-walkin-open" onclick="openModal('createTournamentModal')">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <span>Create Tournament</span>
+  </button>
+</div>
+
+<div class="segmented-control">
+  <button type="button" class="seg-tab-btn active" id="btnTournOngoing" onclick="switchTournTab('ongoing')">
+    Ongoing{{ tournaments.ongoing ? ' (' ~ tournaments.ongoing|length ~ ')' : '' }}
+  </button>
+  <button type="button" class="seg-tab-btn" id="btnTournUpcoming" onclick="switchTournTab('upcoming')">
+    Upcoming{{ tournaments.upcoming ? ' (' ~ tournaments.upcoming|length ~ ')' : '' }}
+  </button>
+  <button type="button" class="seg-tab-btn" id="btnTournCompleted" onclick="switchTournTab('completed')">
+    Completed{{ tournaments.completed ? ' (' ~ tournaments.completed|length ~ ')' : '' }}
+  </button>
+</div>
+
+<div id="tournOngoingView" class="tt-list">
+  {% if not tournaments.ongoing %}
+    {{ _self.empty_state('No live brackets', 'Once you draw a bracket for a tournament it moves here, where you can report results round by round.', true) }}
+  {% else %}
+    {% for t in tournaments.ongoing %}{{ _self.card(t) }}{% endfor %}
+  {% endif %}
+</div>
+
+<div id="tournUpcomingView" class="tt-list" style="display:none;">
+  {% if not tournaments.upcoming %}
+    {{ _self.empty_state('No upcoming tournaments', 'Create a tournament to open registration, build the roster, and draw the bracket when you are ready.', true) }}
+  {% else %}
+    {% for t in tournaments.upcoming %}{{ _self.card(t) }}{% endfor %}
+  {% endif %}
+</div>
+
+<div id="tournCompletedView" class="tt-list" style="display:none;">
+  {% if not tournaments.completed %}
+    {{ _self.empty_state('No completed tournaments', 'Finished events and their champions are archived here.') }}
+  {% else %}
+    {% for t in tournaments.completed %}{{ _self.card(t) }}{% endfor %}
+  {% endif %}
+</div>

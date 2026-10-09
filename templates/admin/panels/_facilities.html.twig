@@ -1,0 +1,77 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'facilities'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
+{% endset %}
+{{ ui.header('Facilities & Courts', 'Listings, owners, real court counts and rates, maintenance and availability', header_actions) }}
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter facilities">
+    <input type="hidden" name="tab" value="facilities">
+    <input type="hidden" name="sort" value="{{ q.sort }}"><input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    <label class="pk-field pk-field--inline">
+        <span>Availability</span>
+        <select name="status" data-autosubmit>
+            <option value="">All</option>
+            <option value="active" {{ q.filter('status') == 'active' ? 'selected' }}>Active</option>
+            <option value="suspended" {{ q.filter('status') == 'suspended' ? 'selected' }}>Suspended</option>
+        </select>
+    </label>
+    <label class="pk-check">
+        <input type="checkbox" name="maintenance" value="1" data-autosubmit {{ q.filter('maintenance') == '1' ? 'checked' }}>
+        <span>Has courts under maintenance</span>
+    </label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'facilities'}) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+<section class="pk-card pk-card--flush" aria-label="Facilities">
+    {% if page.isEmpty %}
+        {{ ui.empty('building', 'No facilities yet', 'Approved partner applications create a facility listing here.', page.hasFilters, path('admin_console', {tab: 'facilities'})) }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Facilities table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Facilities, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    {{ ui.sort_header('Facility', 'name', page, 'facilities') }}
+                    <th scope="col">Owner</th>
+                    {{ ui.sort_header('Courts', 'courts', page, 'facilities', {}, true) }}
+                    <th scope="col" class="pk-num">Hourly rate</th>
+                    <th scope="col">Rating</th>
+                    {{ ui.sort_header('Upcoming', 'upcoming', page, 'facilities', {}, true) }}
+                    <th scope="col">Status</th>
+                    <th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                {% for f in page.items %}
+                    <tr>
+                        <td>
+                            <div class="pk-cell-media">
+                                {% if f.image %}<img class="pk-thumb" src="{{ asset(f.image) }}" alt="" loading="lazy" onerror="this.remove()">{% else %}<span class="pk-thumb pk-thumb--empty" aria-hidden="true">{{ icon('building', 16) }}</span>{% endif %}
+                                <div><p class="pk-strong pk-truncate">{{ f.name }}</p><p class="pk-muted pk-small pk-truncate">{{ f.location ?: 'No location' }}</p></div>
+                            </div>
+                        </td>
+                        <td>{% if f.owner_name %}<p>{{ f.owner_name }}</p><p class="pk-muted pk-small pk-mono pk-truncate">{{ f.owner_email }}</p>{% else %}<span class="pk-muted">No owner account</span>{% endif %}</td>
+                        <td class="pk-num">
+                            {{ f.court_count }}
+                            {% if f.courts_down > 0 %}<p class="pk-small pk-warn">{{ f.courts_down }} under maintenance</p>{% endif %}
+                        </td>
+                        <td class="pk-num">
+                            {% if f.court_count == 0 %}<span class="pk-muted">No courts</span>
+                            {% elseif f.min_rate == f.max_rate %}{{ f.min_rate|peso }}
+                            {% else %}{{ f.min_rate|peso }}–<br>{{ f.max_rate|peso }}{% endif %}
+                        </td>
+                        <td class="pk-nowrap">{% if f.reviews > 0 %}★ {{ f.rating }}<p class="pk-muted pk-small">{{ f.reviews|plural('review') }}</p>{% else %}<span class="pk-muted">No reviews</span>{% endif %}</td>
+                        <td class="pk-num">{{ f.upcoming_bookings }}</td>
+                        <td>{{ ui.status(f.operating_status) }}</td>
+                        <td class="pk-actions">{{ ui.detail_button('Manage', 'facility', f.id, {label: 'Manage ' ~ f.name}) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'facilities') }}
+    {% endif %}
+</section>

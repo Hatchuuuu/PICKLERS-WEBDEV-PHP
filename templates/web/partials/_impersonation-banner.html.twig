@@ -1,0 +1,23 @@
+{#
+  Persistent banner on every player/owner page while an administrator is viewing
+  the app as someone else, with a real "Return to admin" control. The form posts
+  to the admin endpoint, which ends the impersonation, restores the administrator
+  and audits the end of the session.
+#}
+{% set imp = impersonation_state() %}
+{% if imp %}
+<div role="region" aria-label="Administrator viewing as another user"
+     style="position:sticky;top:0;z-index:2000;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px 16px;padding:10px 16px;background:#FFBA3B;color:#0A121F;font:600 13px/1.4 Inter,system-ui,sans-serif;border-bottom:2px solid #0A121F;">
+  <span>
+    <strong>Viewing as {{ imp.target_name }}</strong>
+    — signed in administrator {{ imp.actor_name }}.
+    Account, password and payment changes are blocked. Ends automatically in about {{ max(0, ((imp.expires_at - 'now'|date('U')) / 60)|round(0, 'ceil')) }} min.
+  </span>
+  <form method="post" action="{{ path('admin_impersonation_stop') }}" style="margin:0;">
+    <input type="hidden" name="_token" value="{{ csrf_token('impersonation_stop') }}">
+    <button type="submit" style="min-height:36px;padding:6px 14px;border-radius:8px;border:2px solid #0A121F;background:#0A121F;color:#FFFFFF;font:700 13px Inter,system-ui,sans-serif;cursor:pointer;">
+      Return to admin
+    </button>
+  </form>
+</div>
+{% endif %}

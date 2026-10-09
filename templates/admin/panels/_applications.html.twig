@@ -1,0 +1,65 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'applications'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
+{% endset %}
+{{ ui.header('Partner Applications', 'Court-owner applications with documents, decisions and review history', header_actions) }}
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter applications">
+    <input type="hidden" name="tab" value="applications">
+    <input type="hidden" name="sort" value="{{ q.sort }}"><input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    <label class="pk-field pk-field--inline">
+        <span>Status</span>
+        <select name="status" data-autosubmit>
+            <option value="">All statuses</option>
+            {% for s in ['pending_review', 'approved', 'rejected'] %}<option value="{{ s }}" {{ q.filter('status') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+        </select>
+    </label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'applications'}) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+<section class="pk-card pk-card--flush" aria-label="Applications">
+    {% if page.isEmpty %}
+        {{ ui.empty('file-text', 'No applications yet', 'Applications submitted through the owner onboarding wizard appear here.', page.hasFilters, path('admin_console', {tab: 'applications'})) }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Applications table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Partner applications, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    {{ ui.sort_header('Facility', 'facility_name', page, 'applications') }}
+                    <th scope="col">Applicant</th>
+                    <th scope="col">Entity</th>
+                    <th scope="col" class="pk-num">Courts</th>
+                    <th scope="col">Documents</th>
+                    {{ ui.sort_header('Submitted', 'created_at', page, 'applications') }}
+                    <th scope="col">Status</th>
+                    <th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                {% for app in page.items %}
+                    <tr>
+                        <td><p class="pk-strong pk-truncate">{{ app.facility_name ?: '—' }}</p><p class="pk-muted pk-small pk-truncate">{{ app.address ?: '—' }}</p></td>
+                        <td><p class="pk-strong">{{ app.owner_name ?: '—' }}</p><p class="pk-muted pk-small pk-mono pk-truncate">{{ app.business_email ?: '—' }}</p></td>
+                        <td><p class="pk-truncate">{{ app.entity_name ?: "—" }}</p><p class="pk-muted pk-small pk-mono">Reg: {{ app.reg_number ?: '—' }}</p></td>
+                        <td class="pk-num">{{ app.courts_count|default(0) }}</td>
+                        <td class="pk-docs">
+                            {{ ui.status(app.permit_state, 'Permit · ' ~ (app.permit_state|status_label)) }}
+                            {{ ui.status(app.gov_id_state, 'Gov ID · ' ~ (app.gov_id_state|status_label)) }}
+                        </td>
+                        <td>{{ app.created_at|day }}<p class="pk-muted pk-small">{{ app.created_at|when("g:i A") }}</p></td>
+                        <td>{{ ui.status(app.status) }}{% if app.reviewer_name %}<p class="pk-muted pk-small">by {{ app.reviewer_name }}</p>{% endif %}</td>
+                        <td class="pk-actions">
+                            {{ ui.detail_button(app.status == 'pending_review' ? 'Review' : 'View', 'application', app.id, {class: app.status == 'pending_review' ? 'pk-btn--primary pk-btn--sm' : 'pk-btn--ghost pk-btn--sm', label: (app.status == 'pending_review' ? 'Review ' : 'View ') ~ (app.facility_name ?: 'application')}) }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'applications') }}
+    {% endif %}
+</section>

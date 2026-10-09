@@ -1,0 +1,114 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+{% set view = panel.view %}
+
+{{ ui.header('Content Moderation', 'Review queue for community posts and comments. Hiding is reversible and never deletes content.') }}
+
+<nav class="pk-subtabs" aria-label="Moderation views">
+    <a class="pk-subtab {{ view == 'cases' ? 'is-active' }}" data-panel-link href="{{ path('admin_console', {tab: 'moderation'}) }}" {{ view == 'cases' ? 'aria-current="page"' }}>
+        Review queue <span class="pk-count">{{ panel.open_count }} open</span>
+    </a>
+    <a class="pk-subtab {{ view == 'content' ? 'is-active' }}" data-panel-link href="{{ path('admin_console', {tab: 'moderation', view: 'content'}) }}" {{ view == 'content' ? 'aria-current="page"' }}>
+        Community content
+    </a>
+</nav>
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter moderation">
+    <input type="hidden" name="tab" value="moderation">
+    <input type="hidden" name="per_page" value="{{ q.perPage }}">
+    {% if view == 'content' %}
+        <input type="hidden" name="view" value="content">
+        <label class="pk-field pk-field--inline"><span>Show</span>
+            <select name="ctype" data-autosubmit>
+                <option value="post" {{ q.filter('ctype') != 'comment' ? 'selected' }}>Posts</option>
+                <option value="comment" {{ q.filter('ctype') == 'comment' ? 'selected' }}>Comments</option>
+            </select>
+        </label>
+    {% else %}
+        <label class="pk-field pk-field--inline"><span>Status</span>
+            <select name="status" data-autosubmit>
+                <option value="">All</option>
+                {% for s in ['open', 'resolved', 'dismissed'] %}<option value="{{ s }}" {{ q.filter('status') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="pk-field pk-field--inline"><span>Content</span>
+            <select name="type" data-autosubmit>
+                <option value="">Posts and comments</option>
+                <option value="post" {{ q.filter('type') == 'post' ? 'selected' }}>Posts</option>
+                <option value="comment" {{ q.filter('type') == 'comment' ? 'selected' }}>Comments</option>
+            </select>
+        </label>
+        <label class="pk-field pk-field--inline"><span>Category</span>
+            <select name="category" data-autosubmit>
+                <option value="">Any</option>
+                {% for c in ['spam', 'scam', 'harassment', 'hate', 'inappropriate', 'privacy', 'other'] %}<option value="{{ c }}" {{ q.filter('category') == c ? 'selected' }}>{{ c|capitalize }}</option>{% endfor %}
+            </select>
+        </label>
+    {% endif %}
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'moderation'}|merge(view == 'content' ? {view: 'content'} : {})) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+<section class="pk-card pk-card--flush" aria-label="{{ view == 'content' ? 'Community content' : 'Moderation cases' }}">
+    {% if view == 'content' %}
+        {% if page.isEmpty %}
+            {{ ui.empty('users', 'No community content', 'Posts and comments players publish appear here for review.', page.hasFilters, path('admin_console', {tab: 'moderation', view: 'content'})) }}
+        {% else %}
+            <div class="pk-table-scroll" role="region" aria-label="Community content" tabindex="0">
+                <table class="pk-table">
+                    <caption class="pk-sr">Community {{ q.filter('ctype') == 'comment' ? 'comments' : 'posts' }}</caption>
+                    <thead><tr><th scope="col">Content</th><th scope="col">Author</th><th scope="col">Posted</th><th scope="col">Visibility</th><th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th></tr></thead>
+                    <tbody>
+                    {% for c in page.items %}
+                        <tr>
+                            <td class="pk-wrap"><p class="pk-clamp">{{ c.body }}</p><p class="pk-muted pk-small pk-mono">{{ c.id }}</p></td>
+                            <td>{{ c.author_name ?: 'Unknown' }}</td>
+                            <td class="pk-nowrap">{{ c.created_at|when }}</td>
+                            <td>{{ ui.status(c.hidden_at ? 'suspended' : 'active', c.hidden_at ? 'Hidden' : 'Visible') }}</td>
+                            <td class="pk-actions">
+                                {% if c.open_case_id %}
+                                    {{ ui.detail_button('Open case', 'moderation', c.open_case_id) }}
+                                {% else %}
+                                    {{ ui.action_button('Flag for review', 'admin_moderation_flag', {content_type: c.content_type, content_id: c.id}, {form: 'flag-content', subject: c.body|slice(0, 80), icon: 'flag', label: 'Flag this ' ~ c.content_type ~ ' for review'}) }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {{ ui.pagination(page, 'moderation', {view: 'content'}) }}
+        {% endif %}
+    {% else %}
+        {% if page.isEmpty %}
+            {{ ui.empty('shield', 'The review queue is empty', 'Flag a post or comment from “Community content” to open a case.', page.hasFilters, path('admin_console', {tab: 'moderation'})) }}
+        {% else %}
+            <div class="pk-table-scroll" role="region" aria-label="Moderation cases" tabindex="0">
+                <table class="pk-table">
+                    <caption class="pk-sr">Moderation cases, {{ page.total }} result(s)</caption>
+                    <thead><tr>
+                        <th scope="col">Case</th><th scope="col">Content</th><th scope="col">Category</th>
+                        {{ ui.sort_header('Opened', 'opened_at', page, 'moderation') }}
+                        <th scope="col">Visibility</th><th scope="col">Status</th><th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th>
+                    </tr></thead>
+                    <tbody>
+                    {% for c in page.items %}
+                        <tr>
+                            <td class="pk-mono pk-nowrap">{{ c.id }}<p class="pk-small pk-muted">{{ c.content_type|capitalize }} · {{ c.source == 'admin_flag' ? 'admin flag' : 'user report' }}</p></td>
+                            <td class="pk-wrap"><p class="pk-clamp">{{ c.content_snapshot }}</p><p class="pk-muted pk-small">by {{ c.author_name ?: 'unknown' }}</p></td>
+                            <td>{{ c.category|capitalize }}</td>
+                            <td class="pk-nowrap">{{ c.opened_at|when }}<p class="pk-muted pk-small">{{ c.opened_by_name }}</p></td>
+                            <td>{% if not c.content_exists %}{{ ui.status('deleted', 'Content removed') }}{% else %}{{ ui.status(c.hidden_at ? 'suspended' : 'active', c.hidden_at ? 'Hidden' : 'Visible') }}{% endif %}</td>
+                            <td>{{ ui.status(c.status) }}</td>
+                            <td class="pk-actions">{{ ui.detail_button(c.status == 'open' ? 'Review' : 'View', 'moderation', c.id, {class: c.status == 'open' ? 'pk-btn--primary pk-btn--sm' : 'pk-btn--ghost pk-btn--sm'}) }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {{ ui.pagination(page, 'moderation') }}
+        {% endif %}
+    {% endif %}
+</section>

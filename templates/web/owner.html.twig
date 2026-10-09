@@ -1,0 +1,43 @@
+{% set tab = (activeTab ?? 'dashboard') %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+{% include 'web/partials/owner/_head.html.twig' %}
+<body>
+{% include 'web/partials/_impersonation-banner.html.twig' %}
+
+  <!-- Mobile Top Header Bar -->
+  {% include 'web/partials/owner/_mobile-header.html.twig' %}
+
+  <!-- 1. Owner Fixed Left Sidebar -->
+  {% include 'web/partials/owner/_sidebar.html.twig' %}
+
+  <!-- 2. Main Content Area -->
+  <main class="owner-main-content">
+    {% if (tab == 'dashboard') %}
+      {% include 'web/partials/owner/_tab-dashboard.html.twig' %}
+    {% elseif (tab == 'courts') %}
+      {% include 'web/partials/owner/_tab-courts.html.twig' %}
+    {% elseif (tab == 'tournaments') %}
+      {% include 'web/partials/owner/_tab-tournaments.html.twig' %}
+    {% elseif (tab == 'staff') %}
+      {% include 'web/partials/owner/_tab-staff.html.twig' %}
+    {% elseif (tab == 'earnings') %}
+      {% include 'web/partials/owner/_tab-earnings.html.twig' %}
+    {% elseif (tab == 'messages') %}
+      {% include 'web/partials/owner/_tab-messages.html.twig' %}
+    {% elseif (tab == 'settings') %}
+      {% include 'web/partials/owner/_tab-settings.html.twig' %}
+    {% endif %}
+  </main>
+
+  <!-- 3. Mobile Fixed Bottom Navigation -->
+  {% include 'web/partials/owner/_bottom-nav.html.twig' %}
+
+  <!-- 4. Modals -->
+  {% include 'web/partials/owner/_modals.html.twig' %}
+
+  <!-- 5. Scripts -->
+  {% include 'web/partials/owner/_scripts.html.twig' %}
+
+</body>
+</html>

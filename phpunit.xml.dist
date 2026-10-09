@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Symfony functional/integration suites (admin console + migrated sections). Runs ONLY against the disposable
+     picklers_admin_test database (rebuilt by tests/Admin/bootstrap.php). -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/Admin/bootstrap.php"
+         colors="true"
+         cacheDirectory="var/phpunit.cache"
+         executionOrder="default"
+         failOnRisky="true"
+         failOnWarning="true">
+    <php>
+        <env name="APP_ENV" value="test" force="true"/>
+        <env name="APP_DEBUG" value="0" force="true"/>
+        <server name="KERNEL_CLASS" value="Picklers\Kernel" force="true"/>
+    </php>
+    <testsuites>
+        <testsuite name="admin">
+            <directory>tests/Admin</directory>
+        </testsuite>
+        <testsuite name="web">
+            <directory>tests/Web</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>src/Admin</directory>
+            <directory>src/Web</directory>
+        </include>
+    </source>
+</phpunit>

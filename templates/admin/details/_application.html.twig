@@ -1,0 +1,75 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% import 'admin/details/_shared.html.twig' as d %}
+{% set a = record %}
+
+<header class="pk-detail__head">
+    <div>
+        <h2 class="pk-detail__title" id="detailTitle">{{ a.facility_name ?: 'Unnamed facility' }} {{ ui.status(a.status) }}</h2>
+        <p class="pk-muted pk-small">Submitted {{ a.created_at|when }} · <span class="pk-mono">{{ a.id }}</span>{% if a.other_applications > 0 %} · {{ a.other_applications|plural('other application') }} from this account{% endif %}</p>
+    </div>
+</header>
+
+<div class="pk-detail__grid">
+    <section class="pk-box" aria-labelledby="app-applicant">
+        <h3 class="pk-box__title" id="app-applicant">{{ icon('user', 15) }} Applicant &amp; operating entity</h3>
+        <dl class="pk-dl">
+            <dt>Legal applicant name</dt><dd>{{ a.owner_name ?: '—' }}</dd>
+            <dt>Account</dt><dd>{{ a.applicant_account_name ?: 'Account not found' }} <span class="pk-muted pk-mono pk-small">{{ a.user_id }}</span></dd>
+            <dt>Business email</dt><dd>{% if a.business_email %}<a class="pk-link" href="mailto:{{ a.business_email }}">{{ a.business_email }}</a>{% else %}—{% endif %}</dd>
+            <dt>Phone</dt><dd>{{ a.phone ?: '—' }}</dd>
+            <dt>Registered entity</dt><dd>{{ a.entity_name ?: '—' }}</dd>
+            <dt>DTI / SEC registration no.</dt><dd class="pk-mono">{{ a.reg_number ?: '—' }}</dd>
+        </dl>
+    </section>
+    <section class="pk-box" aria-labelledby="app-facility">
+        <h3 class="pk-box__title" id="app-facility">{{ icon('building', 15) }} Facility &amp; courts</h3>
+        <dl class="pk-dl">
+            <dt>Facility name</dt><dd>{{ a.facility_name ?: '—' }}</dd>
+            <dt>Address</dt><dd>{{ a.address ?: '—' }}</dd>
+            <dt>Courts</dt><dd>{{ (a.courts_count ?: 0)|plural('court') }}{{ a.court_surface ? ' · ' ~ a.court_surface }}</dd>
+            <dt>Operating hours</dt><dd>{{ a.operating_hours ?: 'Not provided' }}</dd>
+            <dt>Map coordinates</dt><dd class="pk-mono">{{ a.latitude and a.longitude ? a.latitude ~ ', ' ~ a.longitude : 'Not provided' }}</dd>
+            {% if a.facility_id %}<dt>Provisioned facility</dt><dd><button type="button" class="pk-link" data-detail="facility" data-id="{{ a.facility_id }}">{{ a.provisioned_facility_name ?: '#' ~ a.facility_id }}</button></dd>{% endif %}
+        </dl>
+    </section>
+</div>
+
+<section aria-labelledby="app-docs">
+    <h3 class="pk-box__title" id="app-docs">{{ icon('file-text', 15) }} Verification documents (private)</h3>
+    <div class="pk-detail__grid">
+        {% for doc in [{label: "Mayor's permit / business licence", file: a.permit_file, state: a.permit_state}, {label: 'Government-issued ID', file: a.gov_id_file, state: a.gov_id_state}] %}
+            <figure class="pk-doc">
+                <figcaption class="pk-doc__head"><span class="pk-strong">{{ doc.label }}</span>{{ ui.status(doc.state) }}</figcaption>
+                {% if doc.state == 'attached' %}
+                    {% set url = path('admin_document', {file: doc.file}) %}
+                    {% if doc.file|lower ends with '.pdf' %}
+                        <a class="pk-doc__file" href="{{ url }}" target="_blank" rel="noopener">{{ icon('file-text', 28) }}<span>Open PDF in a new tab</span></a>
+                    {% else %}
+                        <a class="pk-doc__preview" href="{{ url }}" target="_blank" rel="noopener" aria-label="Open {{ doc.label }} full size in a new tab">
+                            <img src="{{ url }}" alt="{{ doc.label }} submitted with this application" loading="lazy">
+                        </a>
+                    {% endif %}
+                {% elseif doc.state == 'missing' %}
+                    <p class="pk-doc__empty">The application references a file that is not in private storage. Ask the applicant to resubmit before approving.</p>
+                {% else %}
+                    <p class="pk-doc__empty">No document was attached.</p>
+                {% endif %}
+            </figure>
+        {% endfor %}
+    </div>
+</section>
+
+{% if a.reviewed_at %}
+    <p class="pk-notice">Reviewed by <strong>{{ a.reviewer_name ?: a.reviewed_by }}</strong> on {{ a.reviewed_at|when }}{% if a.review_reason %} — “{{ a.review_reason }}”{% endif %}</p>
+{% endif %}
+
+{{ d.history(a.history) }}
+
+<footer class="pk-detail__foot">
+    {% if a.status == 'pending_review' and is_granted('admin.applications.review') %}
+        {{ ui.action_button('Reject', 'admin_reject_owner_application', {user_id: a.user_id, application_id: a.id}, {form: 'reject-application', subject: a.facility_name, class: 'pk-btn--danger'}) }}
+        {{ ui.action_button('Approve', 'admin_approve_owner_application', {user_id: a.user_id, application_id: a.id}, {form: 'approve-application', subject: a.facility_name ~ ' · ' ~ (a.courts_count ?: 0)|plural('court'), class: 'pk-btn--primary'}) }}
+    {% else %}
+        <p class="pk-muted pk-small">This application is {{ a.status|status_label|lower }}; decisions are final. A rejected applicant can submit a new application.</p>
+    {% endif %}
+</footer>

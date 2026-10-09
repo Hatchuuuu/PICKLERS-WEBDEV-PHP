@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+{% include 'web/partials/app/_head.html.twig' %}
+<body class="app-body">
+{% include 'web/partials/_impersonation-banner.html.twig' %}
+
+  {% include 'web/partials/app/_sidebar.html.twig' %}
+
+  {% include 'web/partials/app/_mobile-header.html.twig' %}
+
+  <!-- Main Content Router -->
+  <main class="app-main">
+    <div class="app-content-container">
+      {% include 'web/partials/app/_tab-play.html.twig' %}
+      {% include 'web/partials/app/_tab-explore.html.twig' %}
+      {% include 'web/partials/app/_tab-wallet.html.twig' %}
+      {% include 'web/partials/app/_tab-bookings.html.twig' %}
+      {% include 'web/partials/app/_tab-settings.html.twig' %}
+    </div>
+  </main>
+
+  {% include 'web/partials/app/_bottom-nav.html.twig' %}
+
+  {% include 'web/partials/app/_modals.html.twig' %}
+
+  {% include 'web/partials/app/_scripts.html.twig' %}
+
+</body>
+</html>

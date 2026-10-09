@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Services;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\FacilityRepository;
+use Picklers\Repositories\PromoRepository;
 
 /**
  * PricingService — the single server-side source of truth for money.
@@ -27,7 +28,7 @@ final class PricingService {
     public const MAX_DURATION_HOURS = 8;
 
     /** Sanity ceiling for a single transaction. */
-    public const MAX_PAYABLE = 100000.0;
+    public const MAX_PAYABLE = \Picklers\Domain\Payments::MAX_PAYABLE;
 
     /**
      * Server-held promo codes, so the client can never dictate the final price.
@@ -38,10 +39,15 @@ final class PricingService {
         'DINKFREE'  => ['type' => 'fixed',   'value' => 100.0, 'label' => 'DINKFREE (₱100 Off)'],
     ];
 
-    private Database $db;
+    private readonly FacilityRepository $facilities;
+    private readonly PromoRepository $promos;
 
-    public function __construct(?Database $db = null) {
-        $this->db = $db ?? Database::get();
+    public function __construct(
+        mixed $facilities = null,
+        mixed $promos = null,
+    ) {
+        $this->facilities = $facilities instanceof FacilityRepository ? $facilities : new FacilityRepository();
+        $this->promos = $promos instanceof PromoRepository ? $promos : new PromoRepository();
     }
 
     /**
@@ -71,7 +77,7 @@ final class PricingService {
      * @return array{id?:string,name?:string,price?:mixed,...}|null
      */
     public function resolveCourt(int|string $facilityId, string $courtName, string $courtId = ''): ?array {
-        $courts = $this->db->getCourtsByFacility($facilityId);
+        $courts = $this->facilities->getCourtsByFacility($facilityId);
 
         if ($courtId !== '') {
             foreach ($courts as $court) {
@@ -119,7 +125,7 @@ final class PricingService {
             }
         }
 
-        $facility = $this->db->getFacility($facilityId);
+        $facility = $this->facilities->getFacility($facilityId);
         if (!$facility) {
             return null;
         }
@@ -212,7 +218,7 @@ final class PricingService {
         }
 
         // Fetch dynamic promo code from Database
-        $dbPromo = $this->db->getPromoCode($normalized);
+        $dbPromo = $this->promos->getPromoCode($normalized);
         if ($dbPromo) {
             $status = (string)($dbPromo['status'] ?? 'active');
             if ($status !== 'active') {
@@ -239,7 +245,7 @@ final class PricingService {
 
             if ($userId) {
                 $userLimit = (int)($dbPromo['user_limit'] ?? 1);
-                $userUses = $this->db->getPromoRedemptionsCount($dbPromo['id'], $userId);
+                $userUses = $this->promos->getPromoRedemptionsCount($dbPromo['id'], $userId);
                 if ($userLimit > 0 && $userUses >= $userLimit) {
                     return ['valid' => false, 'discount' => 0.0, 'label' => null, 'message' => 'You have already used this promo code.'];
                 }

@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Services;
 
-use Picklers\Core\Database;
+use Picklers\Domain\Notifier;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * PICKLERS — Tournament Service
@@ -12,7 +13,7 @@ use Picklers\Core\Database;
  * mix/partner draw pool), bracket generation via BracketEngine, result
  * reporting, and lifecycle status.
  *
- * Persistence is the same JSON store the rest of the owner portal uses, read
+ * Persistence is a JSON file in the data directory (tournaments.json), read
  * and written whole on every mutation so a record can never end up half-written.
  */
 final class TournamentService
@@ -41,11 +42,72 @@ final class TournamentService
         'Mixed',
     ];
 
-    private Database $db;
+    private readonly Notifier $notifier;
+    private readonly string $dataDir;
 
-    public function __construct(?Database $db = null)
+    public function __construct(
+        mixed $notifier = null,
+        #[Autowire('%picklers.data_dir%')]
+        ?string $dataDir = null,
+    ) {
+        $this->notifier = $notifier instanceof Notifier ? $notifier : \Picklers\Core\Database::get()->notifier();
+        $this->dataDir = $dataDir ?? (defined('DATA_PATH') ? DATA_PATH : (getcwd() . '/database/.data'));
+    }
+
+    /** The whole store, read under a shared lock. */
+    private function rows(): array
     {
-        $this->db = $db ?? Database::get();
+        $path = $this->dataDir . '/tournaments.json';
+        if (!file_exists($path)) return [];
+        $fp = @fopen($path, 'r');
+        if (!$fp) return [];
+        flock($fp, LOCK_SH);
+        $content = stream_get_contents($fp);
+        flock($fp, LOCK_UN);
+        fclose($fp);
+        return json_decode((string)$content, true) ?: [];
+    }
+
+    /**
+     * Atomically read → transform → write the store under an exclusive flock so
+     * no two concurrent requests can interleave their read-modify-write cycles.
+     * The callable receives the current array and returns the new one; use a
+     * closure with `&$result` to surface a side-channel value.
+     */
+    private function writeRows(callable $fn): void
+    {
+        $path = $this->dataDir . '/tournaments.json';
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0750, true);
+        }
+        $fp = @fopen($path, 'c+');
+        if (!$fp) {
+            return;
+        }
+        try {
+            if (!flock($fp, LOCK_EX)) {
+                return;
+            }
+            $raw  = stream_get_contents($fp);
+            $data = json_decode((string)$raw, true);
+            $data = is_array($data) ? $data : [];
+
+            $updated = $fn($data);
+            if (!is_array($updated)) {
+                return;
+            }
+
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, json_encode(array_values($updated), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            fflush($fp);
+        } finally {
+            if (is_resource($fp)) {
+                flock($fp, LOCK_UN);
+                fclose($fp);
+            }
+        }
     }
 
     // --------------------------------------------------------------------------
@@ -55,7 +117,7 @@ final class TournamentService
     /** @return array<int,array<string,mixed>> */
     public function all(int|string|null $facilityId = null): array
     {
-        $rows = $this->db->getJSONData('tournaments');
+        $rows = $this->rows();
         if (!is_array($rows)) {
             return [];
         }
@@ -78,7 +140,7 @@ final class TournamentService
 
     public function find(string $id): ?array
     {
-        foreach ($this->db->getJSONData('tournaments') as $row) {
+        foreach ($this->rows() as $row) {
             if (is_array($row) && (string)($row['id'] ?? '') === $id) {
                 return $this->hydrate($row);
             }
@@ -194,14 +256,14 @@ final class TournamentService
         // persist() method that never existed, so creating a tournament was a
         // fatal error — and an unlocked read-then-write would have discarded
         // any concurrent edit to another tournament.
-        $this->db->lockedJSONUpdate('tournaments', function (array $rows) use ($record): array {
+        $this->writeRows(function (array $rows) use ($record): array {
             $rows[] = $record;
             return $rows;
         });
         if ($this->find($record['id']) === null) {
             return ['tournament' => null, 'error' => 'The tournament could not be saved. Please try again.'];
         }
-        $this->db->bumpSync('tournaments');
+        $this->notifier->bumpSync('tournaments');
 
         return ['tournament' => $this->hydrate($record), 'error' => null];
     }
@@ -288,7 +350,7 @@ final class TournamentService
     {
         // Same fix as create(): the missing persist() made every delete fatal.
         $found = false;
-        $this->db->lockedJSONUpdate('tournaments', function (array $rows) use ($id, &$found): array {
+        $this->writeRows(function (array $rows) use ($id, &$found): array {
             $kept = [];
             foreach ($rows as $row) {
                 if (is_array($row) && (string)($row['id'] ?? '') === $id) {
@@ -300,7 +362,7 @@ final class TournamentService
             return $kept;
         });
         if ($found) {
-            $this->db->bumpSync('tournaments');
+            $this->notifier->bumpSync('tournaments');
         }
         return $found && $this->find($id) === null;
     }
@@ -855,7 +917,7 @@ final class TournamentService
     {
         $outcome = ['tournament' => null, 'error' => 'Tournament not found.'];
 
-        $this->db->lockedJSONUpdate('tournaments', function (array $rows) use ($id, $fn, &$outcome): array {
+        $this->writeRows(function (array $rows) use ($id, $fn, &$outcome): array {
             $index = null;
             foreach ($rows as $i => $row) {
                 if (is_array($row) && (string)($row['id'] ?? '') === $id) {
@@ -883,7 +945,7 @@ final class TournamentService
         });
 
         if ($outcome['error'] === null) {
-            $this->db->bumpSync('tournaments');
+            $this->notifier->bumpSync('tournaments');
         }
 
         return $outcome;

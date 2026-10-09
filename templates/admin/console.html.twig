@@ -1,0 +1,44 @@
+{% extends 'admin/base.html.twig' %}
+
+{% set tab = panel.tab %}
+
+{% block title %}{{ {
+    overview: 'Control Center', applications: 'Partner Applications', facilities: 'Facilities & Courts',
+    bookings: 'Bookings & Matches', users: 'User Directory & Roles', moderation: 'Content Moderation',
+    ledger: 'Financial Ledger', promos: 'Promo Codes', analytics: 'Analytics & Reports', system: 'System & Audit'
+}[tab] }}{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('assets/js/admin.js') }}" defer></script>
+{% endblock %}
+
+{% block body_attrs %}
+    data-csrf="{{ csrf_token }}"
+    data-api-url="{{ path('admin_api') }}"
+    data-panel-url="{{ path('admin_panel', {tab: 'overview'})|replace({'/panel/overview': '/panel/__TAB__'}) }}"
+    data-detail-url="{{ path('admin_detail', {type: 'user', id: 'IDPLACEHOLDER'})|replace({'/detail/user/': '/detail/__TYPE__/', 'IDPLACEHOLDER': '__ID__'}) }}"
+    data-console-url="{{ path('admin_console') }}"
+    data-app-url="{{ app_url }}"
+    data-admin-id="{{ admin.id }}"
+{% endblock %}
+
+{% block body %}
+<a class="pk-skip" href="#adminMain">Skip to content</a>
+<div class="pk-shell">
+    <div class="pk-overlay" id="sidebarOverlay" data-close-nav hidden></div>
+    {% include 'admin/_sidebar.html.twig' %}
+
+    <div class="pk-main">
+        {% include 'admin/_topbar.html.twig' %}
+        <main id="adminMain" class="pk-content" tabindex="-1">
+            <div id="adminPanel" class="pk-panel" data-tab="{{ tab }}" data-search-scope="{{ search_scopes[tab] ?? '' }}" aria-live="off">
+                {% include 'admin/panels/_' ~ tab ~ '.html.twig' %}
+            </div>
+        </main>
+    </div>
+</div>
+
+{% include 'admin/_dialogs.html.twig' %}
+
+<div class="pk-toasts" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+{% endblock %}

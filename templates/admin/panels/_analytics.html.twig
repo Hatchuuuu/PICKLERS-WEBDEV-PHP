@@ -1,0 +1,83 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set r = panel.report %}
+{% set range = panel.range %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'analytics', from: range.from, to: range.to}) }}">{{ icon('download', 15) }} Export facility report</a>
+{% endset %}
+{{ ui.header('Analytics & Reports', 'Date-filtered summaries computed from stored records (Asia/Manila calendar days)', header_actions) }}
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form aria-label="Report range">
+    <input type="hidden" name="tab" value="analytics">
+    <label class="pk-field pk-field--inline"><span>From</span><input type="date" name="from" value="{{ range.from }}" data-autosubmit></label>
+    <label class="pk-field pk-field--inline"><span>To</span><input type="date" name="to" value="{{ range.to }}" data-autosubmit></label>
+    <span class="pk-muted pk-small">{{ range.days|plural('day') }}</span>
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+
+<div class="pk-stats" role="group" aria-label="Summary for the selected range">
+    <div class="pk-stat"><p class="pk-stat__label">New accounts</p><p class="pk-stat__value">{{ r.accounts.total|number_format }}</p><p class="pk-stat__hint">{{ r.accounts.players }} players · {{ r.accounts.owners }} owners · {{ r.accounts.admins }} admins</p></div>
+    <div class="pk-stat"><p class="pk-stat__label">Bookings created</p><p class="pk-stat__value">{{ r.bookings_total|number_format }}</p><p class="pk-stat__hint">{{ panel.definitions.bookings_created }}</p></div>
+    <div class="pk-stat"><p class="pk-stat__label">Confirmed booking value</p><p class="pk-stat__value">{{ r.booking_value_confirmed|peso }}</p><p class="pk-stat__hint">Booking value, not collected money</p></div>
+    <div class="pk-stat"><p class="pk-stat__label">Cancellation rate</p><p class="pk-stat__value">{{ r.cancellation_rate is null ? 'Not available' : r.cancellation_rate ~ '%' }}</p><p class="pk-stat__hint">{{ r.cancellation_rate is null ? 'No bookings in this range' : 'Cancelled or declined' }}</p></div>
+</div>
+
+<div class="pk-grid-2">
+    <section class="pk-card" aria-labelledby="status-breakdown">
+        <h2 class="pk-card__title" id="status-breakdown">{{ icon('calendar', 17) }} Bookings by status</h2>
+        {% if r.bookings_by_status is empty %}
+            {{ ui.empty('calendar', 'No bookings in this range', 'Choose a wider range to see a breakdown.') }}
+        {% else %}
+            {% set maxv = max(r.bookings_by_status) %}
+            <table class="pk-bars">
+                <caption class="pk-sr">Bookings created between {{ range.from }} and {{ range.to }}, by current status</caption>
+                {% for status, count in r.bookings_by_status %}
+                    <tr><th scope="row">{{ status|status_label }}</th><td><span class="pk-bar"><span style="width: {{ (count / maxv * 100)|round }}%"></span></span></td><td class="pk-num">{{ count }}</td></tr>
+                {% endfor %}
+            </table>
+        {% endif %}
+    </section>
+    <section class="pk-card" aria-labelledby="daily-bookings">
+        <h2 class="pk-card__title" id="daily-bookings">{{ icon('bar-chart', 17) }} Bookings per day</h2>
+        {% set dmax = max(r.daily_bookings|map(d => d.count)|merge([1])) %}
+        <div class="pk-spark" role="img" aria-label="Daily bookings from {{ range.from }} to {{ range.to }}; peak {{ dmax }} per day">
+            {% for d in r.daily_bookings %}<span title="{{ d.date|day }}: {{ d.count }}" style="height: {{ max(2, (d.count / dmax * 100)|round) }}%"></span>{% endfor %}
+        </div>
+        <p class="pk-muted pk-small">{{ range.from|day }} – {{ range.to|day }}</p>
+    </section>
+</div>
+
+<section class="pk-card pk-card--flush" aria-labelledby="facility-report">
+    <div class="pk-card__head pk-card__head--pad"><h2 class="pk-card__title" id="facility-report">{{ icon('building', 17) }} Facility summary</h2></div>
+    {% if r.facilities is empty %}
+        {{ ui.empty('building', 'No facilities', 'Facilities appear once partner applications are approved.') }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Facility summary table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Per-facility bookings created in the range</caption>
+                <thead><tr><th scope="col">Facility</th><th scope="col">Status</th><th scope="col" class="pk-num">Courts</th><th scope="col" class="pk-num">Bookings</th><th scope="col" class="pk-num">Confirmed value</th><th scope="col" class="pk-num">Cancelled</th><th scope="col">Rating</th><th scope="col">Utilisation</th></tr></thead>
+                <tbody>
+                {% for f in r.facilities %}
+                    <tr>
+                        <td><p class="pk-strong pk-truncate">{{ f.name }}</p><p class="pk-muted pk-small pk-truncate">{{ f.location }}</p></td>
+                        <td>{{ ui.status(f.operating_status) }}</td>
+                        <td class="pk-num">{{ f.courts }}</td>
+                        <td class="pk-num">{{ f.bookings }}</td>
+                        <td class="pk-num pk-nowrap">{{ f.confirmed_value|peso }}</td>
+                        <td class="pk-num">{{ f.cancelled }}</td>
+                        <td class="pk-nowrap">{{ f.reviews > 0 ? '★ ' ~ f.rating : 'No reviews' }}</td>
+                        <td class="pk-num pk-nowrap">{{ f.utilisation is not null ? f.utilisation ~ '%' : '0.0%' }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</section>
+
+<details class="pk-card pk-defs">
+    <summary>How these numbers are defined</summary>
+    <dl>
+        {% for key, text in panel.definitions %}<dt>{{ key|replace({'_': ' '})|capitalize }}</dt><dd>{{ text }}</dd>{% endfor %}
+    </dl>
+</details>

@@ -123,7 +123,8 @@ final class PricingServiceTest extends TestCase {
         $this->assertTrue((bool)$firstUse['success'] && ($firstUse['discount'] ?? 0) > 0,
             'WELCOME100 (user_limit 1) applies the first time this user quotes it');
 
-        $db->recordPromoRedemption('WELCOME100', $freshUserId, 'PKL-TEST-CAP', (float)$firstUse['discount']);
+        // Unique per run: a promo is redeemable once per booking (uniq_redemption_booking).
+        $db->recordPromoRedemption('WELCOME100', $freshUserId, 'PKL-TEST-CAP-' . bin2hex(random_bytes(4)), (float)$firstUse['discount']);
 
         $secondUse = $p->quoteCourtBooking(1, '', 2, 'WELCOME100', $freshUserId, 'crt_1_1');
         $this->assertSame(0.0, $secondUse['discount'] ?? null,

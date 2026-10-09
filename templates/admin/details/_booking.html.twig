@@ -1,0 +1,82 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% import 'admin/details/_shared.html.twig' as d %}
+{% set b = record %}
+
+<header class="pk-detail__head">
+    <div>
+        <h2 class="pk-detail__title" id="detailTitle"><span class="pk-mono">#{{ b.id }}</span> {{ ui.status(b.status) }}</h2>
+        <p class="pk-muted pk-small">{{ b.match ? 'Open Play seat' : 'Court booking' }} · created {{ b.created_at|when }}</p>
+    </div>
+</header>
+
+{% if b.status_reason %}
+    <p class="pk-notice">Last status change{{ b.status_changed_by_name ? ' by ' ~ b.status_changed_by_name }}{{ b.status_changed_at ? ' on ' ~ b.status_changed_at|when }}: “{{ b.status_reason }}”</p>
+{% endif %}
+
+<div class="pk-detail__grid">
+    <section class="pk-box" aria-labelledby="bk-what">
+        <h3 class="pk-box__title" id="bk-what">{{ icon('calendar', 15) }} Reservation</h3>
+        <dl class="pk-dl">
+            <dt>Facility</dt><dd><button type="button" class="pk-link" data-detail="facility" data-id="{{ b.facility_id }}">{{ b.facility_name }}</button>{% if b.facility_status == 'suspended' %} {{ ui.status('suspended') }}{% endif %}</dd>
+            <dt>Court</dt><dd>{{ b.court_name ?: '—' }}</dd>
+            <dt>Play date</dt><dd>{{ b.booking_date ? b.booking_date|day : (b.date ?: '—') }}</dd>
+            <dt>Time</dt><dd>{{ b.time ?: '—' }} ({{ b.duration ?: '—' }})</dd>
+            <dt>Price</dt><dd class="pk-strong">{{ b.price|peso }}</dd>
+            <dt>Payment method</dt><dd>{{ b.payment_method ?: '—' }}</dd>
+            {% if b.promo %}<dt>Promo</dt><dd><span class="pk-code">{{ b.promo.promo_code }}</span> −{{ b.promo.discount_amount|peso }}</dd>{% endif %}
+        </dl>
+    </section>
+    <section class="pk-box" aria-labelledby="bk-who">
+        <h3 class="pk-box__title" id="bk-who">{{ icon('user', 15) }} Player</h3>
+        <dl class="pk-dl">
+            <dt>Name</dt><dd>{% if b.player_name %}<button type="button" class="pk-link" data-detail="user" data-id="{{ b.user_id }}">{{ b.player_name }}</button>{% else %}Account not found{% endif %}</dd>
+            <dt>Email</dt><dd>{{ b.player_email ?: '—' }}</dd>
+            <dt>Phone</dt><dd>{{ b.player_phone ?: '—' }}</dd>
+            <dt>Venue owner</dt><dd>{{ b.owner_name ?: '—' }}</dd>
+        </dl>
+        {% if b.match %}
+            <h3 class="pk-box__title">{{ icon('users', 15) }} Open Play session</h3>
+            <dl class="pk-dl">
+                <dt>Session</dt><dd>{{ b.match.title ?: b.match.type }} · {{ b.match.level }}</dd>
+                <dt>Occurrence</dt><dd>{{ b.match.occurrence|day }}</dd>
+                <dt>Seats taken / capacity</dt><dd>{{ b.match.active_for_occurrence }} / {{ b.match.max_players }} <span class="pk-muted pk-small">(pending + confirmed for this date)</span></dd>
+            </dl>
+        {% endif %}
+    </section>
+</div>
+
+<section aria-labelledby="bk-money">
+    <h3 class="pk-box__title" id="bk-money">{{ icon('wallet', 15) }} Money trail</h3>
+    {% if b.wallet_entries is empty %}
+        <p class="pk-muted pk-small">
+            {% if b.payment_method == 'Pickle Credits' %}No wallet movement is recorded for this booking.
+            {% elseif b.payment_method == 'Pay at Venue' %}Pay at venue: nothing moves through the app.
+            {% else %}Paid via {{ b.payment_method }}: there is no payment-provider integration, so the app holds no confirmation of this payment.{% endif %}
+        </p>
+    {% else %}
+        <ul class="pk-list">
+            {% for t in b.wallet_entries %}
+                <li class="pk-list__row"><div class="pk-list__main"><p>{{ t.type == 'credit' ? '+' : '−' }}{{ t.amount|peso }} · {{ t.label }}</p><p class="pk-muted pk-small">{{ t.created_at|when }} · {{ t.entry_kind ? t.entry_kind|status_label : 'kind not recorded' }} · <span class="pk-mono">{{ t.id }}</span></p></div></li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</section>
+
+{{ d.history(b.history) }}
+
+<footer class="pk-detail__foot">
+    {% if is_granted('admin.bookings.manage') %}
+        {% if 'confirmed' in b.transitions %}
+            {{ ui.action_button('Confirm request…', 'admin_update_booking_status', {booking_id: b.id, status: 'confirmed', expected_status: b.status}, {form: 'confirm-booking', subject: '#' ~ b.id, class: 'pk-btn--primary'}) }}
+        {% endif %}
+        {% if 'completed' in b.transitions %}
+            {{ ui.action_button('Mark completed…', 'admin_update_booking_status', {booking_id: b.id, status: 'completed', expected_status: b.status}, {form: 'complete-booking', subject: '#' ~ b.id}) }}
+        {% endif %}
+        {% if 'cancelled' in b.transitions %}
+            {{ ui.action_button('Cancel booking…', 'admin_cancel_booking', {booking_id: b.id, expected_status: b.status}, {form: 'cancel-booking', subject: '#' ~ b.id ~ ' · ' ~ (b.payment_method ?: 'unknown payment') ~ ' · ' ~ (b.price|peso), class: 'pk-btn--danger'}) }}
+        {% endif %}
+        {% if b.transitions is empty %}
+            <p class="pk-muted pk-small">{{ b.status|status_label }} bookings are final{{ b.status == 'completed' ? '; if a refund is owed, a privileged administrator can adjust the player’s wallet' : '' }}.</p>
+        {% endif %}
+    {% endif %}
+</footer>

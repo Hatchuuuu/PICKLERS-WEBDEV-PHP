@@ -1,0 +1,72 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% import 'admin/details/_shared.html.twig' as d %}
+{% set u = record %}
+{% set is_self = u.id == admin.id %}
+{% set deactivated = u.role == 'deleted' %}
+{% set is_admin_target = u.is_admin == 1 and not deactivated %}
+
+<header class="pk-detail__head">
+    <div class="pk-cell-media">
+        {{ ui.avatar(u.name, u.avatar_url) }}
+        <div>
+            <h2 class="pk-detail__title" id="detailTitle">{{ u.name }}{{ is_self ? ' (you)' }}</h2>
+            <p>{% for label in u.role_labels %}<span class="pk-role {{ label in ['Admin', 'Privileged admin'] ? 'pk-role--strong' }}">{{ label }}</span>{% endfor %} {{ ui.status(u.verification_status ?: 'unverified') }}</p>
+        </div>
+    </div>
+</header>
+
+<div class="pk-detail__grid">
+    <section class="pk-box" aria-labelledby="usr-account">
+        <h3 class="pk-box__title" id="usr-account">{{ icon('user', 15) }} Account</h3>
+        <dl class="pk-dl">
+            <dt>User ID</dt><dd class="pk-mono">{{ u.id }}</dd>
+            <dt>Email</dt><dd>{{ u.email ?: '—' }}</dd>
+            <dt>Phone</dt><dd>{{ u.phone ?: '—' }}</dd>
+            <dt>Joined</dt><dd>{{ u.created_at|when }}</dd>
+            <dt>Password last reset</dt><dd>{{ u.password_changed_at ? u.password_changed_at|when : 'Not recorded' }}</dd>
+        </dl>
+    </section>
+    <section class="pk-box" aria-labelledby="usr-activity">
+        <h3 class="pk-box__title" id="usr-activity">{{ icon('calendar', 15) }} Activity</h3>
+        <dl class="pk-dl">
+            <dt>Wallet balance</dt><dd class="pk-strong">{{ u.wallet_balance|peso }}</dd>
+            <dt>Bookings</dt><dd>{% if u.booking_counts is empty %}None{% else %}{% for s, n in u.booking_counts %}{{ n }} {{ s|status_label|lower }}{{ not loop.last ? ', ' }}{% endfor %} · <a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'bookings', user: u.id}) }}">view</a>{% endif %}</dd>
+            <dt>Facilities owned</dt><dd>{% for fac in u.facilities %}<button type="button" class="pk-link" data-detail="facility" data-id="{{ fac.id }}">{{ fac.name }}</button>{{ fac.operating_status == 'suspended' ? ' (suspended)' }}{{ not loop.last ? ', ' }}{% else %}None{% endfor %}</dd>
+            <dt>Partner applications</dt><dd>{% for app in u.applications %}<button type="button" class="pk-link" data-detail="application" data-id="{{ app.id }}">{{ app.facility_name ?: app.id }}</button> ({{ app.status|status_label|lower }}){{ not loop.last ? ', ' }}{% else %}None{% endfor %}</dd>
+        </dl>
+    </section>
+</div>
+
+<section aria-labelledby="usr-wallet">
+    <h3 class="pk-box__title" id="usr-wallet">{{ icon('wallet', 15) }} Recent wallet movements</h3>
+    {% if u.transactions is empty %}
+        <p class="pk-muted pk-small">No wallet movements.</p>
+    {% else %}
+        <ul class="pk-list">
+            {% for t in u.transactions %}
+                <li class="pk-list__row"><div class="pk-list__main"><p>{{ t.type == 'credit' ? '+' : '−' }}{{ t.amount|peso }} · {{ t.label }}</p><p class="pk-muted pk-small">{{ t.created_at|when }}{{ t.entry_kind ? ' · ' ~ t.entry_kind|status_label }}</p></div></li>
+            {% endfor %}
+        </ul>
+        <p class="pk-small"><a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'ledger', user: u.id}) }}">Full ledger for this account</a></p>
+    {% endif %}
+</section>
+
+{{ d.history(u.history) }}
+
+<footer class="pk-detail__foot pk-detail__foot--wrap">
+    {% if is_self %}
+        <p class="pk-muted pk-small">You cannot change your own role, status or wallet here. Ask another administrator.</p>
+    {% elseif deactivated %}
+        {% if is_granted('admin.users.deactivate') %}{{ ui.action_button('Reactivate account…', 'admin_reactivate_user', {user_id: u.id}, {form: 'confirm-simple', title: 'Reactivate account', subject: u.name, class: 'pk-btn--primary'}) }}{% endif %}
+        {% if is_granted('admin.users.delete') %}{{ ui.action_button('Delete permanently…', 'admin_hard_delete_user', {user_id: u.id}, {form: 'delete-user', subject: u.name, class: 'pk-btn--danger'}) }}{% endif %}
+    {% else %}
+        {% if is_granted('admin.users.notify') %}{{ ui.action_button('Send notice…', 'admin_send_notification', {user_id: u.id}, {form: 'send-notice', subject: u.name}) }}{% endif %}
+        {% if is_granted('admin.wallet.adjust') %}{{ ui.action_button('Adjust wallet…', 'admin_adjust_wallet', {user_id: u.id}, {form: 'adjust-wallet', subject: u.name ~ ' · balance ' ~ u.wallet_balance|peso}) }}{% endif %}
+        {% if is_granted('admin.users.reset_password') and (not is_admin_target or is_granted('admin.users.role_admin')) %}{{ ui.action_button('Reset password…', 'admin_reset_password', {user_id: u.id}, {form: 'reset-password', subject: u.name}) }}{% endif %}
+        {% if is_granted('admin.users.privilege') and is_admin_target %}
+            {{ ui.action_button(u.is_privileged ? 'Revoke privileged admin…' : 'Grant privileged admin…', 'admin_set_privilege', {user_id: u.id, grant: u.is_privileged ? '0' : '1'}, {form: 'privilege', title: u.is_privileged ? 'Revoke privileged administrator' : 'Grant privileged administrator', subject: u.name}) }}
+        {% endif %}
+        {% if is_granted('admin.users.impersonate') and not is_admin_target %}{{ ui.action_button('View app as this user…', 'admin_impersonate', {user_id: u.id}, {form: 'impersonate', subject: u.name, after: 'impersonate'}) }}{% endif %}
+        {% if is_granted('admin.users.deactivate') and (not is_admin_target or is_granted('admin.users.deactivate_admin')) %}{{ ui.action_button('Deactivate…', 'admin_deactivate_user', {user_id: u.id}, {form: 'deactivate-user', subject: u.name, class: 'pk-btn--danger'}) }}{% endif %}
+    {% endif %}
+</footer>

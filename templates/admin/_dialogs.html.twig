@@ -1,0 +1,249 @@
+{# Dialog shells use the shared ux-core dialog manager (focus trap, Escape,
+   focus return, scroll lock). Forms are declarative <template>s cloned into the
+   action dialog; field names are the action's parameter names. #}
+
+<div class="pk-modal" id="detailDialog" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <div class="pk-modal__box pk-modal__box--wide">
+        <button type="button" class="pk-icon-btn pk-modal__close" data-close-dialog aria-label="Close details">{{ icon('x', 18) }}</button>
+        <div class="pk-detail" id="detailBody" aria-live="polite"></div>
+    </div>
+</div>
+
+<div class="pk-modal" id="actionDialog" role="dialog" aria-modal="true" aria-labelledby="actionTitle" aria-describedby="actionDesc">
+    <form class="pk-modal__box" id="actionForm" novalidate>
+        <button type="button" class="pk-icon-btn pk-modal__close" data-close-dialog aria-label="Close">{{ icon('x', 18) }}</button>
+        <h2 class="pk-modal__title" id="actionTitle"></h2>
+        <p class="pk-modal__subject" id="actionSubject"></p>
+        <div id="actionDesc" class="pk-modal__desc"></div>
+        <div id="actionFields"></div>
+        <p class="pk-form-error" id="actionError" role="alert" hidden></p>
+        <div class="pk-modal__actions">
+            <button type="button" class="pk-btn pk-btn--ghost" data-close-dialog>Cancel</button>
+            <button type="submit" class="pk-btn pk-btn--primary" id="actionSubmit">Confirm</button>
+        </div>
+    </form>
+</div>
+
+{% set reason_field %}
+    <label class="pk-field"><span>Reason <span class="pk-req">(required — recorded in the audit trail)</span></span>
+        <textarea name="reason" rows="3" required minlength="5" maxlength="1000"></textarea></label>
+{% endset %}
+
+<template id="form-confirm-simple" data-title="Confirm" data-submit="Confirm">
+    <p>This change is applied immediately and recorded in the audit trail.</p>
+</template>
+
+<template id="form-confirm-booking" data-title="Confirm booking request" data-submit="Confirm booking">
+    <p>Confirms the request exactly as the venue would: an Open Play seat is checked against this session's capacity and taken, and the player is notified.</p>
+    <label class="pk-field"><span>Note <span class="pk-muted">(optional)</span></span><textarea name="reason" rows="2" maxlength="500"></textarea></label>
+</template>
+
+<template id="form-complete-booking" data-title="Mark booking completed" data-submit="Mark completed">
+    <p>Only possible once the session has started. Completed bookings are final.</p>
+    <label class="pk-field"><span>Note <span class="pk-muted">(optional)</span></span><textarea name="reason" rows="2" maxlength="500"></textarea></label>
+</template>
+
+<template id="form-cancel-booking" data-title="Cancel booking" data-submit="Cancel booking" data-tone="danger">
+    <ul class="pk-bullets">
+        <li><strong>Pickle Credits:</strong> refunded in full to the player's wallet, once (never twice).</li>
+        <li><strong>GCash / Maya / Card:</strong> no in-app refund is possible — there is no payment-provider integration; settle it with the player separately.</li>
+        <li>A confirmed Open Play seat is released. The player sees your reason.</li>
+    </ul>
+    <label class="pk-field"><span>Reason shown to the player <span class="pk-req">(required)</span></span><textarea name="reason" rows="3" required minlength="5" maxlength="500"></textarea></label>
+</template>
+
+<template id="form-approve-application" data-title="Confirm Application Approval" data-submit="Confirm Approval">
+    <div class="pk-confirm-card">
+        <div class="pk-confirm-card__icon">✓</div>
+        <div class="pk-confirm-card__body">
+            <h4 class="pk-confirm-card__title">Approve &amp; Provision Partner Facility</h4>
+            <p class="pk-confirm-card__text">
+                Are you sure you want to approve this application?
+            </p>
+            <ul class="pk-bullets" style="margin-top: 8px; margin-bottom: 0; font-size: 12.5px;">
+                <li>Upgrades applicant account permissions to <strong>Facility Owner</strong>.</li>
+                <li>Provisions facility listing with courts &amp; makes it active on <strong>Discover</strong>.</li>
+                <li>Sends an instant approval notification to the owner.</li>
+            </ul>
+        </div>
+    </div>
+    <label class="pk-field"><span>Internal note <span class="pk-muted">(optional — recorded in audit trail)</span></span><textarea name="reason" rows="2" maxlength="1000" placeholder="Optional notes for internal record..."></textarea></label>
+</template>
+
+<template id="form-reject-application" data-title="Reject Partner Application" data-submit="Confirm Rejection" data-tone="danger">
+    <p class="pk-muted pk-small" style="margin-bottom: 12px;">Select the reason for rejecting this partner application. The applicant will receive your explanation so they can correct issues and reapply.</p>
+    
+    <fieldset class="pk-field pk-reject-choices">
+        <legend class="pk-reject-legend">Select Rejection Reason <span class="pk-req">(required)</span></legend>
+        
+        <label class="pk-reject-choice">
+            <input type="radio" name="reject_preset" value="Incomplete or unreadable permit/ID verification documents attached." checked>
+            <span class="pk-reject-choice__content">
+                <strong class="pk-reject-choice__title">📄 Document Verification Issue</strong>
+                <span class="pk-reject-choice__desc">Attached permit or ID is missing, unreadable, or invalid.</span>
+            </span>
+        </label>
+        
+        <label class="pk-reject-choice">
+            <input type="radio" name="reject_preset" value="Facility location or address cannot be verified.">
+            <span class="pk-reject-choice__content">
+                <strong class="pk-reject-choice__title">📍 Unverified Facility Location</strong>
+                <span class="pk-reject-choice__desc">Address or map coordinates could not be verified.</span>
+            </span>
+        </label>
+        
+        <label class="pk-reject-choice">
+            <input type="radio" name="reject_preset" value="Invalid business contact phone or email provided.">
+            <span class="pk-reject-choice__content">
+                <strong class="pk-reject-choice__title">📞 Unreachable Contact Info</strong>
+                <span class="pk-reject-choice__desc">Phone number or business email is unreachable.</span>
+            </span>
+        </label>
+
+        <label class="pk-reject-choice">
+            <input type="radio" name="reject_preset" value="Duplicate partner application already submitted or active.">
+            <span class="pk-reject-choice__content">
+                <strong class="pk-reject-choice__title">📋 Duplicate Submission</strong>
+                <span class="pk-reject-choice__desc">An active application already exists for this venue.</span>
+            </span>
+        </label>
+        
+        <label class="pk-reject-choice">
+            <input type="radio" name="reject_preset" value="custom">
+            <span class="pk-reject-choice__content">
+                <strong class="pk-reject-choice__title">✏️ Custom Explanation</strong>
+                <span class="pk-reject-choice__desc">Write a specific explanation in the text box below.</span>
+            </span>
+        </label>
+    </fieldset>
+
+    <label class="pk-field"><span>Reason shown to the applicant <span class="pk-req">(required)</span></span><textarea name="reason" rows="3" required minlength="5" maxlength="500" placeholder="Provide clear feedback for the applicant..."></textarea></label>
+</template>
+
+<template id="form-edit-facility" data-title="Edit facility details" data-submit="Save changes">
+    <label class="pk-field"><span>Facility name</span><input name="name" type="text" minlength="3" maxlength="150" required></label>
+    <label class="pk-field"><span>Location</span><input name="location" type="text" minlength="3" maxlength="200" required></label>
+    <label class="pk-field"><span>Opening hours <span class="pk-muted">(e.g. 6:00 AM - 10:00 PM)</span></span><input name="hours" type="text" maxlength="50" required></label>
+    {{ reason_field }}
+</template>
+
+<template id="form-facility-suspend" data-title="Suspend new bookings" data-submit="Suspend facility" data-tone="danger">
+    <p>Players can no longer book courts or join Open Play here, and the listing leaves Discover. <strong>Existing bookings are not cancelled or refunded</strong> — you will see the list to handle them one by one. The owner is notified.</p>
+    {{ reason_field }}
+</template>
+
+<template id="form-facility-reactivate" data-title="Reactivate facility" data-submit="Reactivate">
+    <p>New bookings are accepted again and the listing returns to Discover.</p>
+    {{ reason_field }}
+</template>
+
+<template id="form-court-maintenance" data-title="Put court under maintenance" data-submit="Start maintenance" data-tone="danger">
+    <p>Blocks new bookings and Open Play on this court in every channel. Existing bookings stay as they are and are listed afterwards.</p>
+    <label class="pk-field"><span>Reason <span class="pk-req">(required — shown to the owner)</span></span><textarea name="reason" rows="2" required minlength="5" maxlength="255"></textarea></label>
+</template>
+
+<template id="form-court-available" data-title="Mark court available" data-submit="Mark available">
+    <label class="pk-field"><span>Note <span class="pk-muted">(optional)</span></span><textarea name="reason" rows="2" maxlength="255"></textarea></label>
+</template>
+
+<template id="form-send-notice" data-title="Send in-app notice" data-submit="Send notice" data-idempotent>
+    <p class="pk-muted pk-small">Delivered to the player's in-app inbox only (there is no email or SMS integration).</p>
+    <label class="pk-field"><span>Title</span><input name="title" type="text" maxlength="150" required value="Admin Notice 🔔"></label>
+    <label class="pk-field"><span>Message</span><textarea name="message" rows="4" maxlength="2000" required></textarea></label>
+</template>
+
+<template id="form-adjust-wallet" data-title="Adjust Pickle Credits" data-submit="Apply adjustment" data-tone="danger" data-idempotent>
+    <p class="pk-muted pk-small">Moves in-app credits only — this is not a refund to GCash, Maya or a card. Limit ₱50,000.00 per adjustment; a debit cannot take the balance below zero.</p>
+    <fieldset class="pk-field"><legend>Type</legend>
+        <label class="pk-check"><input type="radio" name="type" value="credit" checked> Credit (add)</label>
+        <label class="pk-check"><input type="radio" name="type" value="debit"> Debit (remove)</label>
+    </fieldset>
+    <label class="pk-field"><span>Amount (₱)</span><input name="amount" type="text" inputmode="decimal" pattern="^\d{1,7}(\.\d{1,2})?$" placeholder="0.00" required></label>
+    <label class="pk-field"><span>Reason shown to the player <span class="pk-req">(required)</span></span><input name="reason" type="text" minlength="5" maxlength="140" required></label>
+</template>
+
+<template id="form-reset-password" data-title="Reset password" data-submit="Reset password" data-tone="danger">
+    <p>Sets a temporary password and signs the person out on every device. Share it through a verified channel and ask them to change it.</p>
+    <label class="pk-field"><span>New password <span class="pk-muted">(at least 8 characters, including a number)</span></span>
+        <input name="new_password" type="password" minlength="8" maxlength="200" required autocomplete="new-password"></label>
+    <label class="pk-check"><input type="checkbox" data-toggle-password> Show password</label>
+    <label class="pk-field"><span>Reason <span class="pk-muted">(optional)</span></span><input name="reason" type="text" maxlength="500"></label>
+</template>
+
+<template id="form-impersonate" data-title="View the app as this user" data-submit="Start viewing as user" data-tone="danger">
+    <ul class="pk-bullets">
+        <li>Lasts at most 30 minutes; a banner with <strong>Return to admin</strong> stays on every page.</li>
+        <li>Password, account, top-up and payout changes are blocked. Every change you make is audited as you.</li>
+        <li>The admin console is closed until you return.</li>
+    </ul>
+    {{ reason_field }}
+</template>
+
+<template id="form-deactivate-user" data-title="Deactivate account" data-submit="Deactivate" data-tone="danger">
+    <p>Signs the person out everywhere and blocks sign-in. Bookings, wallet and history are kept, and the account can be reactivated. Owners with active listings must have them suspended first.</p>
+    {{ reason_field }}
+</template>
+
+<template id="form-delete-user" data-title="Delete account permanently" data-submit="Delete permanently" data-tone="danger">
+    <p>Only possible for accounts with <strong>no</strong> bookings, wallet movements, facilities, applications, redemptions or posts — otherwise deactivate instead. This cannot be undone.</p>
+    <label class="pk-field"><span>Type <strong>DELETE</strong> to confirm</span><input name="confirm_text" type="text" required pattern="DELETE" autocomplete="off"></label>
+    {{ reason_field }}
+</template>
+
+<template id="form-privilege" data-title="Change privileged administrator access" data-submit="Confirm" data-tone="danger">
+    <p>Privileged administrators can move money, change administrator access, impersonate, broadcast and permanently delete accounts.</p>
+    {{ reason_field }}
+</template>
+
+<template id="form-flag-content" data-title="Flag for review" data-submit="Open case">
+    <label class="pk-field"><span>Category</span>
+        <select name="category" required>
+            <option value="spam">Spam</option><option value="scam">Scam / fraud</option><option value="harassment">Harassment</option>
+            <option value="hate">Hate</option><option value="inappropriate">Inappropriate</option><option value="privacy">Privacy</option><option value="other">Other</option>
+        </select>
+    </label>
+    <label class="pk-field"><span>What is wrong? <span class="pk-req">(required)</span></span><textarea name="reason" rows="3" required minlength="5" maxlength="1000"></textarea></label>
+</template>
+
+<template id="form-moderation-hide" data-title="Hide content" data-submit="Hide content" data-tone="danger">
+    <p>Removes it from the community feed, comments and likes. Nothing is deleted; it can be restored.</p>
+    {{ reason_field }}
+</template>
+
+<template id="form-moderation-restore" data-title="Restore content" data-submit="Restore">
+    {{ reason_field }}
+</template>
+
+<template id="form-moderation-close" data-title="Close case" data-submit="Close case">
+    <label class="pk-field"><span>Closing note <span class="pk-req">(required)</span></span><textarea name="reason" rows="3" required minlength="5" maxlength="1000"></textarea></label>
+</template>
+
+<template id="form-create-promo" data-title="Create promo code" data-submit="Create and activate">
+    <div class="pk-form-grid">
+        <label class="pk-field pk-field--span"><span>Code <span class="pk-muted">(3–50 letters, numbers, - or _; leave blank to generate)</span></span>
+            <input name="code" type="text" maxlength="50" pattern="^[A-Za-z0-9_\-]{3,50}$" autocomplete="off" class="pk-upper"></label>
+        <label class="pk-field"><span>Discount type</span><select name="discount_type"><option value="fixed">Fixed amount (₱)</option><option value="percentage">Percentage (%)</option></select></label>
+        <label class="pk-field"><span>Discount value</span><input name="discount_value" type="text" inputmode="decimal" required placeholder="e.g. 100"></label>
+        <label class="pk-field"><span>Minimum booking spend (₱)</span><input name="min_spend" type="text" inputmode="decimal" value="0"></label>
+        <label class="pk-field"><span>Total uses <span class="pk-muted">(0 = unlimited)</span></span><input name="usage_limit" type="number" min="0" step="1" value="0"></label>
+        <label class="pk-field"><span>Uses per player <span class="pk-muted">(0 = unlimited)</span></span><input name="user_limit" type="number" min="0" step="1" value="1"></label>
+        <label class="pk-field"><span>Last valid day <span class="pk-muted">(optional, ends 11:59 PM Manila)</span></span><input name="expires_at" type="date"></label>
+    </div>
+</template>
+
+<template id="form-delete-promo" data-title="Delete promo code" data-submit="Delete" data-tone="danger">
+    <p>This code was never redeemed, so it is removed completely.</p>
+</template>
+
+<template id="form-archive-promo" data-title="Archive promo code" data-submit="Archive" data-tone="danger">
+    <p>This code has redemptions, so it is archived instead of deleted: it stops working immediately and its history is kept.</p>
+</template>
+
+<template id="form-broadcast" data-title="Broadcast an in-app notice" data-submit="Preview audience" data-idempotent data-two-step="admin_broadcast_preview">
+    <p class="pk-muted pk-small">In-app inbox only. You will see the exact number of recipients before anything is sent.</p>
+    <label class="pk-field"><span>Audience</span>
+        <select name="role_filter"><option value="all">All active accounts</option><option value="player">Players</option><option value="owner">Facility owners</option></select></label>
+    <label class="pk-field"><span>Title</span><input name="title" type="text" maxlength="150" required></label>
+    <label class="pk-field"><span>Message</span><textarea name="body" rows="4" maxlength="2000" required></textarea></label>
+    <div class="pk-preview" data-preview hidden></div>
+</template>

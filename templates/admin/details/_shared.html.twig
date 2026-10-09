@@ -1,0 +1,42 @@
+{% macro history(events) %}
+    {% import 'admin/components/ui.html.twig' as ui %}
+    <section class="pk-history" aria-label="History">
+        <h3 class="pk-box__title">{{ icon('scroll', 15) }} History</h3>
+        {% if events is empty %}
+            <p class="pk-muted pk-small">No administrator actions recorded for this record yet.</p>
+        {% else %}
+            <ol class="pk-timeline">
+                {% for e in events %}
+                    <li>
+                        <p><span class="pk-strong">{{ e.action }}</span> {{ ui.status(e.outcome) }} <span class="pk-muted pk-small">by {{ e.actor_name ?: 'System' }} · {{ e.occurred_at|when }}</span></p>
+                        {% if e.reason %}<p class="pk-small">“{{ e.reason }}”</p>{% endif %}
+                        {% if e.changes is not empty %}<details class="pk-small"><summary>Changes</summary><pre class="pk-pre">{{ e.changes|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_UNICODE') b-or constant('JSON_UNESCAPED_SLASHES')) }}</pre></details>{% endif %}
+                    </li>
+                {% endfor %}
+            </ol>
+        {% endif %}
+    </section>
+{% endmacro %}
+
+{% macro bookings_list(rows, empty_text) %}
+    {% import 'admin/components/ui.html.twig' as ui %}
+    {% if rows is empty %}
+        <p class="pk-muted pk-small">{{ empty_text }}</p>
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Affected bookings" tabindex="0">
+            <table class="pk-table pk-table--compact">
+                <thead><tr><th scope="col">Booking</th><th scope="col">Player</th><th scope="col">Court</th><th scope="col">When</th><th scope="col">Status</th><th scope="col" class="pk-num">Price</th></tr></thead>
+                <tbody>
+                {% for b in rows %}
+                    <tr>
+                        <td><button type="button" class="pk-link pk-mono" data-detail="booking" data-id="{{ b.id }}">#{{ b.id }}</button></td>
+                        <td>{{ b.player_name ?: '—' }}</td><td>{{ b.court_name }}</td>
+                        <td class="pk-nowrap">{{ b.booking_date ? b.booking_date|day : b.date }} · {{ b.time }}</td>
+                        <td>{{ ui.status(b.status) }}</td><td class="pk-num pk-nowrap">{{ b.price|peso }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+{% endmacro %}

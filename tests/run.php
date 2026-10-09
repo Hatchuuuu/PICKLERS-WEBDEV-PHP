@@ -19,7 +19,8 @@ $root = dirname(__DIR__);
 define('ROOT_PATH', $root);
 define('APP_PATH', $root . '/src');
 define('CONFIG_PATH', $root . '/config');
-define('VIEWS_PATH', $root . '/views');
+// Stored DATETIMEs are Asia/Manila wall-clock time, as in config/bootstrap.php.
+date_default_timezone_set('Asia/Manila');
 // The suite gets its OWN schema-stamp / seed-flag / JSON-fallback directory,
 // separate from the app's /database. Those stamp files are keyed by path,
 // not by MySQL database name — pointing the suite at picklers_test while
@@ -56,8 +57,24 @@ if (!is_dir(DATA_PATH)) {
     @mkdir(DATA_PATH, 0750, true);
 }
 
-require_once APP_PATH . '/Core/Autoloader.php';
-Picklers\Core\Autoloader::register('Picklers\\', APP_PATH . '/');
+// `--fresh` rebuilds the disposable test database from nothing: it drops ONLY
+// `picklers_test` and clears ONLY the suite's own stamp directory, so the run
+// starts from the same state on every machine.
+$argvFiltered = array_values(array_filter($argv, fn($a) => $a !== '--fresh'));
+if (count($argvFiltered) !== count($argv)) {
+    $argv = $argvFiltered;
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $_ENV['DB_HOST'] ?? '127.0.0.1', (int)($_ENV['DB_PORT'] ?? 3306)),
+        $_ENV['DB_USERNAME'] ?? 'root', $_ENV['DB_PASSWORD'] ?? '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+    $pdo->exec('DROP DATABASE IF EXISTS `picklers_test`');
+    foreach (['.schema_version', '.seeded', '.court_names_normalized'] as $stampFile) {
+        @unlink(DATA_PATH . '/' . $stampFile);
+    }
+    echo "Rebuilt isolated database picklers_test from scratch.\n";
+}
+
+require_once $root . '/vendor/autoload.php';
 
 require_once __DIR__ . '/TestCase.php';
 
@@ -89,6 +106,19 @@ $__db = \Picklers\Core\Database::get();
 if (!$__db->isUsingMySQL()) {
     fwrite(STDERR, "MySQL is unreachable — the suite needs the isolated picklers_test database, not the JSON fallback.\n");
     exit(1);
+}
+
+// Apply the admin console's Doctrine migrations to picklers_test as well, so the
+// player/owner flows are exercised against the same schema production runs.
+if (is_file($root . '/vendor/autoload.php')) {
+    $__out = [];
+    $__code = 0;
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/bin/console')
+        . ' doctrine:migrations:migrate -n --env=test --database=picklers_test --data-path=database/.test-state 2>&1', $__out, $__code);
+    if ($__code !== 0) {
+        fwrite(STDERR, "Could not migrate picklers_test:\n" . implode("\n", $__out) . "\n");
+        exit(1);
+    }
 }
 
 echo "\nPICKLERS test suite (database: picklers_test)\n";

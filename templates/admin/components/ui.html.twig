@@ -1,0 +1,98 @@
+{# Reusable admin UI components. Everything is escaped by Twig's autoescape. #}
+
+{% macro status(value, label = null) %}
+    <span class="pk-pill pk-pill--{{ status_tone(value) }}">{{ label ?? (value|status_label) }}</span>
+{% endmacro %}
+
+{% macro empty(icon_name, title, text, filtered = false, clear_url = null) %}
+    <div class="pk-empty" role="status">
+        {{ icon(filtered ? 'filter' : icon_name, 36) }}
+        <p class="pk-empty__title">{{ filtered ? 'No results match these filters' : title }}</p>
+        <p class="pk-empty__text">{{ filtered ? 'Try a different search or clear the filters.' : text }}</p>
+        {% if filtered and clear_url %}
+            <a class="pk-btn pk-btn--ghost" href="{{ clear_url }}" data-panel-link>Clear filters</a>
+        {% endif %}
+    </div>
+{% endmacro %}
+
+{% macro invalid_notice(page) %}
+    {% if page.query.invalid is not empty %}
+        <p class="pk-notice pk-notice--warning" role="status">
+            {{ icon('alert-triangle', 15) }}
+            Ignored invalid {{ page.query.invalid|join(', ') }} value{{ page.query.invalid|length > 1 ? 's' : '' }} in the address; showing the closest valid view.
+        </p>
+    {% endif %}
+{% endmacro %}
+
+{% macro sort_header(label, key, page, tab, extra = {}, numeric = false) %}
+    {% set active = page.query.sort == key %}
+    {% set dir = active and page.query.dir == 'asc' ? 'desc' : 'asc' %}
+    <th scope="col" class="{{ numeric ? 'pk-num' }}" aria-sort="{{ active ? (page.query.dir == 'asc' ? 'ascending' : 'descending') : 'none' }}">
+        <a class="pk-sort" data-panel-link href="{{ path('admin_console', page.query.params({sort: key, dir: dir, page: 1})|merge(extra)|merge({tab: tab})) }}">
+            {{ label }}<span class="pk-sort__mark" aria-hidden="true">{{ active ? (page.query.dir == 'asc' ? '▲' : '▼') : '' }}</span>
+        </a>
+    </th>
+{% endmacro %}
+
+{% macro pagination(page, tab, extra = {}) %}
+    {% if page.total > 0 %}
+        <nav class="pk-pager" aria-label="Pagination">
+            <p class="pk-pager__count" aria-live="polite">Showing {{ page.from }}–{{ page.to }} of {{ page.total|number_format }}</p>
+            <div class="pk-pager__controls">
+                <label class="pk-pager__size">
+                    <span>Rows</span>
+                    <select data-page-size data-base="{{ path('admin_console', page.query.params({page: 1, per_page: null})|merge(extra)|merge({tab: tab})) }}">
+                        {% for size in [10, 25, 50, 100] %}
+                            <option value="{{ size }}" {{ page.query.perPage == size ? 'selected' }}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                {% if page.query.page > 1 %}
+                    <a class="pk-btn pk-btn--ghost pk-btn--sm" data-panel-link rel="prev" href="{{ path('admin_console', page.query.params({page: page.query.page - 1})|merge(extra)|merge({tab: tab})) }}">{{ icon('chevron-left', 14) }} Previous</a>
+                {% else %}
+                    <span class="pk-btn pk-btn--ghost pk-btn--sm is-disabled" aria-disabled="true">{{ icon('chevron-left', 14) }} Previous</span>
+                {% endif %}
+                <span class="pk-pager__page">Page {{ page.query.page }} of {{ page.pages }}</span>
+                {% if page.query.page < page.pages %}
+                    <a class="pk-btn pk-btn--ghost pk-btn--sm" data-panel-link rel="next" href="{{ path('admin_console', page.query.params({page: page.query.page + 1})|merge(extra)|merge({tab: tab})) }}">Next {{ icon('chevron-right', 14) }}</a>
+                {% else %}
+                    <span class="pk-btn pk-btn--ghost pk-btn--sm is-disabled" aria-disabled="true">Next {{ icon('chevron-right', 14) }}</span>
+                {% endif %}
+            </div>
+        </nav>
+    {% endif %}
+{% endmacro %}
+
+{% macro header(title, subtitle, actions = null) %}
+    <header class="pk-panel__header">
+        <div>
+            <h1 class="pk-title" tabindex="-1" data-panel-heading>{{ title }}</h1>
+            {% if subtitle %}<p class="pk-subtitle">{{ subtitle }}</p>{% endif %}
+        </div>
+        {% if actions %}<div class="pk-panel__actions">{{ actions }}</div>{% endif %}
+    </header>
+{% endmacro %}
+
+{% macro avatar(name, url = '') %}
+    <span class="pk-avatar" aria-hidden="true">
+        {% if url and 'unsplash.com' not in url %}<img src="{{ url }}" alt="" loading="lazy" onerror="this.remove()">{% endif %}
+        <span>{{ name|initial }}</span>
+    </span>
+{% endmacro %}
+
+{% macro action_button(label, action, params, opts = {}) %}
+    <button type="button"
+            class="pk-btn {{ opts.class ?? 'pk-btn--ghost pk-btn--sm' }}"
+            data-action="{{ action }}"
+            data-params="{{ params|json_encode }}"
+            {% if opts.form is defined %}data-form="{{ opts.form }}"{% endif %}
+            {% if opts.title is defined %}data-title="{{ opts.title }}"{% endif %}
+            {% if opts.subject is defined %}data-subject="{{ opts.subject }}"{% endif %}
+            {% if opts.after is defined %}data-after="{{ opts.after }}"{% endif %}
+            {% if opts.label is defined %}aria-label="{{ opts.label }}"{% endif %}>{{ opts.icon is defined ? icon(opts.icon, 14) }}{{ label }}</button>
+{% endmacro %}
+
+{% macro detail_button(label, type, id, opts = {}) %}
+    <button type="button" class="pk-btn {{ opts.class ?? 'pk-btn--ghost pk-btn--sm' }}" data-detail="{{ type }}" data-id="{{ id }}"
+            {% if opts.label is defined %}aria-label="{{ opts.label }}"{% endif %}>{{ label }}</button>
+{% endmacro %}

@@ -1,0 +1,134 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set page = panel.page %}
+{% set q = page.query %}
+{% set view = panel.view %}
+{% set dataset = view == 'payments' ? 'ledger-payments' : 'ledger-wallet' %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: dataset}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
+{% endset %}
+{{ ui.header('Financial Ledger', 'Audited record of all wallet movements, credit adjustments, and booking payments', header_actions) }}
+
+<nav class="pk-subtabs" aria-label="Ledger views">
+    <a class="pk-subtab {{ view == 'wallet' ? 'is-active' }}" data-panel-link href="{{ path('admin_console', {tab: 'ledger'}) }}" {{ view == 'wallet' ? 'aria-current="page"' }}>Wallet movements</a>
+    <a class="pk-subtab {{ view == 'payments' ? 'is-active' }}" data-panel-link href="{{ path('admin_console', {tab: 'ledger', view: 'payments'}) }}" {{ view == 'payments' ? 'aria-current="page"' }}>Booking payments</a>
+</nav>
+
+<form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter ledger">
+    <input type="hidden" name="tab" value="ledger">
+    <input type="hidden" name="sort" value="{{ q.sort }}"><input type="hidden" name="dir" value="{{ q.dir }}"><input type="hidden" name="per_page" value="{{ q.perPage }}">
+    {% if q.filter('user') %}<input type="hidden" name="user" value="{{ q.filter('user') }}">{% endif %}
+    {% if view == 'payments' %}
+        <input type="hidden" name="view" value="payments">
+        <label class="pk-field pk-field--inline"><span>Payment evidence</span>
+            <select name="settlement" data-autosubmit>
+                <option value="">All</option>
+                {% for s in ['collected_in_app', 'refunded', 'external_unverified', 'pay_at_venue', 'no_wallet_record'] %}<option value="{{ s }}" {{ q.filter('settlement') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="pk-field pk-field--inline"><span>Booking status</span>
+            <select name="status" data-autosubmit>
+                <option value="">All</option>
+                {% for s in ['pending', 'confirmed', 'completed', 'cancelled'] %}<option value="{{ s }}" {{ q.filter('status') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+            </select>
+        </label>
+    {% else %}
+        <label class="pk-field pk-field--inline"><span>Type</span>
+            <select name="type" data-autosubmit>
+                <option value="">Credits and debits</option>
+                <option value="credit" {{ q.filter('type') == 'credit' ? 'selected' }}>Credits</option>
+                <option value="debit" {{ q.filter('type') == 'debit' ? 'selected' }}>Debits</option>
+            </select>
+        </label>
+        <label class="pk-field pk-field--inline"><span>Kind</span>
+            <select name="kind" data-autosubmit>
+                <option value="">All kinds</option>
+                {% for k in ['top_up', 'booking_payment', 'refund', 'admin_adjustment', 'other_credit', 'other_debit'] %}<option value="{{ k }}" {{ q.filter('kind') == k ? 'selected' }}>{{ k|status_label }}</option>{% endfor %}
+            </select>
+        </label>
+    {% endif %}
+    <label class="pk-field pk-field--inline"><span>Facility</span>
+        <select name="facility" data-autosubmit>
+            <option value="">All facilities</option>
+            {% for f in panel.facility_options %}<option value="{{ f.id }}" {{ q.filter('facility') == (f.id ~ '') ? 'selected' }}>{{ f.name }}</option>{% endfor %}
+        </select>
+    </label>
+    <label class="pk-field pk-field--inline"><span>From</span><input type="date" name="from" value="{{ q.filter('from') }}" data-autosubmit></label>
+    <label class="pk-field pk-field--inline"><span>to</span><input type="date" name="to" value="{{ q.filter('to') }}" data-autosubmit></label>
+    {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'ledger'}|merge(view == 'payments' ? {view: 'payments'} : {})) }}">Clear filters</a>{% endif %}
+    <noscript><button class="pk-btn pk-btn--ghost pk-btn--sm" type="submit">Apply</button></noscript>
+</form>
+{{ ui.invalid_notice(page) }}
+
+{% if view == 'payments' %}
+    <div class="pk-stats" role="group" aria-label="Totals for the filtered bookings">
+        <div class="pk-stat"><p class="pk-stat__label">Booking value (confirmed + completed)</p><p class="pk-stat__value">{{ page.summary.gross|peso }}</p><p class="pk-stat__hint">What was booked — not what was paid</p></div>
+        <div class="pk-stat"><p class="pk-stat__label">Collected in app</p><p class="pk-stat__value pk-positive">{{ page.summary.collected|peso }}</p><p class="pk-stat__hint">Pickle Credits debits not refunded</p></div>
+        <div class="pk-stat"><p class="pk-stat__label">Refunded in app</p><p class="pk-stat__value">{{ page.summary.refunded|peso }}</p><p class="pk-stat__hint">Pickle Credits returned to players</p></div>
+        <div class="pk-stat"><p class="pk-stat__label">External · unverified</p><p class="pk-stat__value pk-warn">{{ page.summary.unverified|peso }}</p><p class="pk-stat__hint">GCash / Maya / Card — no gateway confirmation exists</p></div>
+        <div class="pk-stat"><p class="pk-stat__label">Pay at venue</p><p class="pk-stat__value">{{ page.summary.venue|peso }}</p><p class="pk-stat__hint">Collected (or not) at the facility</p></div>
+    </div>
+{% else %}
+    <div class="pk-stats" role="group" aria-label="Totals for the filtered wallet movements">
+        <div class="pk-stat"><p class="pk-stat__label">Credits</p><p class="pk-stat__value pk-positive">{{ page.summary.credits|peso }}</p><p class="pk-stat__hint">Top-ups, refunds, admin credits</p></div>
+        <div class="pk-stat"><p class="pk-stat__label">Debits</p><p class="pk-stat__value pk-negative-text">{{ page.summary.debits|peso }}</p><p class="pk-stat__hint">Booking payments, admin debits</p></div>
+        <div class="pk-stat"><p class="pk-stat__label">Net change in balances</p><p class="pk-stat__value pk-cyan-text">{{ page.summary.net|peso }}</p><p class="pk-stat__hint">Credits minus debits</p></div>
+    </div>
+{% endif %}
+
+<section class="pk-card pk-card--flush" aria-label="{{ view == 'payments' ? 'Booking payments' : 'Wallet movements' }}">
+    {% if page.isEmpty %}
+        {{ ui.empty('wallet', 'Nothing recorded yet', view == 'payments' ? 'Bookings appear here with their payment evidence.' : 'Pickle Credits movements appear here as they happen.', page.hasFilters, path('admin_console', {tab: 'ledger'}|merge(view == 'payments' ? {view: 'payments'} : {}))) }}
+    {% elseif view == 'payments' %}
+        <div class="pk-table-scroll" role="region" aria-label="Booking payments table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Booking payments, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    <th scope="col">Booking</th><th scope="col">Player</th><th scope="col">Facility</th>
+                    {{ ui.sort_header('Created', 'created_at', page, 'ledger', {view: 'payments'}) }}
+                    {{ ui.sort_header('Price · method', 'price', page, 'ledger', {view: 'payments'}, true) }}<th scope="col">Booking status</th><th scope="col">Payment evidence</th>
+                </tr></thead>
+                <tbody>
+                {% for b in page.items %}
+                    <tr>
+                        <td class="pk-mono pk-nowrap"><button type="button" class="pk-link" data-detail="booking" data-id="{{ b.id }}">#{{ b.id }}</button></td>
+                        <td class="pk-truncate"><p class="pk-strong">{{ b.player_name ?: '—' }}</p></td>
+                        <td class="pk-truncate">{{ b.facility_name }}</td>
+                        <td class="pk-nowrap">{{ b.created_at|when }}</td>
+                        <td class="pk-num pk-nowrap"><span class="pk-strong">{{ b.price|peso }}</span><p class="pk-muted pk-small">{{ b.payment_method }}</p></td>
+                        <td>{{ ui.status(b.status) }}</td>
+                        <td>{{ ui.status(b.settlement) }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'ledger', {view: 'payments'}) }}
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Wallet movements table" tabindex="0">
+            <table class="pk-table">
+                <caption class="pk-sr">Wallet movements, {{ page.total }} result(s)</caption>
+                <thead><tr>
+                    {{ ui.sort_header('Date', 'created_at', page, 'ledger') }}
+                    <th scope="col">Person</th><th scope="col">Kind</th><th scope="col">Reference</th>
+                    {{ ui.sort_header('Amount', 'amount', page, 'ledger', {}, true) }}
+                    <th scope="col" class="pk-num">Balance after</th><th scope="col">Recorded by</th>
+                </tr></thead>
+                <tbody>
+                {% for t in page.items %}
+                    <tr>
+                        <td class="pk-nowrap"><p class="pk-strong">{{ t.created_at|when('M j, Y') }}</p><p class="pk-muted pk-small">{{ t.created_at|when('g:i A') }} · <span class="pk-mono">{{ t.id }}</span></p></td>
+                        <td><p class="pk-strong pk-truncate">{{ t.user_name ?: 'Unknown account' }}</p><p class="pk-muted pk-small pk-truncate">{{ t.user_email }}</p></td>
+                        <td class="pk-nowrap">{{ ui.status(t.kind) }}</td>
+                        <td class="pk-wrap"><p class="pk-clamp">{{ t.label }}</p>{% if t.booking_ref %}<button type="button" class="pk-link pk-small" data-detail="booking" data-id="{{ t.booking_ref }}">Booking #{{ t.booking_ref }}</button>{% endif %}{% if t.reason and t.reason != t.label %}<p class="pk-small pk-muted">Reason: {{ t.reason }}</p>{% endif %}</td>
+                        <td class="pk-num pk-nowrap"><span class="{{ t.type == 'credit' ? 'pk-positive' : 'pk-negative-text' }}" style="font-size:13.5px; font-weight:700;">{{ t.type == 'credit' ? '+' : '−' }}{{ t.amount|peso }}</span><span class="pk-sr"> {{ t.type }}</span></td>
+                        <td class="pk-num pk-nowrap"><span class="pk-muted" style="font-weight:600;">{{ t.balance_after is not null ? t.balance_after|peso : '—' }}</span></td>
+                        <td><span class="pk-role">{{ t.actor_name ?: (t.kind == 'admin_adjustment' ? 'Admin' : 'System / Player') }}</span></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ ui.pagination(page, 'ledger') }}
+    {% endif %}
+</section>

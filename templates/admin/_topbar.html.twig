@@ -1,0 +1,31 @@
+<header class="pk-topbar">
+    <button type="button" class="pk-icon-btn pk-menu-btn" data-open-nav aria-controls="adminSidebar" aria-expanded="false" aria-label="Open navigation">{{ icon('menu', 20) }}</button>
+
+    {# ONE contextual search: it searches the active panel on the server (its
+       scope is spelled out in the label/placeholder) and is hidden on panels
+       without searchable records. It submits the panel's own filter form. #}
+    <div class="pk-search" id="topSearch" {{ search_scopes[tab] is defined ? '' : 'hidden' }}>
+        <label for="topSearchInput" class="pk-sr" id="topSearchLabel">{{ search_scopes[tab] ?? 'Search' }}</label>
+        {{ icon('search', 16) }}
+        <input id="topSearchInput" type="search" name="q" form="panelFilters" autocomplete="off" maxlength="100"
+               value="{{ panel.page.query.q ?? '' }}" placeholder="{{ search_scopes[tab] ?? 'Search' }}">
+        <button type="submit" form="panelFilters" class="pk-btn pk-btn--ghost pk-btn--sm pk-search__go">Search</button>
+    </div>
+
+    <div class="pk-topbar__actions">
+        <div class="pk-popover-wrap">
+            <button type="button" class="pk-icon-btn" id="activityBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="activityPanel"
+                    aria-label="Recent activity{{ unseen > 0 ? ' — ' ~ unseen ~ ' new' : '' }}">
+                {{ icon('bell', 18) }}
+                <span class="pk-dot" id="activityDot" {{ unseen > 0 ? '' : 'hidden' }}></span>
+            </button>
+            <div class="pk-popover" id="activityPanel" role="dialog" aria-label="Recent activity" hidden>
+                <div class="pk-popover__head">
+                    <p>Recent activity</p>
+                    <span class="pk-muted" id="activityState">Loading…</span>
+                </div>
+                <ul class="pk-activity-list" id="activityList"></ul>
+            </div>
+        </div>
+    </div>
+</header>

@@ -1,0 +1,49 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set c = record %}
+{% set content = c.content %}
+{% set hidden = content and content.hidden_at %}
+
+<header class="pk-detail__head">
+    <div>
+        <h2 class="pk-detail__title" id="detailTitle">Case <span class="pk-mono">{{ c.id }}</span> {{ ui.status(c.status) }}</h2>
+        <p class="pk-muted pk-small">{{ c.content_type|capitalize }} by {{ c.author_name ?: 'unknown author' }} · {{ c.category|capitalize }} · opened by {{ c.opened_by_name ?: 'unknown' }} {{ c.opened_at|when }}</p>
+    </div>
+</header>
+
+<section class="pk-box" aria-labelledby="case-evidence">
+    <h3 class="pk-box__title" id="case-evidence">{{ icon('eye', 15) }} Evidence</h3>
+    <p class="pk-muted pk-small">Reason for review</p>
+    <p>{{ c.reason }}</p>
+    <p class="pk-muted pk-small">Content when flagged</p>
+    <blockquote class="pk-quote">{{ c.content_snapshot }}</blockquote>
+    {% if content is null %}
+        <p class="pk-notice">The {{ c.content_type }} no longer exists.</p>
+    {% else %}
+        {% if content.body != c.content_snapshot %}<p class="pk-muted pk-small">Current content</p><blockquote class="pk-quote">{{ content.body }}</blockquote>{% endif %}
+        <p>{{ ui.status(hidden ? 'suspended' : 'active', hidden ? 'Hidden from the community' : 'Visible to the community') }}{% if hidden %} <span class="pk-small pk-muted">since {{ content.hidden_at|when }} — “{{ content.hidden_reason }}”</span>{% endif %}</p>
+    {% endif %}
+</section>
+
+<section class="pk-history" aria-labelledby="case-history">
+    <h3 class="pk-box__title" id="case-history">{{ icon('scroll', 15) }} Case history</h3>
+    <ol class="pk-timeline">
+        {% for e in c.events %}
+            <li><p><span class="pk-strong">{{ e.action|capitalize }}</span> <span class="pk-muted pk-small">by {{ e.actor_name ?: 'System' }} · {{ e.created_at|when }}</span></p>{% if e.note %}<p class="pk-small">“{{ e.note }}”</p>{% endif %}</li>
+        {% endfor %}
+    </ol>
+    {% if c.status != 'open' %}<p class="pk-notice">Closed as {{ c.status }} ({{ c.resolution|replace({'_': ' '}) }}) by {{ c.resolved_by_name }} on {{ c.resolved_at|when }}.</p>{% endif %}
+</section>
+
+<footer class="pk-detail__foot pk-detail__foot--wrap">
+    {% if is_granted('admin.moderation.manage') and content is not null %}
+        {% if hidden %}
+            {{ ui.action_button('Restore content…', 'admin_moderation_restore', {case_id: c.id}, {form: 'moderation-restore', subject: c.content_type ~ ' ' ~ c.content_id}) }}
+        {% elseif c.status == 'open' %}
+            {{ ui.action_button('Hide content…', 'admin_moderation_hide', {case_id: c.id}, {form: 'moderation-hide', subject: c.content_type ~ ' ' ~ c.content_id, class: 'pk-btn--danger'}) }}
+        {% endif %}
+    {% endif %}
+    {% if is_granted('admin.moderation.manage') and c.status == 'open' %}
+        {% if not hidden %}{{ ui.action_button('Dismiss (no violation)…', 'admin_moderation_dismiss', {case_id: c.id}, {form: 'moderation-close', title: 'Dismiss case', subject: c.id}) }}{% endif %}
+        {{ ui.action_button('Resolve case…', 'admin_moderation_resolve', {case_id: c.id}, {form: 'moderation-close', title: 'Resolve case', subject: c.id, class: 'pk-btn--primary'}) }}
+    {% endif %}
+</footer>

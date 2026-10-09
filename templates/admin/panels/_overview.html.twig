@@ -1,0 +1,87 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% set k = panel.kpis %}
+
+{% set header_actions %}
+    <a class="pk-btn pk-btn--primary" data-panel-link href="{{ path('admin_console', {tab: 'applications', status: 'pending_review'}) }}">{{ icon('check-circle', 15) }} Review applications</a>
+{% endset %}
+{{ ui.header('Control Center', 'Live platform totals, the partner queue and recent activity', header_actions) }}
+
+<section aria-labelledby="kpi-heading">
+    <h2 id="kpi-heading" class="pk-sr">Key figures</h2>
+    <div class="pk-kpis" id="kpiGrid">
+        {% set cards = [
+            {key: 'active_accounts', label: 'Active accounts', icon: 'users', value: k.active_accounts|number_format, tab: 'users', q: {}, desc: 'Players, owners and admins'},
+            {key: 'pending_applications', label: 'Pending applications', icon: 'file-text', value: k.pending_applications|number_format, tab: 'applications', q: {status: 'pending_review'}, desc: 'Needs review'},
+            {key: 'facility_owners', label: 'Facility owners', icon: 'building', value: k.facility_owners|number_format, tab: 'users', q: {role: 'owner'}, desc: 'Active owner accounts'},
+            {key: 'redeemable_promos', label: 'Redeemable promos', icon: 'tag', value: k.redeemable_promos|number_format, tab: 'promos', q: {state: 'active'}, desc: 'Active and usable now'},
+            {key: 'bookings_pending', label: 'Booking requests waiting', icon: 'calendar', value: k.bookings_pending|number_format, tab: 'bookings', q: {status: 'pending'}, desc: 'Awaiting the venue'},
+            {key: 'booking_value_confirmed', label: 'Confirmed booking value', icon: 'wallet', value: k.booking_value_confirmed|peso, tab: 'ledger', q: {view: 'payments'}, desc: 'Value booked, not money collected'},
+            {key: 'cancellation_rate', label: 'Cancellation rate', icon: 'alert-triangle', value: k.cancellation_rate is null ? 'Not available' : k.cancellation_rate ~ '%', tab: 'bookings', q: {status: 'cancelled'}, desc: 'Cancelled or declined'},
+            {key: 'open_moderation_cases', label: 'Open moderation cases', icon: 'shield', value: k.open_moderation_cases|number_format, tab: 'moderation', q: {status: 'open'}, desc: 'Waiting for a decision'},
+        ] %}
+        {% for card in cards %}
+            <a class="pk-kpi" data-panel-link href="{{ path('admin_console', card.q|merge({tab: card.tab})) }}" title="{{ panel.definitions[card.key] }}">
+                <span class="pk-kpi__icon">{{ icon(card.icon, 18) }}</span>
+                <span class="pk-kpi__label">{{ card.label }}</span>
+                <span class="pk-kpi__value" data-kpi="{{ card.key }}">{{ card.value }}</span>
+                <span class="pk-kpi__desc">{{ card.desc }}</span>
+            </a>
+        {% endfor %}
+    </div>
+    <div class="pk-kpi-foot">
+        <button type="button" class="pk-link pk-small" data-refresh-kpis>{{ icon('refresh', 13) }} Refresh figures</button>
+        <span id="kpiStatus" class="pk-muted pk-small" role="status"></span>
+        <details class="pk-defs pk-defs--inline">
+            <summary class="pk-small">How these figures are defined</summary>
+            <dl>{% for card in cards %}<dt>{{ card.label }}</dt><dd>{{ panel.definitions[card.key] }}</dd>{% endfor %}</dl>
+        </details>
+    </div>
+</section>
+
+<div class="pk-grid-2">
+    <section class="pk-card" aria-labelledby="queue-heading">
+        <div class="pk-card__head">
+            <h2 class="pk-card__title" id="queue-heading">{{ icon('file-text', 18) }} Pending partner applications</h2>
+            <a class="pk-btn pk-btn--ghost pk-btn--sm" data-panel-link href="{{ path('admin_console', {tab: 'applications', status: 'pending_review'}) }}">View queue</a>
+        </div>
+        {% if panel.pending.isEmpty %}
+            {{ ui.empty('sparkle', 'Queue is clear', 'Every submitted partner application has been reviewed.') }}
+        {% else %}
+            <ul class="pk-list">
+                {% for app in panel.pending.items|slice(0, 5) %}
+                    <li class="pk-list__row">
+                        <span class="pk-tile" aria-hidden="true">{{ app.owner_name|initial }}</span>
+                        <div class="pk-list__main">
+                            <p class="pk-strong pk-truncate">{{ app.facility_name ?: 'Unnamed facility' }}</p>
+                            <p class="pk-muted pk-small pk-truncate">{{ app.owner_name ?: 'Applicant' }} · {{ app.address ?: '—' }} · {{ app.created_at|when }}</p>
+                        </div>
+                        {{ ui.detail_button('Review', 'application', app.id, {label: 'Review application for ' ~ (app.facility_name ?: 'unnamed facility')}) }}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if panel.pending.total > 5 %}<p class="pk-muted pk-small">{{ panel.pending.total - 5 }} more in the queue.</p>{% endif %}
+        {% endif %}
+    </section>
+
+    <section class="pk-card" aria-labelledby="activity-heading">
+        <div class="pk-card__head">
+            <h2 class="pk-card__title" id="activity-heading">{{ icon('scroll', 18) }} Recent activity</h2>
+            <a class="pk-btn pk-btn--ghost pk-btn--sm" data-panel-link href="{{ path('admin_console', {tab: 'system'}) }}">Audit trail</a>
+        </div>
+        {% if panel.activity is empty %}
+            {{ ui.empty('scroll', 'No activity yet', 'Applications, bookings and moderation cases appear here as they happen.') }}
+        {% else %}
+            <ul class="pk-list">
+                {% for item in panel.activity %}
+                    <li class="pk-list__row">
+                        <span class="pk-activity-dot pk-activity-dot--{{ item.kind }}" aria-hidden="true"></span>
+                        <div class="pk-list__main">
+                            <a class="pk-strong" data-panel-link href="{{ path('admin_console', item.query|merge({tab: item.tab})) }}">{{ item.title }}</a>
+                            <p class="pk-muted pk-small pk-truncate">{{ item.detail }} · {{ item.at|when }}</p>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </section>
+</div>

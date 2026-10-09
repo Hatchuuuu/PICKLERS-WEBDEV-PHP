@@ -26,6 +26,5 @@ return [
         'root'   => defined('ROOT_PATH') ? ROOT_PATH : dirname(__DIR__),
         'public' => defined('PUBLIC_PATH') ? PUBLIC_PATH : (dirname(__DIR__) . '/public'),
         'data'   => defined('DATA_PATH') ? DATA_PATH : (dirname(__DIR__) . '/database'),
-        'views'  => defined('VIEWS_PATH') ? VIEWS_PATH : (dirname(__DIR__) . '/views'),
     ]
 ];

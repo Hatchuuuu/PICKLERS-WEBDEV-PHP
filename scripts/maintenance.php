@@ -23,6 +23,8 @@ $root = dirname(__DIR__);
 define('ROOT_PATH', $root);
 define('APP_PATH', $root . '/src');
 define('CONFIG_PATH', $root . '/config');
+// Stored DATETIMEs are Asia/Manila wall-clock time, as in config/bootstrap.php.
+date_default_timezone_set('Asia/Manila');
 define('DATA_PATH', $root . '/database');
 
 // Load .env exactly the way public/index.php does
@@ -41,8 +43,7 @@ if (is_file($envFile)) {
     }
 }
 
-require_once APP_PATH . '/Core/Autoloader.php';
-\Picklers\Core\Autoloader::register('Picklers\\', APP_PATH . '/');
+require_once ROOT_PATH . '/vendor/autoload.php';
 
 $db = \Picklers\Core\Database::get();
 if (!$db->isUsingMySQL()) {

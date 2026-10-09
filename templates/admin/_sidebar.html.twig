@@ -1,0 +1,62 @@
+{# Same groupings, order and names as the original console; links are real URLs
+   (?tab=) so they work without JavaScript, in new tabs and with Back/Forward. #}
+{% set nav = [
+    {label: 'Overview', items: [{tab: 'overview', icon: 'grid', text: 'Control Center'}]},
+    {label: 'Operations', items: [
+        {tab: 'applications', icon: 'file-text', text: 'Partner Applications', badge: badges.applications, badge_label: 'pending'},
+        {tab: 'facilities', icon: 'building', text: 'Facilities & Courts'},
+        {tab: 'bookings', icon: 'calendar', text: 'Bookings & Matches'},
+    ]},
+    {label: 'User Management', items: [
+        {tab: 'users', icon: 'users', text: 'User Directory & Roles'},
+        {tab: 'moderation', icon: 'shield', text: 'Content Moderation', badge: badges.moderation, badge_label: 'open cases'},
+    ]},
+    {label: 'Finance & Promotions', items: [
+        {tab: 'ledger', icon: 'wallet', text: 'Financial Ledger'},
+        {tab: 'promos', icon: 'tag', text: 'Promo Codes'},
+    ]},
+    {label: 'Insights & Reports', items: [{tab: 'analytics', icon: 'bar-chart', text: 'Analytics & Reports'}]},
+    {label: 'System & Security', items: [{tab: 'system', icon: 'terminal', text: 'System & Audit'}]},
+] %}
+<aside class="pk-sidebar" id="adminSidebar" aria-label="Admin navigation">
+    <div class="pk-sidebar__brand">
+        <img src="{{ asset('assets/images/PICKLERS_OFFICIAL_LOGO.svg') }}" alt="" width="50" height="50">
+        <span class="pk-brand">PICKLERS</span>
+        <button type="button" class="pk-icon-btn pk-sidebar__close" data-close-nav aria-label="Close navigation">{{ icon('x', 18) }}</button>
+    </div>
+    <nav class="pk-sidebar__nav">
+        {% for group in nav %}
+            <div class="pk-nav-group">
+                <p class="pk-nav-group__label" id="nav-{{ loop.index }}">{{ group.label }}</p>
+                <ul aria-labelledby="nav-{{ loop.index }}">
+                    {% for item in group.items %}
+                        <li>
+                            <a class="pk-nav-item {{ tab == item.tab ? 'is-active' }}" href="{{ path('admin_console', {tab: item.tab}) }}"
+                               data-tab-link="{{ item.tab }}" {{ tab == item.tab ? 'aria-current="page"' }}>
+                                {{ icon(item.icon, 18) }}<span>{{ item.text }}</span>
+                                {% if item.badge is defined and item.badge > 0 %}
+                                    <span class="pk-nav-badge" data-badge="{{ item.tab }}">{{ item.badge }}<span class="pk-sr"> {{ item.badge_label }}</span></span>
+                                {% elseif item.badge is defined %}
+                                    <span class="pk-nav-badge" data-badge="{{ item.tab }}" hidden></span>
+                                {% endif %}
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endfor %}
+    </nav>
+    <div class="pk-sidebar__footer">
+        <div class="pk-account">
+            {% import 'admin/components/ui.html.twig' as ui %}
+            {{ ui.avatar(admin.name, admin.avatarUrl) }}
+            <div class="pk-account__info">
+                <p class="pk-account__name">{{ admin.name }}</p>
+                <p class="pk-account__role">
+                    {% for label in admin.roleLabels %}<span class="pk-role {{ label == 'Privileged admin' ? 'pk-role--strong' }}">{{ label }}</span>{% endfor %}
+                </p>
+            </div>
+            <a href="{{ app_url }}" class="pk-icon-btn" aria-label="Back to the player app" title="Back to the player app">{{ icon('log-out', 16) }}</a>
+        </div>
+    </div>
+</aside>

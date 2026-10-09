@@ -16,6 +16,7 @@ class Database {
     private ?PDO $pdo = null;
     private bool $isMySQL = false;
     private string $dataDir;
+    private bool $schemaInitialisedThisBoot = false;
 
     /**
      * Request-scoped read cache for facility/court lookups.
@@ -42,70 +43,83 @@ class Database {
             : PDO::MYSQL_ATTR_INIT_COMMAND;
     }
 
+    /** Doctrine's connection, when running inside the Symfony kernel (see Kernel::boot()). */
+    private static ?\Closure $connectionProvider = null;
+
+    /**
+     * Run on Doctrine's connection: the kernel registers it at boot, so Symfony
+     * code, the shared rules and this class share one MySQL session per request.
+     *
+     * @param \Closure(): \Doctrine\DBAL\Connection $provider
+     */
+    public static function useConnection(\Closure $provider): void {
+        self::$connectionProvider = $provider;
+    }
+
     private function __construct() {
         $configFile = defined('CONFIG_PATH') ? (CONFIG_PATH . '/database.php') : (dirname(__DIR__, 2) . '/config/database.php');
         $config = file_exists($configFile) ? require $configFile : [];
-        
+
+        // Schema stamps, seed flags and throttle counters (never data: MySQL is required).
         $this->dataDir = $config['json']['path'] ?? (defined('DATA_PATH') ? DATA_PATH : (dirname(__DIR__, 2) . '/database'));
 
         if (!is_dir($this->dataDir)) {
             @mkdir($this->dataDir, 0750, true);
         }
 
-        // Try connecting to MySQL
-        try {
-            $mysql = $config['connections']['mysql'] ?? [];
-            $host = $mysql['host'] ?? '127.0.0.1';
-            $user = $mysql['username'] ?? 'root';
-            $pass = $mysql['password'] ?? '';
-            $dbname = $mysql['database'] ?? 'picklers_db';
-            
-            // First connect without db name to ensure picklers_db exists
-            $rootPdo = new PDO("mysql:host=$host;charset=utf8mb4", $user, $pass, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_TIMEOUT => 2
-            ]);
-            $rootPdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-            
-            $this->pdo = new PDO("mysql:host=$host;dbname={$dbname};charset=utf8mb4", $user, $pass, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                // STRICT_TRANS_TABLES turns an out-of-type value (e.g. a string
-                // written to an INT facility_id) into an error instead of a
-                // silent coercion to 0, so write paths must handle PDOException.
-                self::pdoMysqlInitCommandAttr() => "SET SESSION sql_mode = CONCAT(@@sql_mode, ',STRICT_TRANS_TABLES,NO_ZERO_DATE')",
-            ]);
+        if (self::$connectionProvider !== null) {
+            $this->dbal = (self::$connectionProvider)();
+            $this->pdo = $this->dbal->getNativeConnection();
+            // The queries below read rows as associative arrays; Doctrine always names its fetch mode.
+            $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
             $this->isMySQL = true;
-
-            // Schema work is expensive (13 DDL round-trips) and DDL causes an
-            // implicit commit in MySQL, so it must not run on every request.
-            // A stamp file records the schema version already applied.
-            if ($this->schemaNeedsInit()) {
-                $this->initMySQLSchema();
-                $this->markSchemaInitialised();
-            } else {
-                $this->applyPendingMigrations();
-            }
-        } catch (Exception $e) {
-            // Falling back to a DIFFERENT datastore is not a silent event: in
-            // production it means the live database is unreachable and the app
-            // is about to serve/accept data that MySQL will never see. Make it
-            // loud, and refuse to fail over silently when explicitly disallowed.
-            $this->isMySQL = false;
-            error_log('[PICKLERS CRITICAL] MySQL unavailable, falling back to JSON file storage: ' . $e->getMessage());
-
-            // Production defaults to strict: silently accepting bookings and
-            // payments into local JSON files the real database never sees is
-            // never an acceptable failure mode for a live deployment.
-            $strict = filter_var($_ENV['DB_STRICT_MYSQL'] ?? (self::isProductionEnv() ? 'true' : 'false'), FILTER_VALIDATE_BOOLEAN);
-            if ($strict) {
-                throw new Exception('Database unavailable and DB_STRICT_MYSQL is enabled — refusing to fall back to file storage.', 0, $e);
-            }
-
-            $this->initJSONSchema();
+            $this->initialiseSchema();
+            $this->seedInitialData();
+            return;
         }
 
+        // Outside the kernel (CLI scripts, the service-level test suite): its own
+        // connection, creating the database on first use. There is no file
+        // fallback — bookings and payments must never land anywhere but MySQL.
+        $mysql = $config['connections']['mysql'] ?? [];
+        $host = $mysql['host'] ?? '127.0.0.1';
+        $user = $mysql['username'] ?? 'root';
+        $pass = $mysql['password'] ?? '';
+        $dbname = $mysql['database'] ?? 'picklers_db';
+
+        // First connect without db name to ensure picklers_db exists
+        $rootPdo = new PDO("mysql:host=$host;charset=utf8mb4", $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_TIMEOUT => 2
+        ]);
+        $rootPdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+        $this->pdo = new PDO("mysql:host=$host;dbname={$dbname};charset=utf8mb4", $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            // STRICT_TRANS_TABLES turns an out-of-type value (e.g. a string
+            // written to an INT facility_id) into an error instead of a
+            // silent coercion to 0, so write paths must handle PDOException.
+            self::pdoMysqlInitCommandAttr() => "SET SESSION sql_mode = CONCAT(@@sql_mode, ',STRICT_TRANS_TABLES,NO_ZERO_DATE')",
+        ]);
+        $this->isMySQL = true;
+        $this->initialiseSchema();
         $this->seedInitialData();
+    }
+
+    /**
+     * Schema work is expensive (13 DDL round-trips) and DDL causes an implicit
+     * commit in MySQL, so it must not run on every request: a stamp file records
+     * the schema version already applied.
+     */
+    private function initialiseSchema(): void {
+        if ($this->schemaNeedsInit()) {
+            $this->initMySQLSchema();
+            $this->markSchemaInitialised();
+            $this->schemaInitialisedThisBoot = true;
+        } else {
+            $this->applyPendingMigrations();
+        }
     }
 
     private function schemaStampPath(): string {
@@ -115,12 +129,54 @@ class Database {
     /** Current schema revision — bump when initMySQLSchema()/migrations change. */
     private const SCHEMA_VERSION = '8';
 
+    /** Tables initMySQLSchema() creates; all must exist for a stamp to be trusted. */
+    public const REQUIRED_TABLES = [
+        'users', 'facilities', 'courts', 'staff', 'matches', 'bookings', 'wallet_transactions',
+        'feed_posts', 'feed_likes', 'facility_favorites', 'feed_comments', 'direct_messages',
+        'notifications', 'owner_applications', 'promo_codes', 'promo_redemptions', 'court_images',
+        'amenities', 'facility_amenities', 'sync_versions', 'court_attributes', 'court_attribute_map',
+        'payout_requests',
+    ];
+
     private function schemaNeedsInit(): bool {
         $stamp = $this->schemaStampPath();
-        if (!file_exists($stamp)) {
-            return true;
+        $stampVersion = file_exists($stamp) ? trim((string)@file_get_contents($stamp)) : null;
+        // The stamp file lives in a directory, not in the database, so it can
+        // outlive the tables it describes (a test database dropped and
+        // recreated, a different database pointed at the same directory). It
+        // is only trusted when the tables it vouches for are really there.
+        return !self::schemaStampIsTrustworthy($stampVersion, $this->existingTables());
+    }
+
+    /**
+     * Pure decision used by schemaNeedsInit(), kept static so the fresh and
+     * stale-stamp cases can be tested without a live connection.
+     *
+     * @param string[] $existingTables
+     */
+    public static function schemaStampIsTrustworthy(?string $stampVersion, array $existingTables): bool {
+        if ($stampVersion !== self::SCHEMA_VERSION) {
+            return false;
         }
-        return trim((string)@file_get_contents($stamp)) !== self::SCHEMA_VERSION;
+        $present = array_flip(array_map('strtolower', $existingTables));
+        foreach (self::REQUIRED_TABLES as $table) {
+            if (!isset($present[$table])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @return string[] Base tables in the connected database. */
+    private function existingTables(): array {
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'"
+            );
+            return $stmt ? array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN)) : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     private function markSchemaInitialised(): void {
@@ -142,43 +198,52 @@ class Database {
         return $this->isMySQL;
     }
 
+    /** The live MySQL handle, or null in JSON fallback mode. */
+    public function pdo(): ?PDO {
+        return $this->isMySQL ? $this->pdo : null;
+    }
+
+    // Shared rules live in Picklers\Domain (used as-is by the Symfony kernel); the
+    // legacy layer reaches them through a DBAL connection over its own handle.
+    private ?\Doctrine\DBAL\Connection $dbal = null;
+    private ?\Picklers\Domain\Notifier $notifier = null;
+    private ?\Picklers\Domain\WalletLedger $ledger = null;
+    private ?\Picklers\Domain\BookingRules $bookingRules = null;
+
+    public function dbal(): \Doctrine\DBAL\Connection {
+        return $this->dbal ??= \Doctrine\DBAL\DriverManager::getConnection(['driverClass' => LegacyPdoDriver::class, 'serverVersion' => '10.4.32-MariaDB']);
+    }
+
+    public function notifier(): \Picklers\Domain\Notifier {
+        return $this->notifier ??= new \Picklers\Domain\Notifier($this->dbal());
+    }
+
+    public function ledger(): \Picklers\Domain\WalletLedger {
+        return $this->ledger ??= new \Picklers\Domain\WalletLedger($this->dbal());
+    }
+
+    public function bookingRules(): \Picklers\Domain\BookingRules {
+        return $this->bookingRules ??= new \Picklers\Domain\BookingRules($this->dbal(), $this->notifier(), $this->ledger());
+    }
+
     /** Drop cached facility/court reads after any write that could change them. */
     public function invalidateReadCache(): void {
         $this->readCache = [];
     }
 
     /**
-     * Bump one or more sync channels. Call this after any write another
-     * surface needs to notice without a manual page refresh — a court
-     * listed/edited/toggled ('courts', usually paired with 'facilities'
-     * since Discover's card shows courts_count/min-max price), a facility
-     * created ('facilities'), a booking created/cancelled/status-changed
-     * ('bookings'). Never throws: a missed bump means a client's next poll
-     * is one tick late, which is far better than a write failing because
-     * its own side-effect couldn't be recorded.
+     * Bump one or more sync channels after a write another surface needs to
+     * notice without a manual refresh ('courts', 'facilities', 'bookings', …).
+     * See Picklers\Domain\Notifier::bumpSync(); never throws.
      */
     public function bumpSync(string ...$channels): void {
-        if (!$this->isMySQL || $channels === []) {
-            return;
-        }
-        try {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO sync_versions (channel, version) VALUES (?, 1)
-                 ON DUPLICATE KEY UPDATE version = version + 1"
-            );
-            foreach (array_unique($channels) as $c) {
-                $stmt->execute([$c]);
-            }
-        } catch (\Throwable $e) {
-            error_log('[PICKLERS] bumpSync failed for [' . implode(',', $channels) . ']: ' . $e->getMessage());
+        if ($this->isMySQL && $channels !== []) {
+            $this->notifier()->bumpSync(...$channels);
         }
     }
 
     /** @return array<string,int> channel => current version */
     public function getSyncVersions(): array {
-        if (!$this->isMySQL) {
-            return [];
-        }
         try {
             $rows = $this->pdo->query("SELECT channel, version FROM sync_versions")->fetchAll();
             return array_map('intval', array_column($rows, 'version', 'channel'));
@@ -656,6 +721,10 @@ class Database {
             }
         }
 
+        // The catalog seeder existed but was never invoked, so any database
+        // provisioned from scratch had no attribute rows to map courts onto.
+        // INSERT IGNORE on the unique slug keeps this a no-op where present.
+        $this->seedCourtAttributeCatalog();
         $this->backfillCourtAttributesFromLegacyFields();
 
         if (!self::isProductionEnv()) {
@@ -680,41 +749,39 @@ class Database {
         }
 
         try {
-            if ($this->isMySQL) {
-                $this->pdo->exec("UPDATE notifications SET body = REPLACE(body, 'dar booked', 'Dante Reyes booked') WHERE body LIKE '%dar booked%'");
-                $this->pdo->exec("UPDATE notifications SET body = REPLACE(body, 'How test Arena', 'Flow Test Arena') WHERE body LIKE '%How test Arena%'");
-                $this->pdo->exec("UPDATE notifications SET title = 'New reservation 🎾' WHERE title LIKE '%Now reservation%'");
+            $this->pdo->exec("UPDATE notifications SET body = REPLACE(body, 'dar booked', 'Dante Reyes booked') WHERE body LIKE '%dar booked%'");
+            $this->pdo->exec("UPDATE notifications SET body = REPLACE(body, 'How test Arena', 'Flow Test Arena') WHERE body LIKE '%How test Arena%'");
+            $this->pdo->exec("UPDATE notifications SET title = 'New reservation 🎾' WHERE title LIKE '%Now reservation%'");
 
-                // Ensure all matches, courts, and bookings strictly use numbered court names (Court 1, Court 2, Court 3...)
-                $mRows = $this->pdo->query("SELECT id, type FROM matches")->fetchAll();
-                $uMatch = $this->pdo->prepare("UPDATE matches SET type = ? WHERE id = ?");
-                foreach ($mRows as $mr) {
-                    $origType = (string)($mr['type'] ?? '');
-                    $newType = self::normalizeCourtName($origType);
-                    if ($newType !== $origType) {
-                        $uMatch->execute([$newType, $mr['id']]);
-                    }
+            // Ensure all matches, courts, and bookings strictly use numbered court names (Court 1, Court 2, Court 3...)
+            $mRows = $this->pdo->query("SELECT id, type FROM matches")->fetchAll();
+            $uMatch = $this->pdo->prepare("UPDATE matches SET type = ? WHERE id = ?");
+            foreach ($mRows as $mr) {
+                $origType = (string)($mr['type'] ?? '');
+                $newType = self::normalizeCourtName($origType);
+                if ($newType !== $origType) {
+                    $uMatch->execute([$newType, $mr['id']]);
                 }
-
-                $cRows = $this->pdo->query("SELECT id, name FROM courts")->fetchAll();
-                $uCourt = $this->pdo->prepare("UPDATE courts SET name = ? WHERE id = ?");
-                foreach ($cRows as $cr) {
-                    $norm = self::normalizeCourtName((string)($cr['name'] ?? ''));
-                    if ($norm !== ($cr['name'] ?? '')) {
-                        $uCourt->execute([$norm, $cr['id']]);
-                    }
-                }
-
-                $bRows = $this->pdo->query("SELECT id, court_name FROM bookings")->fetchAll();
-                $uBooking = $this->pdo->prepare("UPDATE bookings SET court_name = ? WHERE id = ?");
-                foreach ($bRows as $br) {
-                    $norm = self::normalizeCourtName((string)($br['court_name'] ?? ''));
-                    if ($norm !== ($br['court_name'] ?? '')) {
-                        $uBooking->execute([$norm, $br['id']]);
-                    }
-                }
-                @file_put_contents($fixupStamp, date('c'));
             }
+
+            $cRows = $this->pdo->query("SELECT id, name FROM courts")->fetchAll();
+            $uCourt = $this->pdo->prepare("UPDATE courts SET name = ? WHERE id = ?");
+            foreach ($cRows as $cr) {
+                $norm = self::normalizeCourtName((string)($cr['name'] ?? ''));
+                if ($norm !== ($cr['name'] ?? '')) {
+                    $uCourt->execute([$norm, $cr['id']]);
+                }
+            }
+
+            $bRows = $this->pdo->query("SELECT id, court_name FROM bookings")->fetchAll();
+            $uBooking = $this->pdo->prepare("UPDATE bookings SET court_name = ? WHERE id = ?");
+            foreach ($bRows as $br) {
+                $norm = self::normalizeCourtName((string)($br['court_name'] ?? ''));
+                if ($norm !== ($br['court_name'] ?? '')) {
+                    $uBooking->execute([$norm, $br['id']]);
+                }
+            }
+            @file_put_contents($fixupStamp, date('c'));
         } catch (\Throwable $e) {
             error_log('[PICKLERS Migration] court name normalization skipped: ' . $e->getMessage());
         }
@@ -1022,7 +1089,10 @@ class Database {
         }
 
         $seedFlag = $this->dataDir . '/.seeded';
-        if (file_exists($seedFlag)) {
+        // Like the schema stamp, the flag can outlive the rows it describes; a
+        // schema that had to be (re)created this boot is re-seeded. Every
+        // section below is guarded by its own table being empty.
+        if (file_exists($seedFlag) && !$this->schemaInitialisedThisBoot) {
             return;
         }
 
@@ -1230,22 +1300,17 @@ class Database {
             ]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM users");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO users (id, name, email, phone, password_hash, role, verification_status, avatar_url, level, gold, silver, bronze, wallet_balance, is_admin, is_dev, is_owner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                foreach ($defaultUsers as $u) {
-                    $ins->execute([
-                        $u['id'], $u['name'], $u['email'], $u['phone'], $u['password_hash'], $u['role'],
-                        $u['verification_status'], $u['avatar_url'], $u['level'], $u['gold'], $u['silver'],
-                        $u['bronze'], $u['wallet_balance'], $u['is_admin'], $u['is_dev'], $u['is_owner']
-                    ]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('users');
-            if (empty($existing)) {
-                $this->saveJSONData('users', $defaultUsers);
+        // usr_dar is inserted by applyPendingMigrations() before seeding
+        // runs, so it must not count as "already seeded".
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM users WHERE id <> 'usr_dar'");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO users (id, name, email, phone, password_hash, role, verification_status, avatar_url, level, gold, silver, bronze, wallet_balance, is_admin, is_dev, is_owner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            foreach ($defaultUsers as $u) {
+                $ins->execute([
+                    $u['id'], $u['name'], $u['email'], $u['phone'], $u['password_hash'], $u['role'],
+                    $u['verification_status'], $u['avatar_url'], $u['level'], $u['gold'], $u['silver'],
+                    $u['bronze'], $u['wallet_balance'], $u['is_admin'], $u['is_dev'], $u['is_owner']
+                ]);
             }
         }
 
@@ -1397,22 +1462,15 @@ class Database {
             ]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM facilities");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO facilities (id, owner_id, name, location, rating, reviews, price, price_numeric, type, hours, transit, image, courts_count, is_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                foreach ($defaultFacilities as $f) {
-                    $ins->execute([
-                        $f['id'], $f['owner_id'] ?? null, $f['name'], $f['location'], $f['rating'], $f['reviews'], $f['price'],
-                        $f['price_numeric'], $f['type'], $f['hours'], $f['transit'], $f['image'],
-                        $f['courts_count'], $f['is_verified']
-                    ]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('facilities');
-            if (empty($existing)) {
-                $this->saveJSONData('facilities', $defaultFacilities);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM facilities");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO facilities (id, owner_id, name, location, rating, reviews, price, price_numeric, type, hours, transit, image, courts_count, is_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            foreach ($defaultFacilities as $f) {
+                $ins->execute([
+                    $f['id'], $f['owner_id'] ?? null, $f['name'], $f['location'], $f['rating'], $f['reviews'], $f['price'],
+                    $f['price_numeric'], $f['type'], $f['hours'], $f['transit'], $f['image'],
+                    $f['courts_count'], $f['is_verified']
+                ]);
             }
         }
 
@@ -1458,46 +1516,26 @@ class Database {
             ['id' => 'crt_8_1', 'facility_id' => 8, 'name' => 'Court 1', 'surface' => 'Outdoor Acrylic', 'type' => 'Outdoor', 'price' => 320.00, 'status' => 'available', 'occupied_by' => null, 'occupied_until' => null]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM courts");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO courts (id, facility_id, name, surface, type, price, status, occupied_by, occupied_until) VALUES (?,?,?,?,?,?,?,?,?)");
-                foreach ($defaultCourts as $c) {
-                    $ins->execute([
-                        $c['id'], $c['facility_id'], $c['name'], $c['surface'], $c['type'],
-                        $c['price'], $c['status'], $c['occupied_by'], $c['occupied_until']
-                    ]);
-                }
-            } else {
-                try {
-                    $cRows = $this->pdo->query("SELECT id, name FROM courts")->fetchAll();
-                    $upd = $this->pdo->prepare("UPDATE courts SET name = ? WHERE id = ?");
-                    foreach ($cRows as $cr) {
-                        $norm = self::normalizeCourtName((string)($cr['name'] ?? ''));
-                        if ($norm !== ($cr['name'] ?? '')) {
-                            $upd->execute([$norm, $cr['id']]);
-                        }
-                    }
-                } catch (\Throwable $e) {}
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM courts");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO courts (id, facility_id, name, surface, type, price, status, occupied_by, occupied_until) VALUES (?,?,?,?,?,?,?,?,?)");
+            foreach ($defaultCourts as $c) {
+                $ins->execute([
+                    $c['id'], $c['facility_id'], $c['name'], $c['surface'], $c['type'],
+                    $c['price'], $c['status'], $c['occupied_by'], $c['occupied_until']
+                ]);
             }
         } else {
-            $existing = $this->getJSONData('courts');
-            if (empty($existing)) {
-                $this->saveJSONData('courts', $defaultCourts);
-            } else {
-                $changed = false;
-                foreach ($existing as &$jc) {
-                    $norm = self::normalizeCourtName((string)($jc['name'] ?? ''));
-                    if ($norm !== ($jc['name'] ?? '')) {
-                        $jc['name'] = $norm;
-                        $changed = true;
+            try {
+                $cRows = $this->pdo->query("SELECT id, name FROM courts")->fetchAll();
+                $upd = $this->pdo->prepare("UPDATE courts SET name = ? WHERE id = ?");
+                foreach ($cRows as $cr) {
+                    $norm = self::normalizeCourtName((string)($cr['name'] ?? ''));
+                    if ($norm !== ($cr['name'] ?? '')) {
+                        $upd->execute([$norm, $cr['id']]);
                     }
                 }
-                unset($jc);
-                if ($changed) {
-                    $this->saveJSONData('courts', $existing);
-                }
-            }
+            } catch (\Throwable $e) {}
         }
 
         // 4. Seed Open Play Matches
@@ -1589,44 +1627,30 @@ class Database {
             ]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM matches");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO matches (id, facility_id, facility_name, location, date, time, level, current_players, max_players, price, type, host, title) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                foreach ($defaultMatches as $m) {
-                    $ins->execute([
-                        $m['id'], $m['facility_id'], $m['facility_name'], $m['location'], $m['date'],
-                        $m['time'], $m['level'], $m['current_players'], $m['max_players'], $m['price'],
-                        $m['type'], $m['host'], $m['title'] ?? null
-                    ]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('matches');
-            if (empty($existing)) {
-                $this->saveJSONData('matches', $defaultMatches);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM matches");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO matches (id, facility_id, facility_name, location, date, time, level, current_players, max_players, price, type, host, title) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            foreach ($defaultMatches as $m) {
+                $ins->execute([
+                    $m['id'], $m['facility_id'], $m['facility_name'], $m['location'], $m['date'],
+                    $m['time'], $m['level'], $m['current_players'], $m['max_players'], $m['price'],
+                    $m['type'], $m['host'], $m['title'] ?? null
+                ]);
             }
         }
 
         // 5. Seed Bookings (Empty default)
         $defaultBookings = [];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM bookings");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO bookings (id, user_id, facility_id, facility_name, court_name, date, time, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                foreach ($defaultBookings as $b) {
-                    $ins->execute([
-                        $b['id'], $b['user_id'], $b['facility_id'], $b['facility_name'], $b['court_name'],
-                        $b['date'], $b['time'], $b['duration'], $b['price'], $b['payment_method'],
-                        $b['status'], $b['is_new'], $b['created_at']
-                    ]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('bookings');
-            if (empty($existing)) {
-                $this->saveJSONData('bookings', $defaultBookings);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM bookings");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO bookings (id, user_id, facility_id, facility_name, court_name, date, time, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            foreach ($defaultBookings as $b) {
+                $ins->execute([
+                    $b['id'], $b['user_id'], $b['facility_id'], $b['facility_name'], $b['court_name'],
+                    $b['date'], $b['time'], $b['duration'], $b['price'], $b['payment_method'],
+                    $b['status'], $b['is_new'], $b['created_at']
+                ]);
             }
         }
 
@@ -1661,18 +1685,11 @@ class Database {
             ]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM wallet_transactions");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO wallet_transactions (id, user_id, type, amount, label, date, created_at) VALUES (?,?,?,?,?,?,?)");
-                foreach ($defaultTx as $t) {
-                    $ins->execute([$t['id'], $t['user_id'], $t['type'], $t['amount'], $t['label'], $t['date'], $t['created_at']]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('wallet_transactions');
-            if (empty($existing)) {
-                $this->saveJSONData('wallet_transactions', $defaultTx);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM wallet_transactions");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO wallet_transactions (id, user_id, type, amount, label, date, created_at) VALUES (?,?,?,?,?,?,?)");
+            foreach ($defaultTx as $t) {
+                $ins->execute([$t['id'], $t['user_id'], $t['type'], $t['amount'], $t['label'], $t['date'], $t['created_at']]);
             }
         }
 
@@ -1706,22 +1723,15 @@ class Database {
             ]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM feed_posts");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO feed_posts (id, author_id, author_name, author_avatar, author_level, content, image_url, post_type, like_count, comment_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-                foreach ($defaultPosts as $p) {
-                    $ins->execute([
-                        $p['id'], $p['author_id'], $p['author_name'], $p['author_avatar'],
-                        $p['author_level'], $p['content'], $p['image_url'], $p['post_type'],
-                        $p['like_count'], $p['comment_count'], $p['created_at']
-                    ]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('feed_posts');
-            if (empty($existing)) {
-                $this->saveJSONData('feed_posts', $defaultPosts);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM feed_posts");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO feed_posts (id, author_id, author_name, author_avatar, author_level, content, image_url, post_type, like_count, comment_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+            foreach ($defaultPosts as $p) {
+                $ins->execute([
+                    $p['id'], $p['author_id'], $p['author_name'], $p['author_avatar'],
+                    $p['author_level'], $p['content'], $p['image_url'], $p['post_type'],
+                    $p['like_count'], $p['comment_count'], $p['created_at']
+                ]);
             }
         }
 
@@ -1759,18 +1769,11 @@ class Database {
             ]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM notifications");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO notifications (id, user_id, title, body, type, is_read, time, created_at) VALUES (?,?,?,?,?,?,?,?)");
-                foreach ($defaultNotifs as $n) {
-                    $ins->execute([$n['id'], $n['user_id'], $n['title'], $n['body'], $n['type'], $n['is_read'], $n['time'], $n['created_at']]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('notifications');
-            if (empty($existing)) {
-                $this->saveJSONData('notifications', $defaultNotifs);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM notifications");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO notifications (id, user_id, title, body, type, is_read, time, created_at) VALUES (?,?,?,?,?,?,?,?)");
+            foreach ($defaultNotifs as $n) {
+                $ins->execute([$n['id'], $n['user_id'], $n['title'], $n['body'], $n['type'], $n['is_read'], $n['time'], $n['created_at']]);
             }
         }
 
@@ -1781,18 +1784,11 @@ class Database {
             ['id' => 'st_3', 'facility_id' => '1', 'name' => 'Juan dela Cruz', 'email' => 'juan@picklersbgc.com', 'role' => 'Tournament Coordinator', 'status' => 'Active', 'date_joined' => 'Mar 2026']
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM staff");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO staff (id, facility_id, name, email, role, status, date_joined) VALUES (?,?,?,?,?,?,?)");
-                foreach ($defaultStaff as $st) {
-                    $ins->execute([$st['id'], $st['facility_id'], $st['name'], $st['email'], $st['role'], $st['status'], $st['date_joined']]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('staff');
-            if (empty($existing)) {
-                $this->saveJSONData('staff', $defaultStaff);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM staff");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO staff (id, facility_id, name, email, role, status, date_joined) VALUES (?,?,?,?,?,?,?)");
+            foreach ($defaultStaff as $st) {
+                $ins->execute([$st['id'], $st['facility_id'], $st['name'], $st['email'], $st['role'], $st['status'], $st['date_joined']]);
             }
         }
 
@@ -1825,18 +1821,11 @@ class Database {
             ['facility_id' => 8, 'url' => 'https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?q=80&w=1200&auto=format&fit=crop', 'alt_text' => 'Davao Smash & Dink Park — venue view', 'sort_order' => 1, 'is_primary' => 1],
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM court_images");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO court_images (facility_id, url, alt_text, sort_order, is_primary) VALUES (?,?,?,?,?)");
-                foreach ($defaultCourtImages as $img) {
-                    $ins->execute([$img['facility_id'], $img['url'], $img['alt_text'], $img['sort_order'], $img['is_primary']]);
-                }
-            }
-        } else {
-            $existing = $this->getJSONData('court_images');
-            if (empty($existing)) {
-                $this->saveJSONData('court_images', $defaultCourtImages);
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM court_images");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO court_images (facility_id, url, alt_text, sort_order, is_primary) VALUES (?,?,?,?,?)");
+            foreach ($defaultCourtImages as $img) {
+                $ins->execute([$img['facility_id'], $img['url'], $img['alt_text'], $img['sort_order'], $img['is_primary']]);
             }
         }
 
@@ -1861,29 +1850,18 @@ class Database {
             ['facility_id' => 4, 'amenity_id' => 1], ['facility_id' => 4, 'amenity_id' => 3], ['facility_id' => 4, 'amenity_id' => 4], ['facility_id' => 4, 'amenity_id' => 5], ['facility_id' => 4, 'amenity_id' => 7], ['facility_id' => 4, 'amenity_id' => 9]
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM amenities");
-            if ($stmt->fetch()['c'] == 0) {
-                $ins = $this->pdo->prepare("INSERT INTO amenities (id, name, icon) VALUES (?,?,?)");
-                foreach ($defaultAmenities as $a) {
-                    $ins->execute([$a['id'], $a['name'], $a['icon']]);
-                }
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM amenities");
+        if ($stmt->fetch()['c'] == 0) {
+            $ins = $this->pdo->prepare("INSERT INTO amenities (id, name, icon) VALUES (?,?,?)");
+            foreach ($defaultAmenities as $a) {
+                $ins->execute([$a['id'], $a['name'], $a['icon']]);
             }
-            $stmtFa = $this->pdo->query("SELECT COUNT(*) as c FROM facility_amenities");
-            if ($stmtFa->fetch()['c'] == 0) {
-                $insFa = $this->pdo->prepare("INSERT INTO facility_amenities (facility_id, amenity_id) VALUES (?,?)");
-                foreach ($defaultFacilityAmenities as $fa) {
-                    $insFa->execute([$fa['facility_id'], $fa['amenity_id']]);
-                }
-            }
-        } else {
-            $existingAm = $this->getJSONData('amenities');
-            if (empty($existingAm)) {
-                $this->saveJSONData('amenities', $defaultAmenities);
-            }
-            $existingFa = $this->getJSONData('facility_amenities');
-            if (empty($existingFa)) {
-                $this->saveJSONData('facility_amenities', $defaultFacilityAmenities);
+        }
+        $stmtFa = $this->pdo->query("SELECT COUNT(*) as c FROM facility_amenities");
+        if ($stmtFa->fetch()['c'] == 0) {
+            $insFa = $this->pdo->prepare("INSERT INTO facility_amenities (facility_id, amenity_id) VALUES (?,?)");
+            foreach ($defaultFacilityAmenities as $fa) {
+                $insFa->execute([$fa['facility_id'], $fa['amenity_id']]);
             }
         }
 
@@ -1921,19 +1899,10 @@ class Database {
             ],
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM promo_codes");
-            if ($stmt->fetch()['c'] == 0) {
-                foreach ($defaultPromos as $p) {
-                    $this->createPromoCode($p);
-                }
-            }
-        } else {
-            $existingPromos = $this->getJSONData('promo_codes');
-            if (empty($existingPromos)) {
-                foreach ($defaultPromos as $p) {
-                    $this->createPromoCode($p);
-                }
+        $stmt = $this->pdo->query("SELECT COUNT(*) as c FROM promo_codes");
+        if ($stmt->fetch()['c'] == 0) {
+            foreach ($defaultPromos as $p) {
+                $this->createPromoCode($p);
             }
         }
 
@@ -1949,21 +1918,9 @@ class Database {
         if (array_key_exists($cacheKey, $this->readCache)) {
             return $this->readCache[$cacheKey];
         }
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM court_images WHERE facility_id = ? ORDER BY is_primary DESC, sort_order ASC, id ASC");
-            $stmt->execute([$facilityId]);
-            $result = $stmt->fetchAll();
-        } else {
-            $images = $this->getJSONData('court_images');
-            $filtered = array_filter($images, fn($img) => (int)($img['facility_id'] ?? 0) === (int)$facilityId);
-            usort($filtered, function($a, $b) {
-                if (($b['is_primary'] ?? 0) !== ($a['is_primary'] ?? 0)) {
-                    return ($b['is_primary'] ?? 0) <=> ($a['is_primary'] ?? 0);
-                }
-                return ($a['sort_order'] ?? 0) <=> ($b['sort_order'] ?? 0);
-            });
-            $result = array_values($filtered);
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM court_images WHERE facility_id = ? ORDER BY is_primary DESC, sort_order ASC, id ASC");
+        $stmt->execute([$facilityId]);
+        $result = $stmt->fetchAll();
         $this->readCache[$cacheKey] = $result;
         return $result;
     }
@@ -1973,21 +1930,14 @@ class Database {
         if (array_key_exists($cacheKey, $this->readCache)) {
             return $this->readCache[$cacheKey];
         }
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT a.* FROM amenities a
-                 JOIN facility_amenities fa ON a.id = fa.amenity_id
-                 WHERE fa.facility_id = ?
-                 ORDER BY a.id ASC"
-            );
-            $stmt->execute([$facilityId]);
-            $result = $stmt->fetchAll();
-        } else {
-            $fa = $this->getJSONData('facility_amenities');
-            $amenities = $this->getJSONData('amenities');
-            $amenityIds = array_column(array_filter($fa, fn($item) => (int)($item['facility_id'] ?? 0) === (int)$facilityId), 'amenity_id');
-            $result = array_values(array_filter($amenities, fn($a) => in_array((int)($a['id'] ?? 0), $amenityIds, true)));
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT a.* FROM amenities a
+             JOIN facility_amenities fa ON a.id = fa.amenity_id
+             WHERE fa.facility_id = ?
+             ORDER BY a.id ASC"
+        );
+        $stmt->execute([$facilityId]);
+        $result = $stmt->fetchAll();
         $this->readCache[$cacheKey] = $result;
         return $result;
     }
@@ -1998,12 +1948,7 @@ class Database {
         if (array_key_exists($cacheKey, $this->readCache)) {
             return $this->readCache[$cacheKey];
         }
-        if ($this->isMySQL) {
-            $result = $this->pdo->query("SELECT * FROM court_attributes ORDER BY sort_order ASC")->fetchAll();
-        } else {
-            $result = $this->getJSONData('court_attributes');
-            usort($result, fn($a, $b) => ($a['sort_order'] ?? 0) <=> ($b['sort_order'] ?? 0));
-        }
+        $result = $this->pdo->query("SELECT * FROM court_attributes ORDER BY sort_order ASC")->fetchAll();
         $this->readCache[$cacheKey] = $result;
         return $result;
     }
@@ -2014,21 +1959,14 @@ class Database {
         if (array_key_exists($cacheKey, $this->readCache)) {
             return $this->readCache[$cacheKey];
         }
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT a.slug, a.label, a.icon, a.kind FROM court_attributes a
-                 JOIN court_attribute_map m ON m.attribute_id = a.id
-                 WHERE m.court_id = ?
-                 ORDER BY a.sort_order ASC"
-            );
-            $stmt->execute([$courtId]);
-            $result = $stmt->fetchAll();
-        } else {
-            $map = $this->getJSONData('court_attribute_map');
-            $catalog = $this->getCourtAttributeCatalog();
-            $attrIds = array_column(array_filter($map, fn($m) => (string)($m['court_id'] ?? '') === $courtId), 'attribute_id');
-            $result = array_values(array_filter($catalog, fn($a) => in_array((int)($a['id'] ?? 0), $attrIds, true)));
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT a.slug, a.label, a.icon, a.kind FROM court_attributes a
+             JOIN court_attribute_map m ON m.attribute_id = a.id
+             WHERE m.court_id = ?
+             ORDER BY a.sort_order ASC"
+        );
+        $stmt->execute([$courtId]);
+        $result = $stmt->fetchAll();
         $this->readCache[$cacheKey] = $result;
         return $result;
     }
@@ -2048,22 +1986,16 @@ class Database {
         $ids = array_column($courts, 'id');
         $byCourt = [];
 
-        if ($this->isMySQL) {
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $this->pdo->prepare(
-                "SELECT m.court_id, a.slug, a.label, a.icon, a.kind FROM court_attribute_map m
-                 JOIN court_attributes a ON a.id = m.attribute_id
-                 WHERE m.court_id IN ($placeholders)
-                 ORDER BY a.sort_order ASC"
-            );
-            $stmt->execute($ids);
-            foreach ($stmt->fetchAll() as $row) {
-                $byCourt[$row['court_id']][] = ['slug' => $row['slug'], 'label' => $row['label'], 'icon' => $row['icon'], 'kind' => $row['kind']];
-            }
-        } else {
-            foreach ($ids as $id) {
-                $byCourt[$id] = $this->getCourtAttributes((string)$id);
-            }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT m.court_id, a.slug, a.label, a.icon, a.kind FROM court_attribute_map m
+             JOIN court_attributes a ON a.id = m.attribute_id
+             WHERE m.court_id IN ($placeholders)
+             ORDER BY a.sort_order ASC"
+        );
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll() as $row) {
+            $byCourt[$row['court_id']][] = ['slug' => $row['slug'], 'label' => $row['label'], 'icon' => $row['icon'], 'kind' => $row['kind']];
         }
 
         foreach ($courts as &$c) {
@@ -2091,40 +2023,27 @@ class Database {
         $this->invalidateReadCache();
         $this->bumpSync('courts', 'facilities'); // attribute chips render on Discover's facility card
 
-        if ($this->isMySQL) {
-            $this->pdo->beginTransaction();
-            try {
-                $this->pdo->prepare("DELETE FROM court_attribute_map WHERE court_id = ?")->execute([$courtId]);
+        $this->pdo->beginTransaction();
+        try {
+            $this->pdo->prepare("DELETE FROM court_attribute_map WHERE court_id = ?")->execute([$courtId]);
 
-                if ($slugs !== []) {
-                    $placeholders = implode(',', array_fill(0, count($slugs), '?'));
-                    $stmt = $this->pdo->prepare("SELECT id FROM court_attributes WHERE slug IN ($placeholders)");
-                    $stmt->execute(array_values($slugs));
-                    $attrIds = $stmt->fetchAll(\PDO::FETCH_COLUMN, 0);
+            if ($slugs !== []) {
+                $placeholders = implode(',', array_fill(0, count($slugs), '?'));
+                $stmt = $this->pdo->prepare("SELECT id FROM court_attributes WHERE slug IN ($placeholders)");
+                $stmt->execute(array_values($slugs));
+                $attrIds = $stmt->fetchAll(\PDO::FETCH_COLUMN, 0);
 
-                    $ins = $this->pdo->prepare("INSERT IGNORE INTO court_attribute_map (court_id, attribute_id) VALUES (?, ?)");
-                    foreach ($attrIds as $attrId) {
-                        $ins->execute([$courtId, $attrId]);
-                    }
+                $ins = $this->pdo->prepare("INSERT IGNORE INTO court_attribute_map (court_id, attribute_id) VALUES (?, ?)");
+                foreach ($attrIds as $attrId) {
+                    $ins->execute([$courtId, $attrId]);
                 }
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                throw $e;
             }
-        } else {
-            $catalog = $this->getCourtAttributeCatalog();
-            $bySlug = array_column($catalog, 'id', 'slug');
-            $attrIds = array_values(array_filter(array_map(fn($s) => $bySlug[$s] ?? null, $slugs)));
-
-            $map = $this->getJSONData('court_attribute_map');
-            $map = array_values(array_filter($map, fn($m) => (string)($m['court_id'] ?? '') !== $courtId));
-            foreach ($attrIds as $attrId) {
-                $map[] = ['court_id' => $courtId, 'attribute_id' => $attrId];
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
             }
-            $this->saveJSONData('court_attribute_map', $map);
+            throw $e;
         }
     }
 
@@ -2142,21 +2061,6 @@ class Database {
         $slugs = array_values(array_unique(array_filter($slugs)));
         if ($slugs === []) {
             return $this->getFacilities($search);
-        }
-
-        if (!$this->isMySQL) {
-            // JSON fallback: filter the plain facility list down to venues
-            // where at least one court carries every requested slug (not
-            // necessarily the same court — see the doc comment above).
-            $facilities = $this->getFacilities($search);
-            return array_values(array_filter($facilities, function ($f) use ($slugs) {
-                $courtSlugs = [];
-                foreach ($this->getCourtsByFacility($f['id']) as $c) {
-                    $courtSlugs = array_merge($courtSlugs, array_column($this->getCourtAttributes((string)$c['id']), 'slug'));
-                }
-                $courtSlugs = array_unique($courtSlugs);
-                return count(array_intersect($slugs, $courtSlugs)) === count($slugs);
-            }));
         }
 
         $placeholders = implode(',', array_fill(0, count($slugs), '?'));
@@ -2195,17 +2099,9 @@ class Database {
 
     // Users
     public function getUserById($id) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM users WHERE id = ?");
-            $stmt->execute([$id]);
-            return $stmt->fetch() ?: null;
-        } else {
-            $users = $this->getJSONData('users');
-            foreach ($users as $u) {
-                if ($u['id'] === $id) return $u;
-            }
-            return null;
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
     }
 
     public function getUserByEmailOrPhone($identifier) {
@@ -2218,20 +2114,10 @@ class Database {
         if ($canonicalPhone !== null && $canonicalPhone !== $identifier) {
             $phones[] = $canonicalPhone;
         }
-        if ($this->isMySQL) {
-            $phonePlaceholders = implode(',', array_fill(0, count($phones), '?'));
-            $stmt = $this->pdo->prepare("SELECT * FROM users WHERE email = ? OR phone IN ($phonePlaceholders) LIMIT 1");
-            $stmt->execute(array_merge([$identifier], $phones));
-            return $stmt->fetch() ?: null;
-        } else {
-            $users = $this->getJSONData('users');
-            foreach ($users as $u) {
-                if (($u['email'] ?? null) === $identifier || (isset($u['phone']) && in_array((string)$u['phone'], $phones, true))) {
-                    return $u;
-                }
-            }
-            return null;
-        }
+        $phonePlaceholders = implode(',', array_fill(0, count($phones), '?'));
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE email = ? OR phone IN ($phonePlaceholders) LIMIT 1");
+        $stmt->execute(array_merge([$identifier], $phones));
+        return $stmt->fetch() ?: null;
     }
 
     public function createUser($data) {
@@ -2259,21 +2145,8 @@ class Database {
         $isDev = ($role === 'dev' || $role === 'admin') ? 1 : 0;
         $isOwner = ($role === 'owner') ? 1 : 0;
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO users (id, name, email, phone, password_hash, role, verification_status, avatar_url, level, gold, silver, bronze, wallet_balance, is_admin, is_dev, is_owner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $name, $email, $phone, $password, $role, $verification, $avatar, $level, $gold, $silver, $bronze, $wallet, $isAdmin, $isDev, $isOwner]);
-        } else {
-            $users = $this->getJSONData('users');
-            $user = [
-                'id' => $id, 'name' => $name, 'email' => $email, 'phone' => $phone,
-                'password_hash' => $password, 'role' => $role, 'verification_status' => $verification,
-                'avatar_url' => $avatar, 'level' => $level, 'gold' => $gold, 'silver' => $silver,
-                'bronze' => $bronze, 'wallet_balance' => $wallet, 'is_admin' => $isAdmin,
-                'is_dev' => $isDev, 'is_owner' => $isOwner, 'created_at' => date('Y-m-d H:i:s')
-            ];
-            $users[] = $user;
-            $this->saveJSONData('users', $users);
-        }
+        $stmt = $this->pdo->prepare("INSERT INTO users (id, name, email, phone, password_hash, role, verification_status, avatar_url, level, gold, silver, bronze, wallet_balance, is_admin, is_dev, is_owner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt->execute([$id, $name, $email, $phone, $password, $role, $verification, $avatar, $level, $gold, $silver, $bronze, $wallet, $isAdmin, $isDev, $isOwner]);
 
         return $this->getUserById($id);
     }
@@ -2282,7 +2155,7 @@ class Database {
         $allowedColumns = [
             'name', 'email', 'phone', 'password_hash', 'role', 'verification_status',
             'avatar_url', 'level', 'gold', 'silver', 'bronze', 'wallet_balance',
-            'is_admin', 'is_dev', 'is_owner'
+            'is_admin', 'is_dev', 'is_owner', 'password_changed_at'
         ];
         $cleanFields = [];
         foreach ($fields as $k => $v) {
@@ -2290,71 +2163,40 @@ class Database {
                 $cleanFields[$k] = $v;
             }
         }
+        // Added by a migration; ignored until that migration has run.
+        if (array_key_exists('password_changed_at', $cleanFields) && !$this->hasColumn('users', 'password_changed_at')) {
+            unset($cleanFields['password_changed_at']);
+        }
         if (empty($cleanFields)) {
             return $this->getUserById($id);
         }
 
-        if ($this->isMySQL) {
-            $set = [];
-            $vals = [];
-            foreach ($cleanFields as $k => $v) {
-                $set[] = "`$k` = ?";
-                $vals[] = $v;
-            }
-            $vals[] = $id;
-            $sql = "UPDATE users SET " . implode(", ", $set) . " WHERE id = ?";
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute($vals);
-        } else {
-            $users = $this->getJSONData('users');
-            foreach ($users as &$u) {
-                if ($u['id'] === $id) {
-                    foreach ($cleanFields as $k => $v) {
-                        $u[$k] = $v;
-                    }
-                    break;
-                }
-            }
-            $this->saveJSONData('users', $users);
+        $set = [];
+        $vals = [];
+        foreach ($cleanFields as $k => $v) {
+            $set[] = "`$k` = ?";
+            $vals[] = $v;
         }
+        $vals[] = $id;
+        $sql = "UPDATE users SET " . implode(", ", $set) . " WHERE id = ?";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($vals);
 
-        if (class_exists('\\Picklers\\Middleware\\AuthMiddleware')) {
-            \Picklers\Middleware\AuthMiddleware::clearMemoizedUser();
-        }
 
         return $this->getUserById($id);
     }
 
     public function deleteUser($id) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("DELETE FROM users WHERE id = ?");
-            $stmt->execute([$id]);
-        } else {
-            $users = $this->getJSONData('users');
-            $users = array_values(array_filter($users, function($u) use ($id) {
-                return (string)($u['id'] ?? '') !== (string)$id;
-            }));
-            $this->saveJSONData('users', $users);
-        }
+        $stmt = $this->pdo->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->execute([$id]);
 
-        if (class_exists('\\Picklers\\Middleware\\AuthMiddleware')) {
-            \Picklers\Middleware\AuthMiddleware::clearMemoizedUser();
-        }
 
         return true;
     }
 
     public function getAllUsers() {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT id, name, email, phone, role, verification_status, avatar_url, level, wallet_balance, is_admin, is_dev, is_owner, created_at FROM users ORDER BY created_at DESC");
-            return $stmt->fetchAll();
-        } else {
-            $users = $this->getJSONData('users');
-            return array_map(function($u) {
-                unset($u['password_hash']);
-                return $u;
-            }, $users);
-        }
+        $stmt = $this->pdo->query("SELECT id, name, email, phone, role, verification_status, avatar_url, level, wallet_balance, is_admin, is_dev, is_owner, created_at FROM users ORDER BY created_at DESC");
+        return $stmt->fetchAll();
     }
 
     public function getUsers() {
@@ -2373,78 +2215,44 @@ class Database {
     }
 
     private function getFacilitiesUncached($search = '', $type = 'All', $sort = 'recommended') {
-        if ($this->isMySQL) {
-            $sql = "SELECT f.*, 
-                           COUNT(DISTINCT c.id) as real_courts_count,
-                           COALESCE(MIN(c.price), f.price_numeric) as min_price, 
-                           COALESCE(MAX(c.price), f.price_numeric) as max_price
-                    FROM facilities f
-                    LEFT JOIN courts c ON f.id = c.facility_id
-                    WHERE 1=1";
-            $params = [];
-            if (!empty($search)) {
-                $sql .= " AND (f.name LIKE ? OR f.location LIKE ?)";
-                $params[] = "%$search%";
-                $params[] = "%$search%";
-            }
-            if ($type !== 'All') {
-                $sql .= " AND f.type LIKE ?";
-                $params[] = "%$type%";
-            }
-            $sql .= " GROUP BY f.id";
-            if ($sort === 'price_asc') {
-                $sql .= " ORDER BY min_price ASC";
-            } elseif ($sort === 'rating_desc') {
-                $sql .= " ORDER BY f.rating DESC";
-            } else {
-                $sql .= " ORDER BY f.id ASC";
-            }
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute($params);
-            $rows = $stmt->fetchAll();
-            foreach ($rows as &$r) {
-                if (isset($r['real_courts_count']) && (int)$r['real_courts_count'] > 0) {
-                    $r['courts_count'] = (int)$r['real_courts_count'];
-                }
-            }
-            unset($r);
-            return $rows;
-        } else {
-            $facilities = $this->getJSONData('facilities');
-            $courts = $this->getJSONData('courts');
-
-            $pricesByFacility = [];
-            foreach ($courts as $c) {
-                $fid = (int)($c['facility_id'] ?? 0);
-                $pricesByFacility[$fid][] = (float)($c['price'] ?? 0);
-            }
-
-            foreach ($facilities as &$f) {
-                $fid = (int)($f['id'] ?? 0);
-                if (!empty($pricesByFacility[$fid])) {
-                    $f['min_price'] = (float)min($pricesByFacility[$fid]);
-                    $f['max_price'] = (float)max($pricesByFacility[$fid]);
-                    $f['courts_count'] = count($pricesByFacility[$fid]);
-                } else {
-                    $f['min_price'] = (float)($f['price_numeric'] ?? 140);
-                    $f['max_price'] = (float)($f['price_numeric'] ?? 140);
-                }
-            }
-            unset($f);
-
-            $filtered = array_filter($facilities, function($f) use ($search, $type) {
-                $matchSearch = empty($search) || (stripos($f['name'], $search) !== false || stripos($f['location'], $search) !== false);
-                $matchType = ($type === 'All') || (stripos($f['type'], $type) !== false);
-                return $matchSearch && $matchType;
-            });
-            $filtered = array_values($filtered);
-            if ($sort === 'price_asc') {
-                usort($filtered, fn($a,$b) => ($a['min_price'] ?? $a['price_numeric']) <=> ($b['min_price'] ?? $b['price_numeric']));
-            } elseif ($sort === 'rating_desc') {
-                usort($filtered, fn($a,$b) => $b['rating'] <=> $a['rating']);
-            }
-            return $filtered;
+        $sql = "SELECT f.*, 
+                       COUNT(DISTINCT c.id) as real_courts_count,
+                       COALESCE(MIN(c.price), f.price_numeric) as min_price, 
+                       COALESCE(MAX(c.price), f.price_numeric) as max_price,
+                       COALESCE(AVG(c.price), f.price_numeric) as avg_price
+                FROM facilities f
+                LEFT JOIN courts c ON f.id = c.facility_id
+                WHERE f.is_verified = 1 AND f.image IS NOT NULL AND f.image != ''"
+                // Facilities suspended by Picklers admins are not offered to players.
+                . ($this->hasColumn('facilities', 'operating_status') ? " AND f.operating_status <> 'suspended'" : '');
+        $params = [];
+        if (!empty($search)) {
+            $sql .= " AND (f.name LIKE ? OR f.location LIKE ?)";
+            $params[] = "%$search%";
+            $params[] = "%$search%";
         }
+        if ($type !== 'All') {
+            $sql .= " AND f.type LIKE ?";
+            $params[] = "%$type%";
+        }
+        $sql .= " GROUP BY f.id";
+        if ($sort === 'price_asc') {
+            $sql .= " ORDER BY min_price ASC";
+        } elseif ($sort === 'rating_desc') {
+            $sql .= " ORDER BY f.rating DESC";
+        } else {
+            $sql .= " ORDER BY f.id ASC";
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$r) {
+            if (isset($r['real_courts_count']) && (int)$r['real_courts_count'] > 0) {
+                $r['courts_count'] = (int)$r['real_courts_count'];
+            }
+        }
+        unset($r);
+        return $rows;
     }
 
     public function getFacility($id) {
@@ -2458,35 +2266,15 @@ class Database {
     }
 
     private function getFacilityUncached($id) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT f.*, 
-                           COALESCE(MIN(c.price), f.price_numeric) as min_price, 
-                           COALESCE(MAX(c.price), f.price_numeric) as max_price
-                    FROM facilities f
-                    LEFT JOIN courts c ON f.id = c.facility_id
-                    WHERE f.id = ?
-                    GROUP BY f.id");
-            $stmt->execute([$id]);
-            return $stmt->fetch() ?: null;
-        } else {
-            $facilities = $this->getJSONData('facilities');
-            $courts = $this->getJSONData('courts');
-            foreach ($facilities as $f) {
-                if ((int)$f['id'] === (int)$id) {
-                    $fCourts = array_filter($courts, fn($c) => (int)$c['facility_id'] === (int)$f['id']);
-                    if (!empty($fCourts)) {
-                        $prices = array_column($fCourts, 'price');
-                        $f['min_price'] = (float)min($prices);
-                        $f['max_price'] = (float)max($prices);
-                    } else {
-                        $f['min_price'] = (float)($f['price_numeric'] ?? 140);
-                        $f['max_price'] = (float)($f['price_numeric'] ?? 140);
-                    }
-                    return $f;
-                }
-            }
-            return null;
-        }
+        $stmt = $this->pdo->prepare("SELECT f.*, 
+                       COALESCE(MIN(c.price), f.price_numeric) as min_price, 
+                       COALESCE(MAX(c.price), f.price_numeric) as max_price
+                FROM facilities f
+                LEFT JOIN courts c ON f.id = c.facility_id
+                WHERE f.id = ?
+                GROUP BY f.id");
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
     }
 
     public function updateFacility(int|string $facilityId, array $fields): bool {
@@ -2508,34 +2296,15 @@ class Database {
         $this->bumpSync('facilities');
         $facilityId = (int)$facilityId;
 
-        if ($this->isMySQL) {
-            $set = [];
-            $vals = [];
-            foreach ($clean as $k => $v) {
-                $set[] = "`$k` = ?";
-                $vals[] = $v;
-            }
-            $vals[] = $facilityId;
-            $stmt = $this->pdo->prepare("UPDATE facilities SET " . implode(", ", $set) . " WHERE id = ?");
-            return $stmt->execute($vals);
-        } else {
-            $facilities = $this->getJSONData('facilities');
-            $updated = false;
-            foreach ($facilities as &$f) {
-                if ((int)($f['id'] ?? 0) === $facilityId) {
-                    foreach ($clean as $k => $v) {
-                        $f[$k] = $v;
-                    }
-                    $updated = true;
-                    break;
-                }
-            }
-            unset($f);
-            if ($updated) {
-                $this->saveJSONData('facilities', $facilities);
-            }
-            return $updated;
+        $set = [];
+        $vals = [];
+        foreach ($clean as $k => $v) {
+            $set[] = "`$k` = ?";
+            $vals[] = $v;
         }
+        $vals[] = $facilityId;
+        $stmt = $this->pdo->prepare("UPDATE facilities SET " . implode(", ", $set) . " WHERE id = ?");
+        return $stmt->execute($vals);
     }
 
     public function getCourtsByFacility($facilityId) {
@@ -2575,59 +2344,24 @@ class Database {
     }
 
     private function getCourtsByFacilityUncached($facilityId) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM courts WHERE facility_id = ?");
-            $stmt->execute([$facilityId]);
-            $courts = $stmt->fetchAll();
-        } else {
-            $courts = $this->getJSONData('courts');
-            $courts = array_values(array_filter($courts, fn($c) => (int)$c['facility_id'] === (int)$facilityId));
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM courts WHERE facility_id = ?");
+        $stmt->execute([$facilityId]);
+        $courts = $stmt->fetchAll();
 
         $todayStr = date('Y-m-d');
         $nowMin = ((int)date('G') * 60) + (int)date('i');
 
         // Fetch active confirmed bookings for this facility today (excluding pending requests)
         $activeBookingsToday = [];
-        if ($this->isMySQL) {
-            $bStmt = $this->pdo->prepare(
-                "SELECT b.*, u.name as user_name, u.avatar_url as user_avatar FROM bookings b
-                 LEFT JOIN users u ON b.user_id = u.id
-                 WHERE b.facility_id = ? AND b.booking_date = ?
-                   AND b.status IN ('confirmed', 'completed', 'upcoming')
-                   AND (b.ended_early = 0 OR b.ended_early IS NULL)"
-            );
-            $bStmt->execute([$facilityId, $todayStr]);
-            $activeBookingsToday = $bStmt->fetchAll();
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            $users = $this->getJSONData('users');
-            $userMap = [];
-            foreach ($users as $u) {
-                $userMap[(string)($u['id'] ?? '')] = [
-                    'name' => $u['name'] ?? 'Player',
-                    'avatar' => $u['avatar_url'] ?? ($u['avatar'] ?? null)
-                ];
-            }
-            foreach ($bookings as $b) {
-                if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
-                $st = (string)($b['status'] ?? '');
-                if (!in_array($st, ['confirmed', 'completed', 'upcoming'], true)) continue;
-                if (!empty($b['ended_early'])) continue;
-                $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
-                if ($bDate === $todayStr) {
-                    $uData = $userMap[(string)($b['user_id'] ?? '')] ?? null;
-                    if (is_array($uData)) {
-                        $b['user_name'] = $uData['name'];
-                        $b['user_avatar'] = $uData['avatar'];
-                    } else {
-                        $b['user_name'] = $b['author_name'] ?? 'Player';
-                        $b['user_avatar'] = $b['avatar_url'] ?? ($b['avatar'] ?? null);
-                    }
-                    $activeBookingsToday[] = $b;
-                }
-            }
-        }
+        $bStmt = $this->pdo->prepare(
+            "SELECT b.*, u.name as user_name, u.avatar_url as user_avatar FROM bookings b
+             LEFT JOIN users u ON b.user_id = u.id
+             WHERE b.facility_id = ? AND b.booking_date = ?
+               AND b.status IN ('confirmed', 'completed', 'upcoming')
+               AND (b.ended_early = 0 OR b.ended_early IS NULL)"
+        );
+        $bStmt->execute([$facilityId, $todayStr]);
+        $activeBookingsToday = $bStmt->fetchAll();
 
         $matches = $this->getMatchesByFacility($facilityId);
 
@@ -2773,12 +2507,8 @@ class Database {
     }
 
     public function getAllCourts() {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT c.*, f.name as facility_name FROM courts c JOIN facilities f ON c.facility_id = f.id");
-            return $stmt->fetchAll();
-        } else {
-            return $this->getJSONData('courts');
-        }
+        $stmt = $this->pdo->query("SELECT c.*, f.name as facility_name FROM courts c JOIN facilities f ON c.facility_id = f.id");
+        return $stmt->fetchAll();
     }
 
     /**
@@ -2787,25 +2517,13 @@ class Database {
      * A facility with no owner set matches nobody.
      */
     public function verifyCourtOwner(string $courtId, string $ownerUserId): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT COUNT(*) as c FROM courts c
-                 JOIN facilities f ON c.facility_id = f.id
-                 WHERE c.id = ? AND f.owner_id = ?"
-            );
-            $stmt->execute([$courtId, $ownerUserId]);
-            return (int)($stmt->fetch()['c'] ?? 0) > 0;
-        } else {
-            $courts = $this->getJSONData('courts');
-            $facilities = $this->getJSONData('facilities');
-            $facilityIds = array_map('strval', array_column(array_filter($facilities, fn($f) => (string)($f['owner_id'] ?? '') === (string)$ownerUserId), 'id'));
-            foreach ($courts as $c) {
-                if ((string)$c['id'] === (string)$courtId && in_array((string)($c['facility_id'] ?? ''), $facilityIds, true)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) as c FROM courts c
+             JOIN facilities f ON c.facility_id = f.id
+             WHERE c.id = ? AND f.owner_id = ?"
+        );
+        $stmt->execute([$courtId, $ownerUserId]);
+        return (int)($stmt->fetch()['c'] ?? 0) > 0;
     }
 
     /**
@@ -2829,24 +2547,8 @@ class Database {
         $status = $this->normalizeCourtStatus($status);
         $this->invalidateReadCache();
         $this->bumpSync('courts');
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE courts SET status = ? WHERE id = ?");
-            return $stmt->execute([$status, $courtId]);
-        } else {
-            $courts = $this->getJSONData('courts');
-            $updated = false;
-            foreach ($courts as &$c) {
-                if ((string)$c['id'] === (string)$courtId) {
-                    $c['status'] = $status;
-                    $updated = true;
-                    break;
-                }
-            }
-            if ($updated) {
-                $this->saveJSONData('courts', $courts);
-            }
-            return $updated;
-        }
+        $stmt = $this->pdo->prepare("UPDATE courts SET status = ? WHERE id = ?");
+        return $stmt->execute([$status, $courtId]);
     }
 
     public function updateCourtStatusByNameOrId($facilityId, string $courtName, string $status = 'available'): bool {
@@ -2854,24 +2556,8 @@ class Database {
         $this->invalidateReadCache();
         $this->bumpSync('courts');
         $facilityId = (int)$facilityId;
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE courts SET status = ? WHERE facility_id = ? AND (name = ? OR id = ?)");
-            return $stmt->execute([$status, $facilityId, $courtName, $courtName]);
-        } else {
-            $courts = $this->getJSONData('courts');
-            $updated = false;
-            foreach ($courts as &$c) {
-                if ((int)($c['facility_id'] ?? 0) === $facilityId && (strcasecmp((string)($c['name'] ?? ''), $courtName) === 0 || (string)($c['id'] ?? '') === $courtName)) {
-                    $c['status'] = $status;
-                    $updated = true;
-                }
-            }
-            unset($c);
-            if ($updated) {
-                $this->saveJSONData('courts', $courts);
-            }
-            return $updated;
-        }
+        $stmt = $this->pdo->prepare("UPDATE courts SET status = ? WHERE facility_id = ? AND (name = ? OR id = ?)");
+        return $stmt->execute([$status, $facilityId, $courtName, $courtName]);
     }
 
     public function occupyCourt($facilityId, $courtIdOrName, string $playerName, ?string $timeRange = null): bool {
@@ -2879,52 +2565,16 @@ class Database {
         $this->invalidateReadCache();
         $this->bumpSync('courts');
         $facilityId = (int)$facilityId;
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE courts SET status = ?, occupied_by = ?, occupied_until = ? WHERE (id = ? OR (facility_id = ? AND name = ?))");
-            return $stmt->execute([$status, $playerName, $timeRange, $courtIdOrName, $facilityId, $courtIdOrName]);
-        } else {
-            $courts = $this->getJSONData('courts');
-            $updated = false;
-            foreach ($courts as &$c) {
-                if ((string)($c['id'] ?? '') === (string)$courtIdOrName || ((int)($c['facility_id'] ?? 0) === $facilityId && strcasecmp((string)($c['name'] ?? ''), (string)$courtIdOrName) === 0)) {
-                    $c['status'] = $status;
-                    $c['occupied_by'] = $playerName;
-                    $c['occupied_until'] = $timeRange;
-                    $updated = true;
-                }
-            }
-            unset($c);
-            if ($updated) {
-                $this->saveJSONData('courts', $courts);
-            }
-            return $updated;
-        }
+        $stmt = $this->pdo->prepare("UPDATE courts SET status = ?, occupied_by = ?, occupied_until = ? WHERE (id = ? OR (facility_id = ? AND name = ?))");
+        return $stmt->execute([$status, $playerName, $timeRange, $courtIdOrName, $facilityId, $courtIdOrName]);
     }
 
     public function clearCourtSession($courtId, $facilityId = null): bool {
         $status = 'AVAILABLE';
         $this->invalidateReadCache();
         $this->bumpSync('courts');
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE courts SET status = ?, occupied_by = NULL, occupied_until = NULL WHERE id = ? OR (facility_id = ? AND name = ?)");
-            return $stmt->execute([$status, $courtId, (int)$facilityId, $courtId]);
-        } else {
-            $courts = $this->getJSONData('courts');
-            $updated = false;
-            foreach ($courts as &$c) {
-                if ((string)($c['id'] ?? '') === (string)$courtId || ((int)($c['facility_id'] ?? 0) === (int)$facilityId && strcasecmp((string)($c['name'] ?? ''), (string)$courtId) === 0)) {
-                    $c['status'] = $status;
-                    $c['occupied_by'] = null;
-                    $c['occupied_until'] = null;
-                    $updated = true;
-                }
-            }
-            unset($c);
-            if ($updated) {
-                $this->saveJSONData('courts', $courts);
-            }
-            return $updated;
-        }
+        $stmt = $this->pdo->prepare("UPDATE courts SET status = ?, occupied_by = NULL, occupied_until = NULL WHERE id = ? OR (facility_id = ? AND name = ?)");
+        return $stmt->execute([$status, $courtId, (int)$facilityId, $courtId]);
     }
 
     /**
@@ -2968,76 +2618,31 @@ class Database {
             return null;
         };
 
-        if ($this->isMySQL) {
-            try {
-                $this->pdo->beginTransaction();
-                $stmt = $this->pdo->prepare(
-                    "SELECT * FROM bookings
-                     WHERE facility_id = ? AND booking_date = ? AND status IN ('pending', 'confirmed')
-                       AND (ended_early = 0 OR ended_early IS NULL)
-                       AND (court_id = ? OR court_name = ?)
-                     FOR UPDATE"
-                );
-                $stmt->execute([$facilityId, $todayStr, $courtId, $courtName]);
-                $target = $findActive($stmt->fetchAll());
+        try {
+            $this->pdo->beginTransaction();
+            $stmt = $this->pdo->prepare(
+                "SELECT * FROM bookings
+                 WHERE facility_id = ? AND booking_date = ? AND status IN ('pending', 'confirmed')
+                   AND (ended_early = 0 OR ended_early IS NULL)
+                   AND (court_id = ? OR court_name = ?)
+                 FOR UPDATE"
+            );
+            $stmt->execute([$facilityId, $todayStr, $courtId, $courtName]);
+            $target = $findActive($stmt->fetchAll());
 
-                if ($target === null) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'No active session found for this court right now.'];
-                }
-
-                $this->pdo->prepare("UPDATE bookings SET ended_early = 1 WHERE id = ?")->execute([$target['id']]);
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] endCourtSessionEarly failed: ' . $e->getMessage());
-                return ['success' => false, 'message' => 'Could not end this session. Please try again.'];
+            if ($target === null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'No active session found for this court right now.'];
             }
-        } else {
-            $path = $this->dataDir . '/bookings.json';
-            $fp = fopen($path, 'c+');
-            if (!$fp || !flock($fp, LOCK_EX)) {
-                if ($fp) fclose($fp);
-                return ['success' => false, 'message' => 'System is busy. Please try again.'];
+
+            $this->pdo->prepare("UPDATE bookings SET ended_early = 1 WHERE id = ?")->execute([$target['id']]);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
             }
-            $target = null;
-            try {
-                $raw = stream_get_contents($fp);
-                $bookings = json_decode($raw ?: '[]', true) ?? [];
-
-                $candidates = [];
-                foreach ($bookings as $idx => $b) {
-                    if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
-                    // A pending booking holds (and shows as occupying) the court
-                    // too; only confirmed ones could be ended, so the owner's
-                    // "End Session Early" failed on a court shown as occupied.
-                    if (!in_array((string)($b['status'] ?? ''), ['pending', 'confirmed'], true)) continue;
-                    if (!empty($b['ended_early'])) continue;
-                    $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
-                    if ($bDate !== $todayStr) continue;
-                    $sameCourt = ($courtId !== '' && ($b['court_id'] ?? '') === $courtId) || (($b['court_name'] ?? '') === $courtName);
-                    if (!$sameCourt) continue;
-                    $b['_idx'] = $idx;
-                    $candidates[] = $b;
-                }
-
-                $target = $findActive($candidates);
-                if ($target === null) {
-                    return ['success' => false, 'message' => 'No active session found for this court right now.'];
-                }
-
-                $bookings[$target['_idx']]['ended_early'] = 1;
-                ftruncate($fp, 0);
-                rewind($fp);
-                fwrite($fp, json_encode(array_values($bookings), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            } finally {
-                if (is_resource($fp)) {
-                    flock($fp, LOCK_UN);
-                    fclose($fp);
-                }
-            }
+            error_log('[DB Error] endCourtSessionEarly failed: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Could not end this session. Please try again.'];
         }
 
         $this->bumpSync('courts', 'bookings');
@@ -3059,43 +2664,7 @@ class Database {
      * its window ends — including immediately, for one flagged ended_early.
      */
     public function isBookingPast(array $booking): bool {
-        if (!empty($booking['ended_early'])) {
-            return true;
-        }
-        if (in_array((string)($booking['status'] ?? ''), ['cancelled', 'declined'], true)) {
-            return false; // its own bucket, not "past"
-        }
-
-        $dateStr = (string)($booking['booking_date'] ?? '');
-        if ($dateStr === '') {
-            $resolved = $this->resolveDisplayDate((string)($booking['date'] ?? ''));
-            $dateStr = $resolved ?? '';
-        }
-        if ($dateStr === '') {
-            return false; // can't tell — don't hide it
-        }
-
-        $todayStr = date('Y-m-d');
-        if ($dateStr < $todayStr) {
-            return true;
-        }
-        if ($dateStr > $todayStr) {
-            return false;
-        }
-
-        $endMin = isset($booking['end_min']) && $booking['end_min'] !== null ? (int)$booking['end_min'] : null;
-        if ($endMin === null) {
-            $range = $this->parseTimeRange((string)($booking['time'] ?? ''));
-            if ($range) {
-                $endMin = $range[1];
-            }
-        }
-        if ($endMin === null) {
-            return false;
-        }
-
-        $nowMin = ((int)date('G') * 60) + (int)date('i');
-        return $nowMin >= $endMin;
+        return \Picklers\Domain\BookingRules::isBookingPast($booking);
     }
 
     /**
@@ -3131,25 +2700,13 @@ class Database {
         $todayStr = date('Y-m-d');
         $alerts = [];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT * FROM bookings
-                 WHERE user_id = ? AND booking_date = ? AND status = 'confirmed'
-                   AND (end_alert_sent = 0 OR end_alert_sent IS NULL)"
-            );
-            $stmt->execute([$userId, $todayStr]);
-            $candidates = $stmt->fetchAll();
-        } else {
-            $candidates = [];
-            foreach ($this->getJSONData('bookings') as $b) {
-                if ((string)($b['user_id'] ?? '') !== $userId) continue;
-                if (($b['status'] ?? '') !== 'confirmed') continue;
-                if (!empty($b['end_alert_sent'])) continue;
-                $bDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
-                if ($bDate !== $todayStr) continue;
-                $candidates[] = $b;
-            }
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM bookings
+             WHERE user_id = ? AND booking_date = ? AND status = 'confirmed'
+               AND (end_alert_sent = 0 OR end_alert_sent IS NULL)"
+        );
+        $stmt->execute([$userId, $todayStr]);
+        $candidates = $stmt->fetchAll();
 
         foreach ($candidates as $b) {
             if (!$this->isBookingPast($b)) {
@@ -3160,20 +2717,7 @@ class Database {
                 continue;
             }
 
-            if ($this->isMySQL) {
-                $this->pdo->prepare("UPDATE bookings SET end_alert_sent = 1 WHERE id = ?")->execute([$bookingId]);
-            } else {
-                $this->lockedJSONUpdate('bookings', function (array $rows) use ($bookingId): array {
-                    foreach ($rows as &$row) {
-                        if ((string)($row['id'] ?? '') === $bookingId) {
-                            $row['end_alert_sent'] = 1;
-                            break;
-                        }
-                    }
-                    unset($row);
-                    return $rows;
-                });
-            }
+            $this->pdo->prepare("UPDATE bookings SET end_alert_sent = 1 WHERE id = ?")->execute([$bookingId]);
 
             $courtName = (string)($b['court_name'] ?? 'your court');
             $facilityName = (string)($b['facility_name'] ?? 'the facility');
@@ -3215,19 +2759,13 @@ class Database {
             'occupied_until' => $courtData['occupied_until'] ?? null
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO courts (id, facility_id, name, surface, type, price, status, occupied_by, occupied_until) VALUES (?,?,?,?,?,?,?,?,?)"
-            );
-            $stmt->execute([
-                $court['id'], $court['facility_id'], $court['name'], $court['surface'],
-                $court['type'], $court['price'], $court['status'], $court['occupied_by'], $court['occupied_until']
-            ]);
-        } else {
-            $courts = $this->getJSONData('courts');
-            $courts[] = $court;
-            $this->saveJSONData('courts', $courts);
-        }
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO courts (id, facility_id, name, surface, type, price, status, occupied_by, occupied_until) VALUES (?,?,?,?,?,?,?,?,?)"
+        );
+        $stmt->execute([
+            $court['id'], $court['facility_id'], $court['name'], $court['surface'],
+            $court['type'], $court['price'], $court['status'], $court['occupied_by'], $court['occupied_until']
+        ]);
         return $court;
     }
 
@@ -3240,75 +2778,40 @@ class Database {
             $updates['name'] = self::normalizeCourtName((string)$updates['name']);
         }
 
-        if ($this->isMySQL) {
-            if (!empty($updates)) {
-                $setParts = [];
-                $params = [];
-                foreach ($updates as $col => $val) {
-                    $setParts[] = "{$col} = ?";
-                    $params[] = $val;
-                }
-                $params[] = $courtId;
-                $stmt = $this->pdo->prepare("UPDATE courts SET " . implode(', ', $setParts) . " WHERE id = ?");
-                $stmt->execute($params);
+        if (!empty($updates)) {
+            $setParts = [];
+            $params = [];
+            foreach ($updates as $col => $val) {
+                $setParts[] = "{$col} = ?";
+                $params[] = $val;
             }
-            $stmt = $this->pdo->prepare("SELECT * FROM courts WHERE id = ?");
-            $stmt->execute([$courtId]);
-            $row = $stmt->fetch();
-            return $row ?: null;
-        } else {
-            $courts = $this->getJSONData('courts');
-            $found = null;
-            foreach ($courts as &$c) {
-                if ((string)$c['id'] === (string)$courtId) {
-                    foreach ($updates as $col => $val) {
-                        $c[$col] = $val;
-                    }
-                    $found = $c;
-                    break;
-                }
-            }
-            unset($c);
-            if ($found !== null) {
-                $this->saveJSONData('courts', $courts);
-            }
-            return $found;
+            $params[] = $courtId;
+            $stmt = $this->pdo->prepare("UPDATE courts SET " . implode(', ', $setParts) . " WHERE id = ?");
+            $stmt->execute($params);
         }
+        $stmt = $this->pdo->prepare("SELECT * FROM courts WHERE id = ?");
+        $stmt->execute([$courtId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     public function getCourtById(string $courtId): ?array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM courts WHERE id = ?");
-            $stmt->execute([$courtId]);
-            return $stmt->fetch() ?: null;
-        }
-        foreach ($this->getJSONData('courts') as $c) {
-            if ((string)($c['id'] ?? '') === $courtId) {
-                return $c;
-            }
-        }
-        return null;
+        $stmt = $this->pdo->prepare("SELECT * FROM courts WHERE id = ?");
+        $stmt->execute([$courtId]);
+        return $stmt->fetch() ?: null;
     }
 
     /** Pending/confirmed bookings on one court that haven't been played yet. */
     public function countUpcomingCourtBookings(int|string $facilityId, string $courtId, string $courtName): int {
         $today = date('Y-m-d');
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT * FROM bookings
-                  WHERE facility_id = ? AND status IN ('pending', 'confirmed')
-                    AND (booking_date IS NULL OR booking_date >= ?)
-                    AND (court_id = ? OR court_name = ?)"
-            );
-            $stmt->execute([$facilityId, $today, $courtId, $courtName]);
-            $rows = $stmt->fetchAll();
-        } else {
-            $rows = array_filter($this->getJSONData('bookings'), fn($b) =>
-                (int)($b['facility_id'] ?? 0) === (int)$facilityId
-                && in_array((string)($b['status'] ?? ''), ['pending', 'confirmed'], true)
-                && (((string)($b['court_id'] ?? '') !== '' && (string)$b['court_id'] === $courtId) || (string)($b['court_name'] ?? '') === $courtName)
-            );
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM bookings
+              WHERE facility_id = ? AND status IN ('pending', 'confirmed')
+                AND (booking_date IS NULL OR booking_date >= ?)
+                AND (court_id = ? OR court_name = ?)"
+        );
+        $stmt->execute([$facilityId, $today, $courtId, $courtName]);
+        $rows = $stmt->fetchAll();
         $count = 0;
         foreach ($rows as $row) {
             if (!$this->isBookingPast($row)) {
@@ -3323,56 +2826,27 @@ class Database {
         // sync channels; a deleted court stayed on Discover until a reload.
         $this->invalidateReadCache();
         $this->bumpSync('courts', 'facilities');
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("DELETE FROM courts WHERE id = ?");
-            $stmt->execute([$courtId]);
-            $deleted = $stmt->rowCount() > 0;
-            if ($deleted) {
-                $this->pdo->prepare("DELETE FROM court_attribute_map WHERE court_id = ?")->execute([$courtId]);
-            }
-            return $deleted;
-        } else {
-            $courts = $this->getJSONData('courts');
-            $countBefore = count($courts);
-            $courts = array_values(array_filter($courts, fn($c) => (string)($c['id'] ?? '') !== (string)$courtId));
-            if (count($courts) !== $countBefore) {
-                $this->saveJSONData('courts', $courts);
-                return true;
-            }
-            return false;
+        $stmt = $this->pdo->prepare("DELETE FROM courts WHERE id = ?");
+        $stmt->execute([$courtId]);
+        $deleted = $stmt->rowCount() > 0;
+        if ($deleted) {
+            $this->pdo->prepare("DELETE FROM court_attribute_map WHERE court_id = ?")->execute([$courtId]);
         }
+        return $deleted;
     }
 
     // --------------------------------------------------------------------------
     // Staff Management
     // --------------------------------------------------------------------------
     public function getStaffByFacility(int|string $facilityId): array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("
-                SELECT s.*, COALESCE(u.avatar_url, '') as avatar_url 
-                FROM staff s 
-                LEFT JOIN users u ON ((s.user_id IS NOT NULL AND s.user_id != '' AND s.user_id = u.id) OR (LOWER(s.email) = LOWER(u.email) AND s.email != '')) 
-                WHERE s.facility_id = ?
-            ");
-            $stmt->execute([$facilityId]);
-            return $stmt->fetchAll();
-        } else {
-            $staff = $this->getJSONData('staff');
-            $users = $this->getJSONData('users');
-            $userMap = [];
-            foreach ($users as $u) {
-                if (!empty($u['email']) && !empty($u['avatar_url'])) {
-                    $userMap[strtolower(trim($u['email']))] = $u['avatar_url'];
-                }
-            }
-            $result = array_values(array_filter($staff, fn($s) => (string)($s['facility_id'] ?? '') === (string)$facilityId));
-            foreach ($result as &$st) {
-                if (empty($st['avatar_url']) && !empty($st['email'])) {
-                    $st['avatar_url'] = $userMap[strtolower(trim($st['email']))] ?? '';
-                }
-            }
-            return $result;
-        }
+        $stmt = $this->pdo->prepare("
+            SELECT s.*, COALESCE(u.avatar_url, '') as avatar_url 
+            FROM staff s 
+            LEFT JOIN users u ON ((s.user_id IS NOT NULL AND s.user_id != '' AND s.user_id = u.id) OR (LOWER(s.email) = LOWER(u.email) AND s.email != '')) 
+            WHERE s.facility_id = ?
+        ");
+        $stmt->execute([$facilityId]);
+        return $stmt->fetchAll();
     }
 
     public function getStaffFacilityIdsForUser(string $userId, string $email): array {
@@ -3382,51 +2856,24 @@ class Database {
             return [];
         }
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("
-                SELECT DISTINCT facility_id 
-                FROM staff 
-                WHERE (user_id IS NOT NULL AND user_id != '' AND user_id = ?) 
-                   OR (email IS NOT NULL AND email != '' AND LOWER(email) = ?)
-            ");
-            $stmt->execute([$userId, $email]);
-            return array_column($stmt->fetchAll(\PDO::FETCH_ASSOC), 'facility_id');
-        } else {
-            $staff = $this->getJSONData('staff');
-            $ids = [];
-            foreach ($staff as $s) {
-                $sUser = (string)($s['user_id'] ?? '');
-                $sEmail = strtolower(trim((string)($s['email'] ?? '')));
-                if (($userId !== '' && $sUser === $userId) || ($email !== '' && $sEmail === $email)) {
-                    if (!empty($s['facility_id'])) {
-                        $ids[] = $s['facility_id'];
-                    }
-                }
-            }
-            return array_values(array_unique($ids));
-        }
+        $stmt = $this->pdo->prepare("
+            SELECT DISTINCT facility_id 
+            FROM staff 
+            WHERE (user_id IS NOT NULL AND user_id != '' AND user_id = ?) 
+               OR (email IS NOT NULL AND email != '' AND LOWER(email) = ?)
+        ");
+        $stmt->execute([$userId, $email]);
+        return array_column($stmt->fetchAll(\PDO::FETCH_ASSOC), 'facility_id');
     }
 
     public function verifyStaffOwner(string $staffId, string $ownerUserId): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT COUNT(*) as c FROM staff s
-                 JOIN facilities f ON s.facility_id = f.id
-                 WHERE s.id = ? AND f.owner_id = ?"
-            );
-            $stmt->execute([$staffId, $ownerUserId]);
-            return (int)($stmt->fetch()['c'] ?? 0) > 0;
-        } else {
-            $staff = $this->getJSONData('staff');
-            $facilities = $this->getJSONData('facilities');
-            $facilityIds = array_map('strval', array_column(array_filter($facilities, fn($f) => (string)($f['owner_id'] ?? '') === (string)$ownerUserId), 'id'));
-            foreach ($staff as $s) {
-                if ((string)$s['id'] === (string)$staffId && in_array((string)($s['facility_id'] ?? ''), $facilityIds, true)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) as c FROM staff s
+             JOIN facilities f ON s.facility_id = f.id
+             WHERE s.id = ? AND f.owner_id = ?"
+        );
+        $stmt->execute([$staffId, $ownerUserId]);
+        return (int)($stmt->fetch()['c'] ?? 0) > 0;
     }
 
     public function insertStaff(array $staffData): array {
@@ -3442,84 +2889,24 @@ class Database {
             'date_joined' => $staffData['date_joined'] ?? date('M Y')
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO staff (id, facility_id, name, email, role, status, date_joined) VALUES (?,?,?,?,?,?,?)"
-            );
-            $stmt->execute([
-                $staff['id'], $staff['facility_id'], $staff['name'], $staff['email'],
-                $staff['role'], $staff['status'], $staff['date_joined']
-            ]);
-        } else {
-            $allStaff = $this->getJSONData('staff');
-            $allStaff[] = $staff;
-            $this->saveJSONData('staff', $allStaff);
-        }
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO staff (id, facility_id, name, email, role, status, date_joined) VALUES (?,?,?,?,?,?,?)"
+        );
+        $stmt->execute([
+            $staff['id'], $staff['facility_id'], $staff['name'], $staff['email'],
+            $staff['role'], $staff['status'], $staff['date_joined']
+        ]);
         return $staff;
     }
 
     public function deleteStaff(string $staffId): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("DELETE FROM staff WHERE id = ?");
-            $stmt->execute([$staffId]);
-            return $stmt->rowCount() > 0;
-        } else {
-            $staff = $this->getJSONData('staff');
-            $countBefore = count($staff);
-            $staff = array_values(array_filter($staff, fn($s) => (string)$s['id'] !== (string)$staffId));
-            $removed = count($staff) < $countBefore;
-            if ($removed) {
-                $this->saveJSONData('staff', $staff);
-            }
-            return $removed;
-        }
+        $stmt = $this->pdo->prepare("DELETE FROM staff WHERE id = ?");
+        $stmt->execute([$staffId]);
+        return $stmt->rowCount() > 0;
     }
 
     public static function getMatchTargetDate(array $match): string {
-        $dateStr = trim((string)($match['date'] ?? ''));
-        $timeStr = trim((string)($match['time'] ?? ''));
-        $todayStr = date('Y-m-d');
-
-        $isEveryday = strcasecmp($dateStr, 'everyday') === 0 || strcasecmp($dateStr, 'daily') === 0
-            || str_contains(strtolower($dateStr), 'everyday') || str_contains(strtolower($dateStr), 'daily');
-
-        if (!$isEveryday) {
-            $ts = strtotime($dateStr);
-            return $ts !== false ? date('Y-m-d', $ts) : ($dateStr !== '' ? $dateStr : $todayStr);
-        }
-
-        $startTimeStr = '';
-        $endTimeStr = '';
-        if (str_contains($timeStr, '-')) {
-            $parts = explode('-', $timeStr);
-            $startTimeStr = trim($parts[0]);
-            $endTimeStr = trim(end($parts));
-        } elseif (str_contains($timeStr, '–')) {
-            $parts = explode('–', $timeStr);
-            $startTimeStr = trim($parts[0]);
-            $endTimeStr = trim(end($parts));
-        } elseif (str_contains($timeStr, 'to')) {
-            $parts = explode('to', $timeStr);
-            $startTimeStr = trim($parts[0]);
-            $endTimeStr = trim(end($parts));
-        } else {
-            $endTimeStr = $timeStr;
-        }
-
-        if ($endTimeStr !== '') {
-            $endTs = strtotime($todayStr . ' ' . $endTimeStr);
-            $startTs = $startTimeStr !== '' ? strtotime($todayStr . ' ' . $startTimeStr) : false;
-
-            if ($endTs !== false && $startTs !== false && $endTs <= $startTs) {
-                $endTs = strtotime('+1 day', $endTs);
-            }
-
-            if ($endTs !== false && time() >= $endTs) {
-                return date('Y-m-d', strtotime('+1 day'));
-            }
-        }
-
-        return $todayStr;
+        return \Picklers\Domain\BookingRules::matchTargetDate($match);
     }
 
     public static function getMatchDisplayDate(array $match): string {
@@ -3592,14 +2979,9 @@ class Database {
         return time() >= $endTs;
     }
     public function getMatchesByFacility(int|string $facilityId): array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM matches WHERE facility_id = ?");
-            $stmt->execute([$facilityId]);
-            return $stmt->fetchAll();
-        } else {
-            $matches = $this->getJSONData('matches');
-            return array_values(array_filter($matches, fn($m) => (int)($m['facility_id'] ?? 0) === (int)$facilityId));
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM matches WHERE facility_id = ?");
+        $stmt->execute([$facilityId]);
+        return $stmt->fetchAll();
     }
 
     public function insertMatch(array $matchData): array {
@@ -3621,38 +3003,22 @@ class Database {
             'title' => $matchData['title'] ?? null
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO matches (id, facility_id, facility_name, location, date, time, level, current_players, max_players, price, type, host, title) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            );
-            $stmt->execute([
-                $match['id'], $match['facility_id'], $match['facility_name'], $match['location'],
-                $match['date'], $match['time'], $match['level'], $match['current_players'],
-                $match['max_players'], $match['price'], $match['type'], $match['host'], $match['title']
-            ]);
-        } else {
-            $matches = $this->getJSONData('matches');
-            $matches[] = $match;
-            $this->saveJSONData('matches', $matches);
-        }
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO matches (id, facility_id, facility_name, location, date, time, level, current_players, max_players, price, type, host, title) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        );
+        $stmt->execute([
+            $match['id'], $match['facility_id'], $match['facility_name'], $match['location'],
+            $match['date'], $match['time'], $match['level'], $match['current_players'],
+            $match['max_players'], $match['price'], $match['type'], $match['host'], $match['title']
+        ]);
         return $match;
     }
 
     public function getMatchById(string $matchId): ?array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM matches WHERE id = ?");
-            $stmt->execute([$matchId]);
-            $row = $stmt->fetch();
-            return $row ?: null;
-        } else {
-            $matches = $this->getJSONData('matches');
-            foreach ($matches as $m) {
-                if ((string)($m['id'] ?? '') === (string)$matchId) {
-                    return $m;
-                }
-            }
-            return null;
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM matches WHERE id = ?");
+        $stmt->execute([$matchId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     /**
@@ -3734,80 +3100,51 @@ class Database {
             return ['refund' => $refund];
         };
 
-        if ($this->isMySQL) {
-            $this->pdo->beginTransaction();
-            try {
-                $idPh = implode(',', array_fill(0, count($matchIds), '?'));
-                $sql = "SELECT * FROM bookings WHERE facility_id = ? AND status IN ('pending', 'confirmed')
-                          AND (match_id IN ($idPh)";
-                $params = array_merge([$facilityId], $matchIds);
-                if ($sessionCourts !== []) {
-                    // Legacy join rows written before bookings carried match_id.
-                    $cPh = implode(',', array_fill(0, count($sessionCourts), '?'));
-                    $sql .= " OR (match_id IS NULL AND id LIKE 'PKL-OP-%' AND court_name IN ($cPh))";
-                    $params = array_merge($params, $sessionCourts);
-                }
-                $sql .= ") FOR UPDATE";
-                $stmt = $this->pdo->prepare($sql);
-                $stmt->execute($params);
-
-                $cancel = $this->pdo->prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?");
-                $credit = $this->pdo->prepare("UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?");
-                foreach ($stmt->fetchAll() as $booking) {
-                    $outcome = $settle($booking);
-                    if ($outcome === null) {
-                        continue;
-                    }
-                    $cancel->execute([$booking['id']]);
-                    if ($outcome['refund'] > 0) {
-                        $credit->execute([$outcome['refund'], $booking['user_id']]);
-                        $this->addTransaction((string)$booking['user_id'], 'credit', $outcome['refund'], "Refund: Open Play #{$booking['id']} cancelled by facility");
-                    }
-                }
-
-                $del = $this->pdo->prepare("DELETE FROM matches WHERE facility_id = ? AND id IN ($idPh)");
-                $del->execute(array_merge([$facilityId], $matchIds));
-                $result['sessions'] = $del->rowCount();
-
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] cancelOpenPlaySessions failed: ' . $e->getMessage());
-                throw $e;
+        $this->pdo->beginTransaction();
+        try {
+            $idPh = implode(',', array_fill(0, count($matchIds), '?'));
+            $sql = "SELECT * FROM bookings WHERE facility_id = ? AND status IN ('pending', 'confirmed')
+                      AND (match_id IN ($idPh)";
+            $params = array_merge([$facilityId], $matchIds);
+            if ($sessionCourts !== []) {
+                // Legacy join rows written before bookings carried match_id.
+                $cPh = implode(',', array_fill(0, count($sessionCourts), '?'));
+                $sql .= " OR (match_id IS NULL AND id LIKE 'PKL-OP-%' AND court_name IN ($cPh))";
+                $params = array_merge($params, $sessionCourts);
             }
-        } else {
-            $this->lockedJSONUpdate('bookings', function (array $rows) use ($facilityId, $matchIds, $sessionCourts, $settle): array {
-                foreach ($rows as &$row) {
-                    if ((int)($row['facility_id'] ?? 0) !== (int)$facilityId) continue;
-                    if (!in_array((string)($row['status'] ?? ''), ['pending', 'confirmed'], true)) continue;
-                    $bMatchId = (string)($row['match_id'] ?? '');
-                    $isJoin = ($bMatchId !== '' && in_array($bMatchId, $matchIds, true))
-                        || ($bMatchId === '' && str_starts_with((string)($row['id'] ?? ''), 'PKL-OP-') && in_array((string)($row['court_name'] ?? ''), $sessionCourts, true));
-                    if ($isJoin && $settle($row) !== null) {
-                        $row['status'] = 'cancelled';
-                    }
+            $sql .= ") FOR UPDATE";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+
+            $cancel = $this->pdo->prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?");
+            foreach ($stmt->fetchAll() as $booking) {
+                $outcome = $settle($booking);
+                if ($outcome === null) {
+                    continue;
                 }
-                unset($row);
-                return $rows;
-            });
-            foreach ($settled as $s) {
-                if ($s['refund'] > 0) {
-                    $this->refundUserWallet((string)$s['booking']['user_id'], $s['refund'], "Refund: Open Play #{$s['booking']['id']} cancelled by facility");
+                $cancel->execute([$booking['id']]);
+                if ($outcome['refund'] > 0) {
+                    $this->creditWalletOnce(
+                        (string)$booking['user_id'],
+                        number_format((float)$outcome['refund'], 2, '.', ''),
+                        "Refund: Open Play #{$booking['id']} cancelled by facility",
+                        'refund:booking:' . $booking['id'],
+                        ['entry_kind' => 'refund', 'booking_id' => (string)$booking['id']]
+                    );
                 }
             }
-            $this->lockedJSONUpdate('matches', function (array $rows) use ($facilityId, $matchIds, &$result): array {
-                $kept = [];
-                foreach ($rows as $row) {
-                    if ((int)($row['facility_id'] ?? 0) === (int)$facilityId && in_array((string)($row['id'] ?? ''), $matchIds, true)) {
-                        $result['sessions']++;
-                        continue;
-                    }
-                    $kept[] = $row;
-                }
-                return $kept;
-            });
+
+            $del = $this->pdo->prepare("DELETE FROM matches WHERE facility_id = ? AND id IN ($idPh)");
+            $del->execute(array_merge([$facilityId], $matchIds));
+            $result['sessions'] = $del->rowCount();
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log('[DB Error] cancelOpenPlaySessions failed: ' . $e->getMessage());
+            throw $e;
         }
 
         $result['deleted'] = $result['sessions'] > 0;
@@ -3877,49 +3214,20 @@ class Database {
         $isRecurring = str_contains($sessionDate, 'everyday') || str_contains($sessionDate, 'daily');
         $targetDate = self::getMatchTargetDate($session);
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT b.id, b.user_id, b.status, b.booking_date, b.payment_method, b.price, b.created_at, b.court_name, b.date,
-                        u.name, u.email, u.level, u.avatar_url
-                   FROM bookings b
-              LEFT JOIN users u ON b.user_id = u.id
-                  WHERE b.facility_id = ? AND b.status IN ('pending', 'confirmed', 'completed')
-                    AND (
-                         (b.match_id IS NOT NULL AND b.match_id != '' AND b.match_id = ?)
-                      OR (b.id LIKE 'PKL-OP-%' AND (b.court_name = ? OR b.court_name = ? OR b.court_name = ?))
-                    )
-               ORDER BY b.created_at DESC"
-            );
-            $stmt->execute([$facilityId, $sessionId, $sessionCourt, $courtName, $sessionTitle]);
-            $rows = $stmt->fetchAll();
-        } else {
-            $users = [];
-            foreach ($this->getJSONData('users') as $u) {
-                $users[(string)($u['id'] ?? '')] = $u;
-            }
-            $rows = [];
-            foreach ($this->getJSONData('bookings') as $b) {
-                if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
-                if (!in_array((string)($b['status'] ?? ''), ['pending', 'confirmed', 'completed'], true)) continue;
-                $bMatchId = (string)($b['match_id'] ?? '');
-                $bCourtName = trim((string)($b['court_name'] ?? ''));
-                $isJoin = ($bMatchId !== '' && $bMatchId === $sessionId)
-                    || (str_starts_with((string)($b['id'] ?? ''), 'PKL-OP-') && (
-                        strcasecmp($bCourtName, $sessionCourt) === 0 ||
-                        strcasecmp($bCourtName, $courtName) === 0 ||
-                        strcasecmp($bCourtName, $sessionTitle) === 0
-                    ));
-                if (!$isJoin) continue;
-                $u = $users[(string)($b['user_id'] ?? '')] ?? [];
-                $rows[] = $b + [
-                    'name' => $u['name'] ?? '',
-                    'email' => $u['email'] ?? '',
-                    'level' => $u['level'] ?? '',
-                    'avatar_url' => $u['avatar_url'] ?? ($u['avatar'] ?? null)
-                ];
-            }
-            usort($rows, fn($a, $b) => strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? '')));
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT b.id, b.user_id, b.status, b.booking_date, b.payment_method, b.price, b.created_at, b.court_name, b.date,
+                    u.name, u.email, u.level, u.avatar_url
+               FROM bookings b
+          LEFT JOIN users u ON b.user_id = u.id
+              WHERE b.facility_id = ? AND b.status IN ('pending', 'confirmed', 'completed')
+                AND (
+                     (b.match_id IS NOT NULL AND b.match_id != '' AND b.match_id = ?)
+                  OR (b.id LIKE 'PKL-OP-%' AND (b.court_name = ? OR b.court_name = ? OR b.court_name = ?))
+                )
+           ORDER BY b.created_at DESC"
+        );
+        $stmt->execute([$facilityId, $sessionId, $sessionCourt, $courtName, $sessionTitle]);
+        $rows = $stmt->fetchAll();
 
         $roster = [];
         $seenPlayers = [];
@@ -3979,83 +3287,47 @@ class Database {
         return $roster;
     }
     public function verifyBookingOwner(string $bookingId, string $ownerUserId): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT COUNT(*) as c FROM bookings b 
-                 JOIN facilities f ON b.facility_id = f.id 
-                 WHERE b.id = ? AND f.owner_id = ?"
-            );
-            $stmt->execute([$bookingId, $ownerUserId]);
-            return (int)($stmt->fetch()['c'] ?? 0) > 0;
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            $facilities = $this->getJSONData('facilities');
-            $facilityIds = array_map('strval', array_column(array_filter($facilities, fn($f) => (string)($f['owner_id'] ?? '') === (string)$ownerUserId), 'id'));
-            foreach ($bookings as $b) {
-                if ((string)$b['id'] === (string)$bookingId && in_array((string)($b['facility_id'] ?? ''), $facilityIds, true)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) as c FROM bookings b 
+             JOIN facilities f ON b.facility_id = f.id 
+             WHERE b.id = ? AND f.owner_id = ?"
+        );
+        $stmt->execute([$bookingId, $ownerUserId]);
+        return (int)($stmt->fetch()['c'] ?? 0) > 0;
     }
 
     public function createOwnerApplication(array $appData): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO owner_applications (id, user_id, facility_name, address, latitude, longitude, courts_count, court_surface, operating_hours, owner_name, business_email, phone, entity_name, reg_number, permit_file, gov_id_file, status, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            );
-            return $stmt->execute([
-                $appData['id'], $appData['user_id'], $appData['facility_name'], $appData['address'],
-                $appData['latitude'] ?? null, $appData['longitude'] ?? null, $appData['courts_count'] ?? 1,
-                $appData['court_surface'] ?? 'Indoor Hard', $appData['operating_hours'] ?? '6:00 AM – 11:00 PM',
-                $appData['owner_name'] ?? '', $appData['business_email'] ?? '', $appData['phone'] ?? '',
-                $appData['entity_name'] ?? '', $appData['reg_number'] ?? '', $appData['permit_file'] ?? '',
-                $appData['gov_id_file'] ?? '', $appData['status'] ?? 'pending_review', $appData['created_at'] ?? date('Y-m-d H:i:s')
-            ]);
-        } else {
-            $apps = $this->getJSONData('owner_applications');
-            $apps[] = $appData;
-            $this->saveJSONData('owner_applications', $apps);
-            return true;
-        }
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO owner_applications (id, user_id, facility_name, address, latitude, longitude, courts_count, court_surface, operating_hours, owner_name, business_email, phone, entity_name, reg_number, permit_file, gov_id_file, status, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        );
+        return $stmt->execute([
+            $appData['id'], $appData['user_id'], $appData['facility_name'], $appData['address'],
+            $appData['latitude'] ?? null, $appData['longitude'] ?? null, $appData['courts_count'] ?? 1,
+            $appData['court_surface'] ?? 'Indoor Hard', $appData['operating_hours'] ?? '6:00 AM – 11:00 PM',
+            $appData['owner_name'] ?? '', $appData['business_email'] ?? '', $appData['phone'] ?? '',
+            $appData['entity_name'] ?? '', $appData['reg_number'] ?? '', $appData['permit_file'] ?? '',
+            $appData['gov_id_file'] ?? '', $appData['status'] ?? 'pending_review', $appData['created_at'] ?? date('Y-m-d H:i:s')
+        ]);
     }
 
     public function getOwnerApplications(?string $status = null): array {
-        if ($this->isMySQL) {
-            $sql = "SELECT * FROM owner_applications WHERE 1=1";
-            $params = [];
-            if ($status) {
-                $sql .= " AND status = ?";
-                $params[] = $status;
-            }
-            $sql .= " ORDER BY created_at DESC";
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute($params);
-            return $stmt->fetchAll();
-        } else {
-            $apps = $this->getJSONData('owner_applications');
-            if ($status) {
-                $apps = array_filter($apps, fn($a) => ($a['status'] ?? '') === $status);
-            }
-            usort($apps, fn($a, $b) => strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? '')));
-            return array_values($apps);
+        $sql = "SELECT * FROM owner_applications WHERE 1=1";
+        $params = [];
+        if ($status) {
+            $sql .= " AND status = ?";
+            $params[] = $status;
         }
+        $sql .= " ORDER BY created_at DESC";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
     }
 
     public function getOwnerApplicationById(string $appId): ?array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM owner_applications WHERE id = ?");
-            $stmt->execute([$appId]);
-            return $stmt->fetch() ?: null;
-        }
-        foreach ($this->getJSONData('owner_applications') as $a) {
-            if ((string)($a['id'] ?? '') === $appId) {
-                return $a;
-            }
-        }
-        return null;
+        $stmt = $this->pdo->prepare("SELECT * FROM owner_applications WHERE id = ?");
+        $stmt->execute([$appId]);
+        return $stmt->fetch() ?: null;
     }
 
     /**
@@ -4064,19 +3336,11 @@ class Database {
      * explicit application_id (legacy callers, or a stale queue row).
      */
     public function getLatestApplicationForUser(string $userId): ?array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT * FROM owner_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1"
-            );
-            $stmt->execute([$userId]);
-            return $stmt->fetch() ?: null;
-        }
-        $apps = array_values(array_filter(
-            $this->getJSONData('owner_applications'),
-            fn($a) => (string)($a['user_id'] ?? '') === $userId
-        ));
-        usort($apps, fn($a, $b) => strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? '')));
-        return $apps[0] ?? null;
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM owner_applications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        return $stmt->fetch() ?: null;
     }
 
     /**
@@ -4097,174 +3361,47 @@ class Database {
             throw new \InvalidArgumentException('Application is missing a user_id or facility_name.');
         }
 
-        if ($this->isMySQL) {
-            $existing = $this->pdo->prepare(
-                "SELECT id FROM facilities WHERE owner_id = ? AND name = ? LIMIT 1"
-            );
-            $existing->execute([$ownerId, $name]);
-            if ($existingId = $existing->fetchColumn()) {
-                return (int)$existingId;
-            }
-
-            $this->pdo->beginTransaction();
-            try {
-                $ins = $this->pdo->prepare(
-                    "INSERT INTO facilities
-                       (owner_id, name, location, rating, reviews, price, price_numeric,
-                        type, hours, transit, image, courts_count, is_verified)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                );
-                // No invented rating, review count, or price — a brand-new
-                // venue has none of those yet, and the app's own average
-                // calculations already treat an empty court list correctly.
-                $ins->execute([
-                    $ownerId,
-                    $name,
-                    (string)($app['address'] ?? ''),
-                    0.0, 0,
-                    '₱0', 0.00,
-                    'Pickleball Venue',
-                    (string)($app['operating_hours'] ?? '6:00 AM – 11:00 PM'),
-                    '',
-                    null,
-                    max(1, (int)($app['courts_count'] ?? 1)),
-                    1,
-                ]);
-                $facilityId = (int)$this->pdo->lastInsertId();
-
-                // Scaffold the number of courts the owner declared, so the
-                // portal is never an empty shell on first login. Priced at a
-                // neutral default the owner is expected to correct — never a
-                // number invented to look realistic.
-                $courtIns = $this->pdo->prepare(
-                    "INSERT INTO courts (id, facility_id, name, price, status) VALUES (?,?,?,?, 'available')"
-                );
-                $courtCount = max(1, (int)($app['courts_count'] ?? 1));
-                for ($i = 1; $i <= $courtCount; $i++) {
-                    $courtIns->execute(["crt_{$facilityId}_{$i}", $facilityId, "Court {$i}", 400.00]);
-                }
-
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                throw $e;
-            }
-        } else {
-            $facilities = $this->getJSONData('facilities');
-            foreach ($facilities as $f) {
-                if ((string)($f['owner_id'] ?? '') === $ownerId && (string)($f['name'] ?? '') === $name) {
-                    return (int)($f['id'] ?? 0);
-                }
-            }
-            $facilityId = (int)(time() . random_int(10, 99));
-            $facilities[] = [
-                'id' => $facilityId, 'owner_id' => $ownerId, 'name' => $name,
-                'location' => (string)($app['address'] ?? ''), 'rating' => 0.0, 'reviews' => 0,
-                'price' => '₱0', 'price_numeric' => 0.00, 'type' => 'Pickleball Venue',
-                'hours' => (string)($app['operating_hours'] ?? '6:00 AM – 11:00 PM'),
-                'transit' => '🛵 10 min · 🚗 18 min', 'image' => null,
-                'courts_count' => max(1, (int)($app['courts_count'] ?? 1)), 'is_verified' => 1,
-            ];
-            $this->saveJSONData('facilities', $facilities);
-
-            $courts = $this->getJSONData('courts');
-            $courtCount = max(1, (int)($app['courts_count'] ?? 1));
-            for ($i = 1; $i <= $courtCount; $i++) {
-                $courts[] = [
-                    'id' => "crt_{$facilityId}_{$i}", 'facility_id' => $facilityId,
-                    'name' => "Court {$i}", 'surface' => 'Hard Court', 'type' => 'Indoor',
-                    'price' => 400.00, 'status' => 'available', 'occupied_by' => null, 'occupied_until' => null,
-                ];
-            }
-            $this->saveJSONData('courts', $courts);
-        }
-
+        $facilityId = (new \Picklers\Domain\FacilityProvisioner($this->dbal(), $this->notifier()))->createFromApplication($app);
         $this->invalidateReadCache();
-        $this->bumpSync('facilities', 'courts');
         return $facilityId;
     }
 
     public function updateOwnerApplicationStatus(string $appId, string $status): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE owner_applications SET status = ? WHERE id = ?");
-            return $stmt->execute([$status, $appId]);
-        } else {
-            $apps = $this->getJSONData('owner_applications');
-            $updated = false;
-            foreach ($apps as &$a) {
-                if ((string)($a['id'] ?? '') === $appId) {
-                    $a['status'] = $status;
-                    $updated = true;
-                    break;
-                }
-            }
-            unset($a);
-            if ($updated) {
-                $this->saveJSONData('owner_applications', $apps);
-            }
-            return $updated;
-        }
+        $stmt = $this->pdo->prepare("UPDATE owner_applications SET status = ? WHERE id = ?");
+        return $stmt->execute([$status, $appId]);
     }
 
     public function getBookingById(string $bookingId): ?array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE id = ?");
-            $stmt->execute([$bookingId]);
-            return $stmt->fetch() ?: null;
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            foreach ($bookings as $b) {
-                if ((string)$b['id'] === (string)$bookingId) {
-                    return $b;
-                }
-            }
-            return null;
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE id = ?");
+        $stmt->execute([$bookingId]);
+        return $stmt->fetch() ?: null;
     }
 
     public function updateBookingStatus(string $bookingId, string $status): bool {
         $this->bumpSync('bookings');
-        if ($this->isMySQL) {
-            $this->pdo->beginTransaction();
-            try {
-                $check = $this->pdo->prepare("SELECT status FROM bookings WHERE id = ? FOR UPDATE");
-                $check->execute([$bookingId]);
-                $row = $check->fetch();
-                if (!$row) {
-                    $this->pdo->rollBack();
-                    return false;
-                }
-                if ((string)$row['status'] === $status) {
-                    $this->pdo->commit();
-                    return true; // idempotent — already in target state
-                }
-                $stmt = $this->pdo->prepare("UPDATE bookings SET status = ? WHERE id = ?");
-                $result = $stmt->execute([$status, $bookingId]);
+        $this->pdo->beginTransaction();
+        try {
+            $check = $this->pdo->prepare("SELECT status FROM bookings WHERE id = ? FOR UPDATE");
+            $check->execute([$bookingId]);
+            $row = $check->fetch();
+            if (!$row) {
+                $this->pdo->rollBack();
+                return false;
+            }
+            if ((string)$row['status'] === $status) {
                 $this->pdo->commit();
-                return $result;
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] updateBookingStatus failed: ' . $e->getMessage());
-                throw $e;
+                return true; // idempotent — already in target state
             }
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            $updated = false;
-            foreach ($bookings as &$b) {
-                if ((string)$b['id'] === (string)$bookingId) {
-                    $b['status'] = $status;
-                    $updated = true;
-                    break;
-                }
+            $stmt = $this->pdo->prepare("UPDATE bookings SET status = ? WHERE id = ?");
+            $result = $stmt->execute([$status, $bookingId]);
+            $this->pdo->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
             }
-            if ($updated) {
-                $this->saveJSONData('bookings', $bookings);
-            }
-            return $updated;
+            error_log('[DB Error] updateBookingStatus failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -4284,25 +3421,10 @@ class Database {
         if ($from === []) {
             return false;
         }
-        if ($this->isMySQL) {
-            $placeholders = implode(',', array_fill(0, count($from), '?'));
-            $stmt = $this->pdo->prepare("UPDATE bookings SET status = ? WHERE id = ? AND status IN ($placeholders)");
-            $stmt->execute(array_merge([$to, $bookingId], array_values($from)));
-            $changed = $stmt->rowCount() > 0;
-        } else {
-            $changed = false;
-            $this->lockedJSONUpdate('bookings', function (array $rows) use ($bookingId, $from, $to, &$changed): array {
-                foreach ($rows as &$row) {
-                    if ((string)($row['id'] ?? '') === $bookingId && in_array((string)($row['status'] ?? ''), $from, true)) {
-                        $row['status'] = $to;
-                        $changed = true;
-                        break;
-                    }
-                }
-                unset($row);
-                return $rows;
-            });
-        }
+        $placeholders = implode(',', array_fill(0, count($from), '?'));
+        $stmt = $this->pdo->prepare("UPDATE bookings SET status = ? WHERE id = ? AND status IN ($placeholders)");
+        $stmt->execute(array_merge([$to, $bookingId], array_values($from)));
+        $changed = $stmt->rowCount() > 0;
         if ($changed) {
             $this->invalidateReadCache();
             $this->bumpSync('bookings', 'courts');
@@ -4311,189 +3433,108 @@ class Database {
     }
 
     public function refundUserWallet(string $userId, float $amount, string $label): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?");
-            $ok = $stmt->execute([$amount, $userId]);
-            if ($ok) {
-                $this->addTransaction($userId, 'credit', $amount, $label);
-                return true;
-            }
-            return false;
-        } else {
-            $user = $this->getUserById($userId);
-            if (!$user) return false;
-
-            $newBalance = round((float)($user['wallet_balance'] ?? 0) + $amount, 2);
-            $this->updateUser($userId, ['wallet_balance' => $newBalance]);
-
+        $stmt = $this->pdo->prepare("UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?");
+        $ok = $stmt->execute([$amount, $userId]);
+        if ($ok) {
             $this->addTransaction($userId, 'credit', $amount, $label);
             return true;
         }
+        return false;
+    }
+
+    // --------------------------------------------------------------------------
+    // Shared booking / wallet rules (used by the owner portal, the player app and
+    // the Symfony admin console — one implementation of each rule).
+    // --------------------------------------------------------------------------
+
+    /** @var array<string,bool> */
+    private array $columnCache = [];
+
+    /** Whether a column exists (memoised per request). Lets new columns stay optional until migrated. */
+    public function hasColumn(string $table, string $column): bool {
+        $key = $table . '.' . $column;
+        return $this->columnCache[$key] ??= $this->columnExists($table, $column);
+    }
+
+    // The shared booking/wallet rules below are implemented once, in
+    // Picklers\Domain, and used as-is by the Symfony admin console.
+
+    /** The Open Play session a booking belongs to, including legacy rows without match_id. */
+    public function resolveBookingMatchId(array $booking): ?string {
+        return $this->isMySQL
+            ? $this->bookingRules()->resolveMatchId($booking)
+            : \Picklers\Domain\BookingRules::matchIdFor($booking, $this->getMatchesByFacility($booking['facility_id'] ?? 0));
+    }
+
+    /**
+     * Why a NEW booking cannot be taken at this facility/court right now, or null.
+     * Every booking channel (court booking, Open Play join, owner-hosted session)
+     * calls this so admin suspension and court maintenance apply everywhere.
+     */
+    public function bookingBlockReason(int|string $facilityId, ?string $courtId = null, ?string $courtName = null): ?string {
+        return $this->bookingRules()->blockReason($facilityId, $courtId, $courtName);
+    }
+
+    /** Credit a wallet at most once per idempotency key; see WalletLedger::creditOnce(). MySQL only. */
+    public function creditWalletOnce(string $userId, string $amountDecimal, string $label, string $idempotencyKey, array $meta = []): bool {
+        return $this->ledger()->creditOnce($userId, $amountDecimal, $label, $idempotencyKey, $meta);
+    }
+
+    /**
+     * Accept a pending/upcoming booking request (owner approval or admin
+     * confirmation); see BookingRules::confirmRequest(). MySQL only.
+     *
+     * @return array{ok:bool,code:int,message:string,status:string,already:bool,booking:?array}
+     */
+    public function confirmBookingRequest(string $bookingId, array $opts = []): array {
+        $result = $this->bookingRules()->confirmRequest($bookingId, $opts);
+        $this->invalidateReadCache();
+        return $result;
+    }
+
+    /**
+     * Cancel a booking on behalf of the venue or the platform (owner decline,
+     * admin cancellation); see BookingRules::cancelAsStaff(). MySQL only.
+     *
+     * @return array{ok:bool,code:int,message:string,previous_status:?string,refunded:bool,refund_amount:string,external_payment:bool,booking:?array}
+     */
+    public function cancelBookingAsStaff(string $bookingId, array $opts = []): array {
+        $result = $this->bookingRules()->cancelAsStaff($bookingId, $opts);
+        $this->invalidateReadCache();
+        return $result;
     }
 
     public function declineBookingAtomically(string $bookingId, string $userId, float $price, string $paymentMethod, string $facilityName): bool {
         $refunded = false;
         $this->bumpSync('bookings');
-        if ($this->isMySQL) {
-            $this->pdo->beginTransaction();
-            try {
-                $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE id = ? FOR UPDATE");
-                $stmt->execute([$bookingId]);
-                $b = $stmt->fetch();
-                if (!$b || ($b['status'] ?? '') === 'cancelled') {
-                    $this->pdo->rollBack();
-                    return false;
-                }
-
-                $prevStatus = $b['status'] ?? 'pending';
-                $this->pdo->prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?")->execute([$bookingId]);
-
-                if ($prevStatus === 'confirmed') {
-                    $matchId = $b['match_id'] ?? null;
-                    if (!$matchId && (!empty($b['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
-                        $matches = $this->getMatchesByFacility($b['facility_id'] ?? 0);
-                        foreach ($matches as $m) {
-                            if (($m['type'] ?? '') === ($b['court_name'] ?? '') && ($m['date'] ?? '') === ($b['date'] ?? '') && ($m['time'] ?? '') === ($b['time'] ?? '')) {
-                                $matchId = $m['id'];
-                                break;
-                            }
-                        }
-                    }
-                    if ($matchId) {
-                        $this->adjustMatchPlayerCount($matchId, -1);
-                    }
-                }
-
-                if ($paymentMethod === 'Pickle Credits' && $price > 0) {
-                    $this->pdo->prepare(
-                        "UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?"
-                    )->execute([$price, $userId]);
-                    $this->addTransaction($userId, 'credit', $price, "Refund: Booking #{$bookingId} declined by facility owner");
-                    $refunded = true;
-                }
-
-                $notifMsg = "Your reservation (#{$bookingId}) at {$facilityName} was declined." .
-                    ($refunded ? " ₱" . number_format($price, 2) . " has been refunded to your wallet." : "");
-                $this->addNotification($userId, 'Booking Declined ⚠️', $notifMsg, 'booking');
-
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] declineBookingAtomically failed: ' . $e->getMessage());
-                throw $e;
-            }
-        } else {
-            $path = $this->dataDir . '/bookings.json';
-            $fp = fopen($path, 'c+');
-            if ($fp && flock($fp, LOCK_EX)) {
-                try {
-                    $raw = stream_get_contents($fp);
-                    $bookings = json_decode($raw ?: '[]', true) ?? [];
-                    $found = false;
-                    $prevStatus = 'pending';
-                    $targetBooking = null;
-                    foreach ($bookings as &$b) {
-                        if ((string)($b['id'] ?? '') === (string)$bookingId) {
-                            if (($b['status'] ?? '') === 'cancelled') {
-                                return false;
-                            }
-                            $prevStatus = $b['status'] ?? 'pending';
-                            $b['status'] = 'cancelled';
-                            $found = true;
-                            $targetBooking = $b;
-                            break;
-                        }
-                    }
-                    if ($found) {
-                        if ($prevStatus === 'confirmed' && $targetBooking) {
-                            $matchId = $targetBooking['match_id'] ?? null;
-                            if (!$matchId && (!empty($targetBooking['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
-                                $matches = $this->getMatchesByFacility($targetBooking['facility_id'] ?? 0);
-                                foreach ($matches as $m) {
-                                    if (($m['type'] ?? '') === ($targetBooking['court_name'] ?? '') && ($m['date'] ?? '') === ($targetBooking['date'] ?? '') && ($m['time'] ?? '') === ($targetBooking['time'] ?? '')) {
-                                        $matchId = $m['id'];
-                                        break;
-                                    }
-                                }
-                            }
-                            if ($matchId) {
-                                $this->adjustMatchPlayerCount($matchId, -1);
-                            }
-                        }
-                        ftruncate($fp, 0);
-                        rewind($fp);
-                        fwrite($fp, json_encode(array_values($bookings), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-                    }
-                } finally {
-                    if (is_resource($fp)) {
-                        flock($fp, LOCK_UN);
-                        fclose($fp);
-                    }
-                }
-            }
-
-            if ($paymentMethod === 'Pickle Credits' && $price > 0) {
-                $user = $this->getUserById($userId);
-                if ($user) {
-                    $newBal = round((float)($user['wallet_balance'] ?? 0) + $price, 2);
-                    $this->updateUser($userId, ['wallet_balance' => $newBal]);
-                    $this->addTransaction($userId, 'credit', $price, "Refund: Booking #{$bookingId} declined by facility owner");
-                    $refunded = true;
-                }
-            }
-
-            $notifMsg = "Your reservation (#{$bookingId}) at {$facilityName} was declined." .
-                ($refunded ? " ₱" . number_format($price, 2) . " has been refunded to your wallet." : "");
-            $this->addNotification($userId, 'Booking Declined ⚠️', $notifMsg, 'booking');
-        }
-        return $refunded;
+        // One shared rule with the admin cancellation path (refund once,
+        // release the seat, notify) — see cancelBookingAsStaff().
+        $res = $this->cancelBookingAsStaff($bookingId, [
+            'notify_lead' => "Your reservation (#{$bookingId}) at {$facilityName} was declined.",
+        ]);
+        return $res['refunded'];
     }
 
     public function getMatches($level = 'All', $facilitySearch = '') {
-        if ($this->isMySQL) {
-            $sql = "SELECT m.*, COALESCE(NULLIF(f.name, ''), m.facility_name) as facility_name
-                    FROM matches m
-                    LEFT JOIN facilities f ON m.facility_id = f.id
-                    WHERE 1=1";
-            $params = [];
-            if ($level !== 'All') {
-                $sql .= " AND m.level = ?";
-                $params[] = $level;
-            }
-            if (!empty($facilitySearch)) {
-                $sql .= " AND (m.facility_name LIKE ? OR f.name LIKE ? OR m.location LIKE ?)";
-                $params[] = "%$facilitySearch%";
-                $params[] = "%$facilitySearch%";
-                $params[] = "%$facilitySearch%";
-            }
-            $sql .= " ORDER BY m.id DESC";
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute($params);
-            $rows = $stmt->fetchAll();
-        } else {
-            $matches = $this->getJSONData('matches');
-            $facilities = $this->getJSONData('facilities');
-            $facilityMap = [];
-            foreach ($facilities as $f) {
-                $facilityMap[(int)($f['id'] ?? 0)] = $f['name'] ?? '';
-            }
-
-            $filtered = array_filter($matches, function($m) use ($level, $facilitySearch, $facilityMap) {
-                $facName = !empty($facilityMap[(int)($m['facility_id'] ?? 0)]) ? $facilityMap[(int)($m['facility_id'] ?? 0)] : ($m['facility_name'] ?? '');
-                $matchLevel = ($level === 'All') || (stripos($m['level'] ?? '', $level) !== false);
-                $matchFacility = empty($facilitySearch) || (stripos($facName, $facilitySearch) !== false || stripos($m['location'] ?? '', $facilitySearch) !== false);
-                return $matchLevel && $matchFacility;
-            });
-            $rows = array_values($filtered);
-            foreach ($rows as &$m) {
-                if (!empty($m['facility_id']) && !empty($facilityMap[(int)$m['facility_id']])) {
-                    $m['facility_name'] = $facilityMap[(int)$m['facility_id']];
-                }
-            }
-            unset($m);
+        $sql = "SELECT m.*, COALESCE(NULLIF(f.name, ''), m.facility_name) as facility_name
+                FROM matches m
+                LEFT JOIN facilities f ON m.facility_id = f.id
+                WHERE 1=1";
+        $params = [];
+        if ($level !== 'All') {
+            $sql .= " AND m.level = ?";
+            $params[] = $level;
         }
+        if (!empty($facilitySearch)) {
+            $sql .= " AND (m.facility_name LIKE ? OR f.name LIKE ? OR m.location LIKE ?)";
+            $params[] = "%$facilitySearch%";
+            $params[] = "%$facilitySearch%";
+            $params[] = "%$facilitySearch%";
+        }
+        $sql .= " ORDER BY m.id DESC";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
 
         // Filter expired matches and deduplicate by match ID & facility/court combo
         $active = array_values(array_filter($rows, fn($m) => !self::isMatchExpired($m)));
@@ -4546,179 +3587,65 @@ class Database {
         $match = null;
         $pricing = new \Picklers\Services\PricingService($this);
 
-        if ($this->isMySQL) {
-            try {
-                $this->pdo->beginTransaction();
+        try {
+            $this->pdo->beginTransaction();
 
-                $stmt = $this->pdo->prepare("SELECT * FROM matches WHERE id = ? FOR UPDATE");
-                $stmt->execute([$matchId]);
-                $match = $stmt->fetch();
-                if (!$match) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'Match not found'];
-                }
-                // Discover hides ended sessions, but the id is still valid —
-                // a stale tab or a direct request could pay into one.
-                if (self::isMatchExpired($match)) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'This Open Play session has already ended.'];
-                }
-                // Gate on pending + confirmed requests, not just approved seats.
-                // The FOR UPDATE lock above serializes concurrent joinMatch() calls
-                // for this match, so the count is atomic relative to them.
-                $targetDate = self::getMatchTargetDate($match);
-                if ($this->countActiveMatchBookings((string)$matchId, $targetDate) >= (int)$match['max_players']) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'This open play match is already full!'];
-                }
-
-                $alreadyChk = $this->pdo->prepare("SELECT id FROM bookings WHERE user_id = ? AND facility_id = ? AND court_name = ? AND (date = ? OR date LIKE ? OR booking_date = ?) AND time = ? AND status != 'cancelled'");
-                $alreadyChk->execute([$userId, $match['facility_id'], $match['type'], $targetDate, "%$targetDate%", $targetDate, $match['time']]);
-                if ($alreadyChk->fetch()) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'You have already joined this Open Play session!'];
-                }
-
-                // Entry fee is derived from the match record, never from the client.
-                $quote = $pricing->quoteMatchJoin($match, $promoCode, $userId);
-                if (empty($quote['success'])) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => (string)($quote['message'] ?? 'Unable to price this session.')];
-                }
-                $finalPrice = (float)$quote['total'];
-
-                // Charge the wallet atomically when paying with Pickle Credits.
-                if ($paymentMethod === 'Pickle Credits' && $finalPrice > 0) {
-                    $walletStmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
-                    $walletStmt->execute([$userId]);
-                    $walletRow = $walletStmt->fetch();
-                    if (!$walletRow || (float)($walletRow['wallet_balance'] ?? 0) < $finalPrice) {
-                        $this->pdo->rollBack();
-                        return ['success' => false, 'message' => 'Insufficient Pickle Credits. Please top up your wallet!'];
-                    }
-                    $this->pdo->prepare(
-                        "UPDATE users SET wallet_balance = ROUND(wallet_balance - ?, 2) WHERE id = ?"
-                    )->execute([$finalPrice, $userId]);
-                }
-
-                $bookingId = 'PKL-OP-' . strtoupper(bin2hex(random_bytes(3)));
-                $isEveryday = strcasecmp($match['date'] ?? '', 'everyday') === 0 || strcasecmp($match['date'] ?? '', 'daily') === 0;
-                $bookingDateDisplay = $isEveryday ? date('D, M j, Y', strtotime($targetDate)) : $match['date'];
-                $booking = [
-                    'id' => $bookingId,
-                    'user_id' => $userId,
-                    'facility_id' => $match['facility_id'],
-                    'facility_name' => $match['facility_name'],
-                    'court_name' => $match['type'] ?? 'Open Play Session',
-                    'date' => $bookingDateDisplay,
-                    'booking_date' => $targetDate,
-                    'time' => $match['time'],
-                    'duration' => '2 Hours',
-                    'price' => $finalPrice,
-                    'payment_method' => $paymentMethod ?? 'GCash',
-                    'status' => 'pending',
-                    'is_new' => 1,
-                    'created_at' => date('Y-m-d H:i:s'),
-                    'match_id' => $matchId
-                ];
-                $this->insertBooking($booking);
-
-                // NOTE: For MySQL, current_players is incremented by the owner
-                // when they confirm the booking (see ApiController::confirm_booking).
-                // This preserves the pending-approval flow where seats are only
-                // officially counted after owner acceptance.
-
-                // Record promo usage so per-user and total limits are enforced.
-                // Signature: (code, user, booking, discount).
-                if ($promoCode !== null && $promoCode !== '' && (float)($quote['discount'] ?? 0) > 0) {
-                    $this->recordPromoRedemption(
-                        strtoupper(trim($promoCode)),
-                        (string)$userId,
-                        $bookingId,
-                        (float)$quote['discount']
-                    );
-                }
-
-                if ($paymentMethod === 'Pickle Credits' && $finalPrice > 0) {
-                    $this->addTransaction(
-                        $userId,
-                        'debit',
-                        $finalPrice,
-                        "Open Play #$bookingId at " . ($match['facility_name'] ?? 'Pickleball Facility')
-                    );
-                }
-
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] joinMatch transaction failed: ' . $e->getMessage());
-                return ['success' => false, 'message' => 'System transaction error. Please try again.'];
+            $stmt = $this->pdo->prepare("SELECT * FROM matches WHERE id = ? FOR UPDATE");
+            $stmt->execute([$matchId]);
+            $match = $stmt->fetch();
+            if (!$match) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'Match not found'];
             }
-        } else {
-            $path = $this->dataDir . '/matches.json';
-            $fp = fopen($path, 'c+');
-            if (!$fp || !flock($fp, LOCK_EX)) {
-                if ($fp) fclose($fp);
-                return ['success' => false, 'message' => 'System is busy. Please try again.'];
+            // Discover hides ended sessions, but the id is still valid —
+            // a stale tab or a direct request could pay into one.
+            if (self::isMatchExpired($match)) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'This Open Play session has already ended.'];
             }
-            try {
-                $raw = stream_get_contents($fp);
-                $matches = json_decode($raw ?: '[]', true) ?? [];
-                $found = false;
-                foreach ($matches as &$m) {
-                    if ((string)$m['id'] === (string)$matchId) {
-                        $found = true;
-                        if (self::isMatchExpired($m)) {
-                            return ['success' => false, 'message' => 'This Open Play session has already ended.'];
-                        }
-                        $targetDate = self::getMatchTargetDate($m);
-                        if ($this->countActiveMatchBookings((string)$matchId, $targetDate) >= (int)$m['max_players']) {
-                            return ['success' => false, 'message' => 'This open play match is already full!'];
-                        }
+            // matches.type carries the court name the session is hosted on.
+            if (($blocked = $this->bookingBlockReason($match['facility_id'] ?? 0, null, (string)($match['type'] ?? ''))) !== null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => $blocked];
+            }
+            // Gate on pending + confirmed requests, not just approved seats.
+            // The FOR UPDATE lock above serializes concurrent joinMatch() calls
+            // for this match, so the count is atomic relative to them.
+            $targetDate = self::getMatchTargetDate($match);
+            if ($this->countActiveMatchBookings((string)$matchId, $targetDate) >= (int)$match['max_players']) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'This open play match is already full!'];
+            }
 
-                        $existingBooking = array_filter($this->getJSONData('bookings'), fn($b) =>
-                            (string)($b['user_id'] ?? '') === (string)$userId &&
-                            (string)($b['facility_id'] ?? '') === (string)($m['facility_id'] ?? '') &&
-                            ($b['court_name'] ?? '') === ($m['type'] ?? '') &&
-                            (($b['date'] ?? '') === $targetDate || str_contains($b['date'] ?? '', $targetDate) || ($b['booking_date'] ?? '') === $targetDate) &&
-                            ($b['time'] ?? '') === ($m['time'] ?? '') &&
-                            ($b['status'] ?? '') !== 'cancelled'
-                        );
-                        if (!empty($existingBooking)) {
-                            return ['success' => false, 'message' => 'You have already joined this Open Play session!'];
-                        }
-
-                        $match = $m;
-                        break;
-                    }
-                }
-                if (!$found) return ['success' => false, 'message' => 'Match not found'];
-            } finally {
-                if (is_resource($fp)) {
-                    flock($fp, LOCK_UN);
-                    fclose($fp);
-                }
+            $alreadyChk = $this->pdo->prepare("SELECT id FROM bookings WHERE user_id = ? AND facility_id = ? AND court_name = ? AND (date = ? OR date LIKE ? OR booking_date = ?) AND time = ? AND status != 'cancelled'");
+            $alreadyChk->execute([$userId, $match['facility_id'], $match['type'], $targetDate, "%$targetDate%", $targetDate, $match['time']]);
+            if ($alreadyChk->fetch()) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'You have already joined this Open Play session!'];
             }
 
             // Entry fee is derived from the match record, never from the client.
-            $quote = $pricing->quoteMatchJoin($match, $promoCode, (string)$userId);
+            $quote = $pricing->quoteMatchJoin($match, $promoCode, $userId);
             if (empty($quote['success'])) {
+                $this->pdo->rollBack();
                 return ['success' => false, 'message' => (string)($quote['message'] ?? 'Unable to price this session.')];
             }
             $finalPrice = (float)$quote['total'];
 
+            // Charge the wallet atomically when paying with Pickle Credits.
             if ($paymentMethod === 'Pickle Credits' && $finalPrice > 0) {
-                $joiner = $this->getUserById($userId);
-                $balance = (float)($joiner['wallet_balance'] ?? 0);
-                if (!$joiner || $balance < $finalPrice) {
+                $walletStmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
+                $walletStmt->execute([$userId]);
+                $walletRow = $walletStmt->fetch();
+                if (!$walletRow || (float)($walletRow['wallet_balance'] ?? 0) < $finalPrice) {
+                    $this->pdo->rollBack();
                     return ['success' => false, 'message' => 'Insufficient Pickle Credits. Please top up your wallet!'];
                 }
-                $this->updateUser($userId, ['wallet_balance' => round($balance - $finalPrice, 2)]);
+                $this->pdo->prepare(
+                    "UPDATE users SET wallet_balance = ROUND(wallet_balance - ?, 2) WHERE id = ?"
+                )->execute([$finalPrice, $userId]);
             }
 
-            $targetDate = self::getMatchTargetDate($match);
             $bookingId = 'PKL-OP-' . strtoupper(bin2hex(random_bytes(3)));
             $isEveryday = strcasecmp($match['date'] ?? '', 'everyday') === 0 || strcasecmp($match['date'] ?? '', 'daily') === 0;
             $bookingDateDisplay = $isEveryday ? date('D, M j, Y', strtotime($targetDate)) : $match['date'];
@@ -4741,8 +3668,20 @@ class Database {
             ];
             $this->insertBooking($booking);
 
+            // NOTE: For MySQL, current_players is incremented by the owner
+            // when they confirm the booking (see ApiController::confirm_booking).
+            // This preserves the pending-approval flow where seats are only
+            // officially counted after owner acceptance.
+
+            // Record promo usage so per-user and total limits are enforced.
+            // Signature: (code, user, booking, discount).
             if ($promoCode !== null && $promoCode !== '' && (float)($quote['discount'] ?? 0) > 0) {
-                $this->recordPromoRedemption(strtoupper(trim($promoCode)), (string)$userId, $bookingId, (float)$quote['discount']);
+                $this->recordPromoRedemption(
+                    strtoupper(trim($promoCode)),
+                    (string)$userId,
+                    $bookingId,
+                    (float)$quote['discount']
+                );
             }
 
             if ($paymentMethod === 'Pickle Credits' && $finalPrice > 0) {
@@ -4750,9 +3689,21 @@ class Database {
                     $userId,
                     'debit',
                     $finalPrice,
-                    "Open Play #$bookingId at " . ($match['facility_name'] ?? 'Pickleball Facility')
+                        "Open Play #$bookingId at " . ($match['facility_name'] ?? 'Pickleball Facility'),
+                    ['entry_kind' => 'booking_payment', 'booking_id' => $bookingId]
                 );
             }
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            if ($e instanceof \Picklers\Exceptions\PromoUnavailableException) {
+                return ['success' => false, 'message' => $e->getMessage() . ' Nothing was charged — please join again without it.'];
+            }
+            error_log('[DB Error] joinMatch transaction failed: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'System transaction error. Please try again.'];
         }
 
         // Notify user — this is a REQUEST, not a confirmed seat, until the
@@ -4799,51 +3750,14 @@ class Database {
      */
     public function countActiveMatchBookings(string $matchId, ?string $targetDate = null): int {
         if ($targetDate !== null && $targetDate !== '') {
-            if ($this->isMySQL) {
-                // booking_date is authoritative whenever joinMatch() set it, so a
-                // player joining tonight for tomorrow's session counts against
-                // tomorrow only. The display-string/created_at fallbacks apply
-                // to legacy rows that predate booking_date.
-                $stmt = $this->pdo->prepare(
-                    "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed')
-                       AND (booking_date = ? OR (booking_date IS NULL AND (date = ? OR date LIKE ? OR created_at LIKE ?)))"
-                );
-                $stmt->execute([$matchId, $targetDate, $targetDate, "%$targetDate%", "$targetDate%"]);
-                return (int)$stmt->fetchColumn();
-            }
-
-            $count = 0;
-            foreach ($this->getJSONData('bookings') as $b) {
-                if ((string)($b['match_id'] ?? '') === $matchId && in_array($b['status'] ?? '', ['pending', 'confirmed'], true)) {
-                    $bDate = (string)($b['date'] ?? '');
-                    $bCreated = (string)($b['created_at'] ?? '');
-                    $bBookingDate = (string)($b['booking_date'] ?? '');
-                    $sameDay = $bBookingDate !== ''
-                        ? $bBookingDate === $targetDate
-                        : ($bDate === $targetDate || str_contains($bDate, $targetDate) || str_starts_with($bCreated, $targetDate));
-                    if ($sameDay) {
-                        $count++;
-                    }
-                }
-            }
-            return $count;
+            return $this->bookingRules()->countActiveMatchBookings($matchId, $targetDate);
         }
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed')"
-            );
-            $stmt->execute([$matchId]);
-            return (int)$stmt->fetchColumn();
-        }
-
-        $count = 0;
-        foreach ($this->getJSONData('bookings') as $b) {
-            if ((string)($b['match_id'] ?? '') === $matchId && in_array($b['status'] ?? '', ['pending', 'confirmed'], true)) {
-                $count++;
-            }
-        }
-        return $count;
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed')"
+        );
+        $stmt->execute([$matchId]);
+        return (int)$stmt->fetchColumn();
     }
 
     /**
@@ -4853,47 +3767,19 @@ class Database {
      */
     public function countConfirmedMatchBookings(string $matchId, ?string $targetDate = null): int {
         if ($targetDate !== null && $targetDate !== '') {
-            if ($this->isMySQL) {
-                $stmt = $this->pdo->prepare(
-                    "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('confirmed', 'completed')
-                       AND (booking_date = ? OR (booking_date IS NULL AND (date = ? OR date LIKE ? OR created_at LIKE ?)))"
-                );
-                $stmt->execute([$matchId, $targetDate, $targetDate, "%$targetDate%", "$targetDate%"]);
-                return (int)$stmt->fetchColumn();
-            }
-
-            $count = 0;
-            foreach ($this->getJSONData('bookings') as $b) {
-                if ((string)($b['match_id'] ?? '') === $matchId && in_array($b['status'] ?? '', ['confirmed', 'completed'], true)) {
-                    $bDate = (string)($b['date'] ?? '');
-                    $bCreated = (string)($b['created_at'] ?? '');
-                    $bBookingDate = (string)($b['booking_date'] ?? '');
-                    $sameDay = $bBookingDate !== ''
-                        ? $bBookingDate === $targetDate
-                        : ($bDate === $targetDate || str_contains($bDate, $targetDate) || str_starts_with($bCreated, $targetDate));
-                    if ($sameDay) {
-                        $count++;
-                    }
-                }
-            }
-            return $count;
-        }
-
-        if ($this->isMySQL) {
             $stmt = $this->pdo->prepare(
-                "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('confirmed', 'completed')"
+                "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('confirmed', 'completed')
+                   AND (booking_date = ? OR (booking_date IS NULL AND (date = ? OR date LIKE ? OR created_at LIKE ?)))"
             );
-            $stmt->execute([$matchId]);
+            $stmt->execute([$matchId, $targetDate, $targetDate, "%$targetDate%", "$targetDate%"]);
             return (int)$stmt->fetchColumn();
         }
 
-        $count = 0;
-        foreach ($this->getJSONData('bookings') as $b) {
-            if ((string)($b['match_id'] ?? '') === $matchId && in_array($b['status'] ?? '', ['confirmed', 'completed'], true)) {
-                $count++;
-            }
-        }
-        return $count;
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM bookings WHERE match_id = ? AND status IN ('confirmed', 'completed')"
+        );
+        $stmt->execute([$matchId]);
+        return (int)$stmt->fetchColumn();
     }
 
     /**
@@ -4901,43 +3787,8 @@ class Database {
      * Used to release a seat when payment fails after the seat was taken.
      */
     public function adjustMatchPlayerCount(string $matchId, int $delta): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "UPDATE matches SET current_players = GREATEST(0, current_players + ?) WHERE id = ?"
-            );
-            return $stmt->execute([$delta, $matchId]);
-        }
-
-        $path = $this->dataDir . '/matches.json';
-        $fp = fopen($path, 'c+');
-        if (!$fp || !flock($fp, LOCK_EX)) {
-            if ($fp) fclose($fp);
-            return false;
-        }
-        try {
-            $raw = stream_get_contents($fp);
-            $matches = json_decode($raw ?: '[]', true) ?? [];
-            $updated = false;
-            foreach ($matches as &$m) {
-                if ((string)($m['id'] ?? '') === $matchId) {
-                    $m['current_players'] = max(0, (int)($m['current_players'] ?? 0) + $delta);
-                    $updated = true;
-                    break;
-                }
-            }
-            unset($m);
-            if ($updated) {
-                ftruncate($fp, 0);
-                rewind($fp);
-                fwrite($fp, json_encode(array_values($matches), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            }
-            return $updated;
-        } finally {
-            if (is_resource($fp)) {
-                flock($fp, LOCK_UN);
-                fclose($fp);
-            }
-        }
+        $this->bookingRules()->adjustMatchPlayerCount($matchId, $delta);
+        return true;
     }
 
     // --------------------------------------------------------------------------
@@ -4954,28 +3805,7 @@ class Database {
      * Accepts -, – and — as separators. Ranges crossing midnight are unwrapped.
      */
     public function parseTimeRange(string $range): ?array {
-        $parts = preg_split('/\s*[-–—]\s*/u', trim($range));
-        if (!$parts || count($parts) !== 2) {
-            return null;
-        }
-
-        $toMinutes = static function (string $t): ?int {
-            $t = trim($t);
-            if ($t === '') return null;
-            $ts = strtotime($t);
-            if ($ts === false) return null;
-            return ((int)date('G', $ts) * 60) + (int)date('i', $ts);
-        };
-
-        $start = $toMinutes($parts[0]);
-        $end   = $toMinutes($parts[1]);
-        if ($start === null || $end === null) {
-            return null;
-        }
-        if ($end <= $start) {
-            $end += 1440; // crosses midnight
-        }
-        return [$start, $end];
+        return \Picklers\Domain\BookingRules::parseTimeRange($range);
     }
 
     /** Half-open overlap test: [aStart,aEnd) intersects [bStart,bEnd). */
@@ -5013,31 +3843,20 @@ class Database {
 
     // Bookings
     public function getBookings($userId = null, $status = null) {
-        if ($this->isMySQL) {
-            $sql = "SELECT * FROM bookings WHERE 1=1";
-            $params = [];
-            if ($userId) {
-                $sql .= " AND user_id = ?";
-                $params[] = $userId;
-            }
-            if ($status) {
-                $sql .= " AND status = ?";
-                $params[] = $status;
-            }
-            $sql .= " ORDER BY created_at DESC";
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute($params);
-            return $stmt->fetchAll();
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            if ($userId) {
-                $bookings = array_filter($bookings, fn($b) => $b['user_id'] === $userId);
-            }
-            if ($status) {
-                $bookings = array_filter($bookings, fn($b) => $b['status'] === $status);
-            }
-            return array_values($bookings);
+        $sql = "SELECT * FROM bookings WHERE 1=1";
+        $params = [];
+        if ($userId) {
+            $sql .= " AND user_id = ?";
+            $params[] = $userId;
         }
+        if ($status) {
+            $sql .= " AND status = ?";
+            $params[] = $status;
+        }
+        $sql .= " ORDER BY created_at DESC";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
     }
 
     /**
@@ -5050,30 +3869,14 @@ class Database {
     public function getPendingBookingRequests(int|string $facilityId): array {
         $facilityIdStr = (string)$facilityId;
         // Scoped to this facility in the query itself.
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT b.*, u.name AS player_name, u.avatar_url AS player_avatar FROM bookings b
-                   LEFT JOIN users u ON u.id = b.user_id
-                  WHERE b.facility_id = ? AND b.status = 'pending'
-                  ORDER BY b.created_at DESC"
-            );
-            $stmt->execute([$facilityId]);
-            $pending = $stmt->fetchAll();
-        } else {
-            $users = [];
-            foreach ($this->getJSONData('users') as $u) {
-                $users[(string)($u['id'] ?? '')] = $u;
-            }
-            $pending = [];
-            foreach ($this->getBookings(null, 'pending') as $b) {
-                if ((string)($b['facility_id'] ?? '') === $facilityIdStr) {
-                    $u = $users[(string)($b['user_id'] ?? '')] ?? [];
-                    $b['player_name'] = $u['name'] ?? null;
-                    $b['player_avatar'] = $u['avatar_url'] ?? ($u['avatar'] ?? null);
-                    $pending[] = $b;
-                }
-            }
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT b.*, u.name AS player_name, u.avatar_url AS player_avatar FROM bookings b
+               LEFT JOIN users u ON u.id = b.user_id
+              WHERE b.facility_id = ? AND b.status = 'pending'
+              ORDER BY b.created_at DESC"
+        );
+        $stmt->execute([$facilityId]);
+        $pending = $stmt->fetchAll();
 
         $requests = [];
         foreach ($pending as $b) {
@@ -5125,24 +3928,18 @@ class Database {
         // booking within the same request could see the pre-insert, stale
         // result the second time.
         $this->invalidateReadCache();
-        if ($this->isMySQL) {
-            // booking_date/start_min/end_min are optional here: joinMatch()'s Open
-            // Play bookings don't need them (that occupancy path is driven by the
-            // `matches` table, not a booking's own time window), but a caller
-            // constructing a real timed-slot booking outside createBooking()'s
-            // own validation (e.g. a test fixture) can supply them directly.
-            $stmt = $this->pdo->prepare("INSERT INTO bookings (id, user_id, facility_id, court_id, match_id, facility_name, court_name, date, time, booking_date, start_min, end_min, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([
-                $b['id'], $b['user_id'], $b['facility_id'], $b['court_id'] ?? null, $b['match_id'] ?? null, $b['facility_name'], $b['court_name'],
-                $b['date'], $b['time'], $b['booking_date'] ?? null, $b['start_min'] ?? null, $b['end_min'] ?? null,
-                $b['duration'], $b['price'], $b['payment_method'],
-                $b['status'], $b['is_new'] ?? 1, $b['created_at'] ?? date('Y-m-d H:i:s')
-            ]);
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            array_unshift($bookings, $b);
-            $this->saveJSONData('bookings', $bookings);
-        }
+        // booking_date/start_min/end_min are optional here: joinMatch()'s Open
+        // Play bookings don't need them (that occupancy path is driven by the
+        // `matches` table, not a booking's own time window), but a caller
+        // constructing a real timed-slot booking outside createBooking()'s
+        // own validation (e.g. a test fixture) can supply them directly.
+        $stmt = $this->pdo->prepare("INSERT INTO bookings (id, user_id, facility_id, court_id, match_id, facility_name, court_name, date, time, booking_date, start_min, end_min, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt->execute([
+            $b['id'], $b['user_id'], $b['facility_id'], $b['court_id'] ?? null, $b['match_id'] ?? null, $b['facility_name'], $b['court_name'],
+            $b['date'], $b['time'], $b['booking_date'] ?? null, $b['start_min'] ?? null, $b['end_min'] ?? null,
+            $b['duration'], $b['price'], $b['payment_method'],
+            $b['status'], $b['is_new'] ?? 1, $b['created_at'] ?? date('Y-m-d H:i:s')
+        ]);
         return $b;
     }
 
@@ -5155,19 +3952,7 @@ class Database {
      * are — by definition — always in the past by the time a migration runs.
      */
     private function resolveDisplayDate(string $date): ?string {
-        $trimmed = trim($date);
-        $dateMap = [
-            'today'    => date('Y-m-d'),
-            'tonight'  => date('Y-m-d'),
-            'tomorrow' => date('Y-m-d', strtotime('+1 day')),
-        ];
-        $resolved = $dateMap[strtolower($trimmed)] ?? null;
-        if ($resolved) {
-            return $resolved;
-        }
-
-        $ts = strtotime($trimmed);
-        return $ts !== false ? date('Y-m-d', $ts) : null;
+        return \Picklers\Domain\BookingRules::resolveDisplayDate($date);
     }
 
     public function isFacilityOpen(?string $hoursStr): bool {
@@ -5311,39 +4096,24 @@ class Database {
      */
     public function getSlotAvailability(int|string $facilityId, string $courtId, string $date): array {
         $taken = [];
-        if ($this->isMySQL) {
-            if ($courtId !== '') {
-                // Include legacy rows that pre-date court_id (stored by court_name only).
-                $courtName = '';
-                $cnStmt = $this->pdo->prepare("SELECT name FROM courts WHERE id = ? LIMIT 1");
-                $cnStmt->execute([$courtId]);
-                $cnRow = $cnStmt->fetch();
-                if ($cnRow) {
-                    $courtName = (string)($cnRow['name'] ?? '');
-                }
-                $stmt = $this->pdo->prepare(
-                    "SELECT start_min, end_min FROM bookings
-                     WHERE facility_id = ? AND booking_date = ?
-                       AND (court_id = ? OR (? != '' AND court_name = ?))
-                       AND status NOT IN ('cancelled', 'declined')
-                       AND start_min IS NOT NULL AND end_min IS NOT NULL"
-                );
-                $stmt->execute([$facilityId, $date, $courtId, $courtName, $courtName]);
-                $taken = $stmt->fetchAll();
+        if ($courtId !== '') {
+            // Include legacy rows that pre-date court_id (stored by court_name only).
+            $courtName = '';
+            $cnStmt = $this->pdo->prepare("SELECT name FROM courts WHERE id = ? LIMIT 1");
+            $cnStmt->execute([$courtId]);
+            $cnRow = $cnStmt->fetch();
+            if ($cnRow) {
+                $courtName = (string)($cnRow['name'] ?? '');
             }
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            foreach ($bookings as $b) {
-                $st = (string)($b['status'] ?? '');
-                if ($st === 'cancelled' || $st === 'declined') continue;
-                if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
-                if (($b['court_id'] ?? '') !== $courtId) continue;
-                $existingDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
-                if ($existingDate !== $date) continue;
-                if (isset($b['start_min'], $b['end_min'])) {
-                    $taken[] = ['start_min' => (int)$b['start_min'], 'end_min' => (int)$b['end_min']];
-                }
-            }
+            $stmt = $this->pdo->prepare(
+                "SELECT start_min, end_min FROM bookings
+                 WHERE facility_id = ? AND booking_date = ?
+                   AND (court_id = ? OR (? != '' AND court_name = ?))
+                   AND status NOT IN ('cancelled', 'declined')
+                   AND start_min IS NOT NULL AND end_min IS NOT NULL"
+            );
+            $stmt->execute([$facilityId, $date, $courtId, $courtName, $courtName]);
+            $taken = $stmt->fetchAll();
         }
 
         $isToday = ($date === date('Y-m-d'));
@@ -5437,251 +4207,143 @@ class Database {
 
         $booking = null;
 
-        if ($this->isMySQL) {
-            try {
-                $this->pdo->beginTransaction();
+        try {
+            $this->pdo->beginTransaction();
 
-                // Pessimistic lock scoped to the CANONICAL date (not whatever
-                // display string the client happened to send), then evaluate
-                // real time-range overlap. Matches by court_id OR court_name
-                // so a legacy row that predates court_id (still NULL — see
-                // the migration backfill) is never skipped and a real
-                // conflict never goes undetected; idx_booking_date_lock keeps
-                // this narrow either way.
-                if ($courtId !== '') {
-                    $chk = $this->pdo->prepare(
-                        "SELECT time, start_min, end_min FROM bookings
-                         WHERE facility_id = ? AND booking_date = ?
-                           AND (court_id = ? OR court_name = ?)
-                           AND status NOT IN ('cancelled', 'declined')
-                         FOR UPDATE"
-                    );
-                    $chk->execute([$facilityId, $bookingDate, $courtId, $courtName]);
-                } else {
-                    $chk = $this->pdo->prepare(
-                        "SELECT time, start_min, end_min FROM bookings
-                         WHERE facility_id = ? AND booking_date = ? AND court_name = ?
-                           AND status NOT IN ('cancelled', 'declined')
-                         FOR UPDATE"
-                    );
-                    $chk->execute([$facilityId, $bookingDate, $courtName]);
-                }
-                $existingRows = $chk->fetchAll();
+            // Admin suspension / court maintenance applies to every channel.
+            if (($blocked = $this->bookingBlockReason($facilityId, $courtId !== '' ? $courtId : null, (string)$courtName)) !== null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => $blocked];
+            }
 
-                $conflict = null;
-                foreach ($existingRows as $row) {
-                    $rowStart = $row['start_min'] !== null ? (int)$row['start_min'] : null;
-                    $rowEnd   = $row['end_min']   !== null ? (int)$row['end_min']   : null;
-                    if ($startMin !== null && $endMin !== null && $rowStart !== null && $rowEnd !== null) {
-                        if ($this->rangesOverlap([$startMin, $endMin], [$rowStart, $rowEnd])) {
-                            $conflict = (string)$row['time'];
-                            break;
-                        }
-                        continue;
-                    }
-                    // Either side didn't parse into minutes (an unusual time
-                    // format) — fall back to the original string-overlap
-                    // check for just that one row rather than assume clear.
-                    if ($this->findSlotConflict((string)$time, [(string)$row['time']]) !== null) {
+            // Pessimistic lock scoped to the CANONICAL date (not whatever
+            // display string the client happened to send), then evaluate
+            // real time-range overlap. Matches by court_id OR court_name
+            // so a legacy row that predates court_id (still NULL — see
+            // the migration backfill) is never skipped and a real
+            // conflict never goes undetected; idx_booking_date_lock keeps
+            // this narrow either way.
+            if ($courtId !== '') {
+                $chk = $this->pdo->prepare(
+                    "SELECT time, start_min, end_min FROM bookings
+                     WHERE facility_id = ? AND booking_date = ?
+                       AND (court_id = ? OR court_name = ?)
+                       AND status NOT IN ('cancelled', 'declined')
+                     FOR UPDATE"
+                );
+                $chk->execute([$facilityId, $bookingDate, $courtId, $courtName]);
+            } else {
+                $chk = $this->pdo->prepare(
+                    "SELECT time, start_min, end_min FROM bookings
+                     WHERE facility_id = ? AND booking_date = ? AND court_name = ?
+                       AND status NOT IN ('cancelled', 'declined')
+                     FOR UPDATE"
+                );
+                $chk->execute([$facilityId, $bookingDate, $courtName]);
+            }
+            $existingRows = $chk->fetchAll();
+
+            $conflict = null;
+            foreach ($existingRows as $row) {
+                $rowStart = $row['start_min'] !== null ? (int)$row['start_min'] : null;
+                $rowEnd   = $row['end_min']   !== null ? (int)$row['end_min']   : null;
+                if ($startMin !== null && $endMin !== null && $rowStart !== null && $rowEnd !== null) {
+                    if ($this->rangesOverlap([$startMin, $endMin], [$rowStart, $rowEnd])) {
                         $conflict = (string)$row['time'];
                         break;
                     }
+                    continue;
                 }
-
-                if ($conflict !== null) {
-                    $this->pdo->rollBack();
-                    return [
-                        'success' => false,
-                        'message' => "That court is already booked for {$conflict}. Please choose a different time."
-                    ];
+                // Either side didn't parse into minutes (an unusual time
+                // format) — fall back to the original string-overlap
+                // check for just that one row rather than assume clear.
+                if ($this->findSlotConflict((string)$time, [(string)$row['time']]) !== null) {
+                    $conflict = (string)$row['time'];
+                    break;
                 }
+            }
 
-                // Atomic wallet check and deduction if Pickle Credits
-                if ($paymentMethod === 'Pickle Credits') {
-                    $userStmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
-                    $userStmt->execute([$userId]);
-                    $userRow = $userStmt->fetch();
-                    if (!$userRow || (float)($userRow['wallet_balance'] ?? 0) < (float)$price) {
-                        $this->pdo->rollBack();
-                        return ['success' => false, 'message' => 'Insufficient Pickle Credits. Please top up your wallet!'];
-                    }
-                    $this->pdo->prepare(
-                        "UPDATE users SET wallet_balance = ROUND(wallet_balance - ?, 2) WHERE id = ?"
-                    )->execute([$price, $userId]);
-                }
-
-                $bookingId = 'PKL-' . strtoupper(bin2hex(random_bytes(3)));
-                $stmt = $this->pdo->prepare(
-                    "INSERT INTO bookings
-                       (id, user_id, facility_id, court_id, facility_name, court_name,
-                        date, time, booking_date, start_min, end_min, duration, price,
-                        payment_method, status, is_new, created_at)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                );
-                $stmt->execute([
-                    $bookingId, $userId, (int)$facilityId, ($courtId !== '' ? $courtId : null),
-                    $facilityName, $courtName, $date, $time, $bookingDate, $startMin, $endMin,
-                    $duration, (float)$price, $paymentMethod, 'pending', 1, date('Y-m-d H:i:s')
-                ]);
-
-                if ($paymentMethod === 'Pickle Credits') {
-                    $payStr = !empty($paymentMethod) ? " via $paymentMethod" : '';
-                    $this->addTransaction($userId, 'debit', $price, "Booking #$bookingId at $facilityName$payStr");
-                }
-
-                // Recorded in the SAME transaction as the booking itself: a
-                // promo discount that was granted (the row below commits)
-                // can never end up uncounted (no redemption row), and a
-                // redemption can never be recorded against a booking that
-                // ultimately didn't happen (the whole transaction rolls back
-                // together on any failure above).
-                if ($promoCode !== null && $promoCode !== '' && $promoDiscount > 0) {
-                    $this->recordPromoRedemption($promoCode, $userId, $bookingId, $promoDiscount);
-                }
-
-                $this->pdo->commit();
-
-                $booking = [
-                    'id' => $bookingId,
-                    'user_id' => $userId,
-                    'facility_id' => (int)$facilityId,
-                    'court_id' => $courtId !== '' ? $courtId : null,
-                    'facility_name' => $facilityName,
-                    'court_name' => $courtName,
-                    'date' => $date,
-                    'time' => $time,
-                    'booking_date' => $bookingDate,
-                    'start_min' => $startMin,
-                    'end_min' => $endMin,
-                    'duration' => $duration,
-                    'price' => (float)$price,
-                    'payment_method' => $paymentMethod,
-                    'status' => 'pending',
-                    'is_new' => 1,
-                    'created_at' => date('Y-m-d H:i:s')
+            if ($conflict !== null) {
+                $this->pdo->rollBack();
+                return [
+                    'success' => false,
+                    'message' => "That court is already booked for {$conflict}. Please choose a different time."
                 ];
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
+            }
+
+            // Atomic wallet check and deduction if Pickle Credits
+            if ($paymentMethod === 'Pickle Credits') {
+                $userStmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
+                $userStmt->execute([$userId]);
+                $userRow = $userStmt->fetch();
+                if (!$userRow || (float)($userRow['wallet_balance'] ?? 0) < (float)$price) {
                     $this->pdo->rollBack();
+                    return ['success' => false, 'message' => 'Insufficient Pickle Credits. Please top up your wallet!'];
                 }
-                error_log('[DB Error] createBooking failed: ' . $e->getMessage());
-                return ['success' => false, 'message' => 'Reservation failed due to a system error. Please try again.'];
+                $this->pdo->prepare(
+                    "UPDATE users SET wallet_balance = ROUND(wallet_balance - ?, 2) WHERE id = ?"
+                )->execute([$price, $userId]);
             }
-        } else {
-            $path = $this->dataDir . '/bookings.json';
-            $fp = fopen($path, 'c+');
-            if (!$fp || !flock($fp, LOCK_EX)) {
-                if ($fp) fclose($fp);
-                return ['success' => false, 'message' => 'System is busy. Please try again.'];
+
+            $bookingId = 'PKL-' . strtoupper(bin2hex(random_bytes(3)));
+            $stmt = $this->pdo->prepare(
+                "INSERT INTO bookings
+                   (id, user_id, facility_id, court_id, facility_name, court_name,
+                    date, time, booking_date, start_min, end_min, duration, price,
+                    payment_method, status, is_new, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            );
+            $stmt->execute([
+                $bookingId, $userId, (int)$facilityId, ($courtId !== '' ? $courtId : null),
+                $facilityName, $courtName, $date, $time, $bookingDate, $startMin, $endMin,
+                $duration, (float)$price, $paymentMethod, 'pending', 1, date('Y-m-d H:i:s')
+            ]);
+
+            if ($paymentMethod === 'Pickle Credits') {
+                $payStr = !empty($paymentMethod) ? " via $paymentMethod" : '';
+                $this->addTransaction($userId, 'debit', $price, "Booking #$bookingId at $facilityName$payStr", ['entry_kind' => 'booking_payment', 'booking_id' => $bookingId]);
             }
-            try {
-                $raw = stream_get_contents($fp);
-                $bookings = json_decode($raw ?: '[]', true) ?? [];
 
-                // Collect every non-cancelled booking on this court for the
-                // CANONICAL date (not the raw display string), then test real
-                // time-range overlap. A legacy row with no booking_date yet
-                // is re-resolved on the fly so it still compares correctly.
-                $takenTimes = [];
-                foreach ($bookings as $b) {
-                    if ((int)($b['facility_id'] ?? 0) !== (int)$facilityId) continue;
-                    $st = (string)($b['status'] ?? '');
-                    if ($st === 'cancelled' || $st === 'declined') continue;
-
-                    $sameCourt = ($courtId !== '' && ($b['court_id'] ?? '') === $courtId)
-                              || ($b['court_name'] ?? '') === $courtName;
-                    if (!$sameCourt) continue;
-
-                    $existingDate = $b['booking_date'] ?? $this->resolveDisplayDate((string)($b['date'] ?? ''));
-                    if ($existingDate !== $bookingDate) continue;
-
-                    $takenTimes[] = (string)($b['time'] ?? '');
-                }
-
-                $conflict = $this->findSlotConflict((string)$time, $takenTimes);
-                if ($conflict !== null) {
-                    return [
-                        'success' => false,
-                        'message' => "That court is already booked for {$conflict}. Please choose a different time."
-                    ];
-                }
-
-                $bookingId = 'PKL-' . strtoupper(bin2hex(random_bytes(3)));
-
-                if ($paymentMethod === 'Pickle Credits') {
-                    $walletError = null;
-                    $usersPath = $this->dataDir . '/users.json';
-                    $walletFp = @fopen($usersPath, 'c+');
-                    if (!$walletFp || !flock($walletFp, LOCK_EX)) {
-                        if ($walletFp) { fclose($walletFp); }
-                        return ['success' => false, 'message' => 'Could not process payment. Please try again.'];
-                    }
-                    try {
-                        $usersRaw = stream_get_contents($walletFp);
-                        $allUsers = json_decode($usersRaw ?: '[]', true) ?? [];
-                        $uIdx = null;
-                        foreach ($allUsers as $i => $u) {
-                            if ((string)($u['id'] ?? '') === (string)$userId) { $uIdx = $i; break; }
-                        }
-                        if ($uIdx === null || (float)($allUsers[$uIdx]['wallet_balance'] ?? 0) < (float)$price) {
-                            $walletError = 'Insufficient Pickle Credits. Please top up your wallet!';
-                        } else {
-                            $allUsers[$uIdx]['wallet_balance'] = round((float)$allUsers[$uIdx]['wallet_balance'] - (float)$price, 2);
-                            ftruncate($walletFp, 0);
-                            rewind($walletFp);
-                            fwrite($walletFp, json_encode(array_values($allUsers), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-                            fflush($walletFp);
-                        }
-                    } finally {
-                        flock($walletFp, LOCK_UN);
-                        fclose($walletFp);
-                    }
-                    if ($walletError !== null) {
-                        return ['success' => false, 'message' => $walletError];
-                    }
-                    $payStr = !empty($paymentMethod) ? " via $paymentMethod" : '';
-                    $this->addTransaction($userId, 'debit', $price, "Booking #$bookingId at $facilityName$payStr");
-                }
-
-                $booking = [
-                    'id' => $bookingId,
-                    'user_id' => $userId,
-                    'facility_id' => (int)$facilityId,
-                    'court_id' => $courtId !== '' ? $courtId : null,
-                    'facility_name' => $facilityName,
-                    'court_name' => $courtName,
-                    'date' => $date,
-                    'time' => $time,
-                    'booking_date' => $bookingDate,
-                    'start_min' => $startMin,
-                    'end_min' => $endMin,
-                    'duration' => $duration,
-                    'price' => (float)$price,
-                    'payment_method' => $paymentMethod,
-                    // Must match the MySQL branch's 'pending' status: a booking
-                    // isn't a confirmed reservation until the facility owner
-                    // approves it via approve_booking. Defaulting to 'upcoming'
-                    // here silently skipped the entire approval workflow
-                    // whenever the app was running on the JSON fallback store.
-                    'status' => 'pending',
-                    'is_new' => 1,
-                    'created_at' => date('Y-m-d H:i:s')
-                ];
-                array_unshift($bookings, $booking);
-
-                ftruncate($fp, 0);
-                rewind($fp);
-                fwrite($fp, json_encode(array_values($bookings), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-                if ($promoCode !== null && $promoCode !== '' && $promoDiscount > 0) {
-                    $this->recordPromoRedemption($promoCode, $userId, $bookingId, $promoDiscount);
-                }
-            } finally {
-                if (is_resource($fp)) {
-                    flock($fp, LOCK_UN);
-                    fclose($fp);
-                }
+            // Recorded in the SAME transaction as the booking itself: a
+            // promo discount that was granted (the row below commits)
+            // can never end up uncounted (no redemption row), and a
+            // redemption can never be recorded against a booking that
+            // ultimately didn't happen (the whole transaction rolls back
+            // together on any failure above).
+            if ($promoCode !== null && $promoCode !== '' && $promoDiscount > 0) {
+                $this->recordPromoRedemption($promoCode, $userId, $bookingId, $promoDiscount);
             }
+
+            $this->pdo->commit();
+
+            $booking = [
+                'id' => $bookingId,
+                'user_id' => $userId,
+                'facility_id' => (int)$facilityId,
+                'court_id' => $courtId !== '' ? $courtId : null,
+                'facility_name' => $facilityName,
+                'court_name' => $courtName,
+                'date' => $date,
+                'time' => $time,
+                'booking_date' => $bookingDate,
+                'start_min' => $startMin,
+                'end_min' => $endMin,
+                'duration' => $duration,
+                'price' => (float)$price,
+                'payment_method' => $paymentMethod,
+                'status' => 'pending',
+                'is_new' => 1,
+                'created_at' => date('Y-m-d H:i:s')
+            ];
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            if ($e instanceof \Picklers\Exceptions\PromoUnavailableException) {
+                return ['success' => false, 'message' => $e->getMessage() . ' Nothing was charged — please book again without it.'];
+            }
+            error_log('[DB Error] createBooking failed: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Reservation failed due to a system error. Please try again.'];
         }
 
         // This is a REQUEST awaiting the facility owner's approval, not a
@@ -5726,144 +4388,75 @@ class Database {
     public function cancelBooking($bookingId, $userId) {
         $refundAmount = 0;
         $this->bumpSync('bookings');
-        if ($this->isMySQL) {
-            try {
-                $this->pdo->beginTransaction();
+        try {
+            $this->pdo->beginTransaction();
 
-                $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE id = ? FOR UPDATE");
-                $stmt->execute([$bookingId]);
-                $booking = $stmt->fetch();
+            $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE id = ? FOR UPDATE");
+            $stmt->execute([$bookingId]);
+            $booking = $stmt->fetch();
 
-                if (!$booking) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'Booking not found'];
-                }
-                if ((string)$booking['user_id'] !== (string)$userId) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'Access denied: You cannot cancel another player\'s booking'];
-                }
-                if ($booking['status'] === 'cancelled') {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'Booking is already cancelled'];
-                }
-                // Only block cancellation if the booking was CONFIRMED/ACCEPTED by the owner.
-                // If it is still PENDING (unaccepted), the player can always cancel/withdraw their request!
-                if (($booking['status'] ?? '') !== 'pending' && $this->hasBookingStarted($booking)) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'This session has already started or finished, so it can no longer be cancelled.'];
-                }
+            if (!$booking) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'Booking not found'];
+            }
+            if ((string)$booking['user_id'] !== (string)$userId) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'Access denied: You cannot cancel another player\'s booking'];
+            }
+            if ($booking['status'] === 'cancelled') {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'Booking is already cancelled'];
+            }
+            // Only block cancellation if the booking was CONFIRMED/ACCEPTED by the owner.
+            // If it is still PENDING (unaccepted), the player can always cancel/withdraw their request!
+            if (($booking['status'] ?? '') !== 'pending' && $this->hasBookingStarted($booking)) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'This session has already started or finished, so it can no longer be cancelled.'];
+            }
 
-                $prevStatus = $booking['status'] ?? 'pending';
+            $prevStatus = $booking['status'] ?? 'pending';
 
-                // 1. Status update FIRST (idempotency anchor)
-                $this->pdo->prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?")->execute([$bookingId]);
+            // 1. Status update FIRST (idempotency anchor)
+            $this->pdo->prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?")->execute([$bookingId]);
 
-                if ($prevStatus === 'confirmed') {
-                    $matchId = $booking['match_id'] ?? null;
-                    if (!$matchId && (!empty($booking['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
-                        $matches = $this->getMatchesByFacility($booking['facility_id'] ?? 0);
-                        foreach ($matches as $m) {
-                            if (($m['type'] ?? '') === ($booking['court_name'] ?? '') && ($m['date'] ?? '') === ($booking['date'] ?? '') && ($m['time'] ?? '') === ($booking['time'] ?? '')) {
-                                $matchId = $m['id'];
-                                break;
-                            }
+            if ($prevStatus === 'confirmed') {
+                $matchId = $booking['match_id'] ?? null;
+                if (!$matchId && (!empty($booking['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
+                    $matches = $this->getMatchesByFacility($booking['facility_id'] ?? 0);
+                    foreach ($matches as $m) {
+                        if (($m['type'] ?? '') === ($booking['court_name'] ?? '') && ($m['date'] ?? '') === ($booking['date'] ?? '') && ($m['time'] ?? '') === ($booking['time'] ?? '')) {
+                            $matchId = $m['id'];
+                            break;
                         }
                     }
-                    if ($matchId) {
-                        $this->adjustMatchPlayerCount($matchId, -1);
-                    }
                 }
-
-                // 2. Refund SECOND (inside same transaction)
-                $isSafeWindow = $this->isWithin24HourWindow($booking);
-                $isPending = ($prevStatus === 'pending');
-                if (($isPending || $isSafeWindow) && ($booking['payment_method'] ?? '') === 'Pickle Credits' && (float)($booking['price'] ?? 0) > 0) {
-                    $refundAmount = (float)$booking['price'];
-                    $this->pdo->prepare(
-                        "UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?"
-                    )->execute([$refundAmount, $userId]);
-                    $this->addTransaction($userId, 'credit', $refundAmount, "Full Refund for Cancelled Booking #$bookingId");
-                }
-
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] cancelBooking failed: ' . $e->getMessage());
-                return ['success' => false, 'message' => 'Cancellation failed. Please try again.'];
-            }
-        } else {
-            $path = $this->dataDir . '/bookings.json';
-            $fp = fopen($path, 'c+');
-            if (!$fp || !flock($fp, LOCK_EX)) {
-                if ($fp) fclose($fp);
-                return ['success' => false, 'message' => 'System is busy. Please try again.'];
-            }
-            $booking = null;
-            try {
-                $raw = stream_get_contents($fp);
-                $bookings = json_decode($raw ?: '[]', true) ?? [];
-                $targetIndex = null;
-                foreach ($bookings as $idx => $b) {
-                    if ((string)($b['id'] ?? '') === (string)$bookingId) {
-                        $targetIndex = $idx;
-                        break;
-                    }
-                }
-                if ($targetIndex === null) {
-                    return ['success' => false, 'message' => 'Booking not found'];
-                }
-                $booking = $bookings[$targetIndex];
-                if ((string)($booking['user_id'] ?? '') !== (string)$userId) {
-                    return ['success' => false, 'message' => 'Access denied: You cannot cancel another player\'s booking'];
-                }
-                if (($booking['status'] ?? '') === 'cancelled') {
-                    return ['success' => false, 'message' => 'Booking is already cancelled'];
-                }
-                if (($booking['status'] ?? '') !== 'pending' && $this->hasBookingStarted($booking)) {
-                    return ['success' => false, 'message' => 'This session has already started or finished, so it can no longer be cancelled.'];
-                }
-
-                $prevStatus = $booking['status'] ?? 'pending';
-                $bookings[$targetIndex]['status'] = 'cancelled';
-
-                if ($prevStatus === 'confirmed') {
-                    $matchId = $booking['match_id'] ?? null;
-                    if (!$matchId && (!empty($booking['court_name']) || str_starts_with($bookingId, 'PKL-OP-'))) {
-                        $matches = $this->getMatchesByFacility($booking['facility_id'] ?? 0);
-                        foreach ($matches as $m) {
-                            if (($m['type'] ?? '') === ($booking['court_name'] ?? '') && ($m['date'] ?? '') === ($booking['date'] ?? '') && ($m['time'] ?? '') === ($booking['time'] ?? '')) {
-                                $matchId = $m['id'];
-                                break;
-                            }
-                        }
-                    }
-                    if ($matchId) {
-                        $this->adjustMatchPlayerCount($matchId, -1);
-                    }
-                }
-                ftruncate($fp, 0);
-                rewind($fp);
-                fwrite($fp, json_encode(array_values($bookings), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            } finally {
-                if (is_resource($fp)) {
-                    flock($fp, LOCK_UN);
-                    fclose($fp);
+                if ($matchId) {
+                    $this->adjustMatchPlayerCount($matchId, -1);
                 }
             }
 
+            // 2. Refund SECOND (inside same transaction)
             $isSafeWindow = $this->isWithin24HourWindow($booking);
-            $isPending = (($booking['status'] ?? '') === 'pending');
+            $isPending = ($prevStatus === 'pending');
             if (($isPending || $isSafeWindow) && ($booking['payment_method'] ?? '') === 'Pickle Credits' && (float)($booking['price'] ?? 0) > 0) {
-                $refundAmount = (float)$booking['price'];
-                $user = $this->getUserById($userId);
-                if ($user) {
-                    $newBalance = round((float)($user['wallet_balance'] ?? 0) + $refundAmount, 2);
-                    $this->updateUser($userId, ['wallet_balance' => $newBalance]);
-                    $this->addTransaction($userId, 'credit', $refundAmount, "Full Refund for Cancelled Booking #$bookingId");
-                }
+                // Idempotent: a booking already refunded by any path (owner
+                // decline, admin cancellation) is never refunded again.
+                $refundAmount = $this->creditWalletOnce(
+                    (string)$userId,
+                    number_format((float)$booking['price'], 2, '.', ''),
+                    "Full Refund for Cancelled Booking #$bookingId",
+                    'refund:booking:' . $bookingId,
+                    ['entry_kind' => 'refund', 'booking_id' => (string)$bookingId]
+                ) ? (float)$booking['price'] : 0;
             }
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log('[DB Error] cancelBooking failed: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Cancellation failed. Please try again.'];
         }
 
         $paidWith = (string)($booking['payment_method'] ?? '');
@@ -5886,15 +4479,9 @@ class Database {
     // Wallet
     public function getWalletTransactions($userId) {
         $rows = [];
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC");
-            $stmt->execute([$userId]);
-            $rows = $stmt->fetchAll();
-        } else {
-            $txs = $this->getJSONData('wallet_transactions');
-            $filtered = array_filter($txs, fn($t) => (string)($t['user_id'] ?? '') === (string)$userId);
-            $rows = array_values($filtered);
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC");
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll();
 
         $user = $this->getUserById($userId);
         if ($user) {
@@ -5930,14 +4517,9 @@ class Database {
         if ($user) {
             $existingLabels = array_column($rows, 'label');
             $bookings = [];
-            if ($this->isMySQL) {
-                $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE user_id = ? AND status != 'cancelled' ORDER BY created_at DESC");
-                $stmt->execute([$userId]);
-                $bookings = $stmt->fetchAll();
-            } else {
-                $allB = $this->getJSONData('bookings');
-                $bookings = array_values(array_filter($allB, fn($b) => (string)($b['user_id'] ?? '') === (string)$userId && ($b['status'] ?? '') !== 'cancelled'));
-            }
+            $stmt = $this->pdo->prepare("SELECT * FROM bookings WHERE user_id = ? AND status != 'cancelled' ORDER BY created_at DESC");
+            $stmt->execute([$userId]);
+            $bookings = $stmt->fetchAll();
 
             foreach ($bookings as $b) {
                 $bId = (string)($b['id'] ?? '');
@@ -5980,7 +4562,13 @@ class Database {
         return array_values($rows);
     }
 
-    public function addTransaction($userId, $type, $amount, $label) {
+    /**
+     * @param array{entry_kind?:string,booking_id?:?string,actor_user_id?:?string,reason?:?string,idempotency_key?:?string,balance_after?:?string} $meta
+     *        Ledger evidence recorded for NEW entries once the wallet ledger
+     *        migration has run (kind, linked booking, acting admin, reason,
+     *        resulting balance, idempotency key). Ignored before that.
+     */
+    public function addTransaction($userId, $type, $amount, $label, array $meta = []) {
         $id = 'tx_' . bin2hex(random_bytes(5));
         $date = date('M j, Y');
         $createdAt = date('Y-m-d H:i:s');
@@ -5991,130 +4579,42 @@ class Database {
             'created_at' => $createdAt
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO wallet_transactions (id, user_id, type, amount, label, date, created_at) VALUES (?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $userId, $type, $amount, $label, $date, $createdAt]);
-        } else {
-            $txs = $this->getJSONData('wallet_transactions');
-            array_unshift($txs, $tx);
-            $this->saveJSONData('wallet_transactions', $txs);
-        }
-        return $tx;
-    }
-
-    public function adjustWalletAtomically(string $userId, string $type, float $amount, string $label): array {
-        if (class_exists('\\Picklers\\Middleware\\AuthMiddleware')) {
-            \Picklers\Middleware\AuthMiddleware::clearMemoizedUser();
-        }
-
-        if ($this->isMySQL) {
-            try {
-                $this->pdo->beginTransaction();
-
-                $stmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
-                $stmt->execute([$userId]);
-                $row = $stmt->fetch();
-
-                if (!$row) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'User not found.'];
-                }
-
-                $current = (float)$row['wallet_balance'];
-
-                if ($type === 'debit' && $amount > $current) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => "Insufficient balance. User has only ₱" . number_format($current, 2) . "."];
-                }
-
-                $newBalance = $type === 'credit'
-                    ? round($current + $amount, 2)
-                    : round($current - $amount, 2);
-
-                $this->pdo->prepare("UPDATE users SET wallet_balance = ? WHERE id = ?")->execute([$newBalance, $userId]);
-                $this->addTransaction($userId, $type, $amount, "[Admin] {$label}");
-
-                $this->pdo->commit();
-                return ['success' => true, 'new_balance' => $newBalance];
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); }
-                error_log('[DB Error] adjustWalletAtomically failed: ' . $e->getMessage());
-                return ['success' => false, 'message' => 'Wallet adjustment failed. Please try again.'];
-            }
-        } else {
-            $result = ['success' => false, 'message' => 'User not found.', 'new_balance' => 0.0];
-            $this->lockedJSONUpdate('users', function (array $users) use ($userId, $type, $amount, &$result): array {
-                foreach ($users as $i => $u) {
-                    if ((string)($u['id'] ?? '') === $userId) {
-                        $current = (float)($u['wallet_balance'] ?? 0.0);
-                        if ($type === 'debit' && $amount > $current) {
-                            $result = ['success' => false, 'message' => "Insufficient balance. User has only ₱" . number_format($current, 2) . "."];
-                            return $users;
-                        }
-                        $newBalance = $type === 'credit'
-                            ? round($current + $amount, 2)
-                            : round($current - $amount, 2);
-                        $users[$i]['wallet_balance'] = $newBalance;
-                        $result = ['success' => true, 'new_balance' => $newBalance];
-                        return array_values($users);
-                    }
-                }
-                return $users;
-            });
-            if ($result['success']) {
-                $this->addTransaction($userId, $type, $amount, "[Admin] {$label}");
-            }
-            return $result;
-        }
+        return $this->ledger()->record((string)$userId, (string)$type, $amount, (string)$label, $meta);
     }
 
     public function topUpWallet($userId, $amount, $method) {
-        if (class_exists('\\Picklers\\Middleware\\AuthMiddleware')) {
-            \Picklers\Middleware\AuthMiddleware::clearMemoizedUser();
-        }
         $amount = (float)$amount;
         if ($amount <= 0 || $amount > 50000) {
             return ['success' => false, 'message' => 'Top-up amount must be between ₱1.00 and ₱50,000.00'];
         }
 
-        if ($this->isMySQL) {
-            try {
-                $this->pdo->beginTransaction();
+        try {
+            $this->pdo->beginTransaction();
 
-                $stmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
-                $stmt->execute([$userId]);
-                $row = $stmt->fetch();
-                if (!$row) {
-                    $this->pdo->rollBack();
-                    return ['success' => false, 'message' => 'User not found'];
-                }
-
-                $oldBalance = (float)($row['wallet_balance'] ?? 0);
-                $newBalance = round($oldBalance + $amount, 2);
-
-                $this->pdo->prepare(
-                    "UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?"
-                )->execute([$amount, $userId]);
-
-                $this->addTransaction($userId, 'credit', $amount, $method);
-
-                $this->pdo->commit();
-            } catch (\Throwable $e) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                error_log('[DB Error] topUpWallet failed: ' . $e->getMessage());
-                return ['success' => false, 'message' => 'Top-up failed. Please try again.'];
+            $stmt = $this->pdo->prepare("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE");
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch();
+            if (!$row) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'message' => 'User not found'];
             }
-        } else {
-            $user = $this->getUserById($userId);
-            if (!$user) return ['success' => false, 'message' => 'User not found'];
 
-            $oldBalance = (float)($user['wallet_balance'] ?? 0);
+            $oldBalance = (float)($row['wallet_balance'] ?? 0);
             $newBalance = round($oldBalance + $amount, 2);
-            $this->updateUser($userId, ['wallet_balance' => $newBalance]);
 
-            $this->addTransaction($userId, 'credit', $amount, $method);
+            $this->pdo->prepare(
+                "UPDATE users SET wallet_balance = ROUND(wallet_balance + ?, 2) WHERE id = ?"
+            )->execute([$amount, $userId]);
+
+            $this->addTransaction($userId, 'credit', $amount, $method, ['entry_kind' => 'top_up']);
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log('[DB Error] topUpWallet failed: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Top-up failed. Please try again.'];
         }
 
         $this->addNotification(
@@ -6135,61 +4635,41 @@ class Database {
 
     // Community Feed
     public function getFeedPosts($userId = null) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT * FROM feed_posts ORDER BY created_at DESC");
-            $posts = $stmt->fetchAll();
-            if (empty($posts)) return [];
+        // Content hidden by moderation is excluded from every public read.
+        $visible = $this->hasColumn('feed_posts', 'hidden_at') ? ' WHERE hidden_at IS NULL' : '';
+        $stmt = $this->pdo->query("SELECT * FROM feed_posts{$visible} ORDER BY created_at DESC");
+        $posts = $stmt->fetchAll();
+        if (empty($posts)) return [];
 
-            $postIds = array_column($posts, 'id');
-            $placeholders = implode(',', array_fill(0, count($postIds), '?'));
+        $postIds = array_column($posts, 'id');
+        $placeholders = implode(',', array_fill(0, count($postIds), '?'));
 
-            // Batch fetch liked post IDs in 1 query
-            $likedPostIds = [];
-            if ($userId) {
-                $likeStmt = $this->pdo->prepare("SELECT post_id FROM feed_likes WHERE user_id = ? AND post_id IN ($placeholders)");
-                $likeStmt->execute(array_merge([$userId], $postIds));
-                $likedPostIds = array_flip($likeStmt->fetchAll(\PDO::FETCH_COLUMN));
-            }
-
-            // Batch fetch comments grouped by post_id in 1 query
-            $commentStmt = $this->pdo->prepare("SELECT * FROM feed_comments WHERE post_id IN ($placeholders) ORDER BY created_at ASC");
-            $commentStmt->execute($postIds);
-            $commentsByPost = [];
-            foreach ($commentStmt->fetchAll() as $comm) {
-                $commentsByPost[$comm['post_id']][] = $comm;
-            }
-
-            foreach ($posts as &$p) {
-                $p['i_liked'] = isset($likedPostIds[$p['id']]);
-                $p['comments'] = $commentsByPost[$p['id']] ?? [];
-            }
-            return $posts;
-        } else {
-            $posts = $this->getJSONData('feed_posts');
-            $likes = $this->getJSONData('feed_likes');
-            $comments = $this->getJSONData('feed_comments');
-
-            // Build lookup maps for O(1) matching
-            $userLikedMap = [];
-            if ($userId) {
-                foreach ($likes as $l) {
-                    if (($l['user_id'] ?? '') === $userId) {
-                        $userLikedMap[$l['post_id']] = true;
-                    }
-                }
-            }
-
-            $commentsMap = [];
-            foreach ($comments as $c) {
-                $commentsMap[$c['post_id']][] = $c;
-            }
-
-            foreach ($posts as &$p) {
-                $p['i_liked'] = isset($userLikedMap[$p['id']]);
-                $p['comments'] = $commentsMap[$p['id']] ?? [];
-            }
-            return $posts;
+        // Batch fetch liked post IDs in 1 query
+        $likedPostIds = [];
+        if ($userId) {
+            $likeStmt = $this->pdo->prepare("SELECT post_id FROM feed_likes WHERE user_id = ? AND post_id IN ($placeholders)");
+            $likeStmt->execute(array_merge([$userId], $postIds));
+            $likedPostIds = array_flip($likeStmt->fetchAll(\PDO::FETCH_COLUMN));
         }
+
+        // Batch fetch comments grouped by post_id in 1 query
+        $hiddenComments = $this->hasColumn('feed_comments', 'hidden_at');
+        $commentStmt = $this->pdo->prepare("SELECT * FROM feed_comments WHERE post_id IN ($placeholders)" . ($hiddenComments ? ' AND hidden_at IS NULL' : '') . " ORDER BY created_at ASC");
+        $commentStmt->execute($postIds);
+        $commentsByPost = [];
+        foreach ($commentStmt->fetchAll() as $comm) {
+            $commentsByPost[$comm['post_id']][] = $comm;
+        }
+
+        foreach ($posts as &$p) {
+            $p['i_liked'] = isset($likedPostIds[$p['id']]);
+            $p['comments'] = $commentsByPost[$p['id']] ?? [];
+            if ($hiddenComments) {
+                // The stored counter includes hidden comments; report what players can see.
+                $p['comment_count'] = count($p['comments']);
+            }
+        }
+        return $posts;
     }
 
     public function createFeedPost($userId, $content, $imageUrl = null, $type = 'text') {
@@ -6213,14 +4693,8 @@ class Database {
             'created_at' => $createdAt
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO feed_posts (id, author_id, author_name, author_avatar, author_level, content, image_url, post_type, like_count, comment_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $userId, $user['name'], $user['avatar_url'], $user['level'], $content, $imageUrl, $type, 0, 0, $createdAt]);
-        } else {
-            $posts = $this->getJSONData('feed_posts');
-            array_unshift($posts, $post);
-            $this->saveJSONData('feed_posts', $posts);
-        }
+        $stmt = $this->pdo->prepare("INSERT INTO feed_posts (id, author_id, author_name, author_avatar, author_level, content, image_url, post_type, like_count, comment_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt->execute([$id, $userId, $user['name'], $user['avatar_url'], $user['level'], $content, $imageUrl, $type, 0, 0, $createdAt]);
 
         $post['i_liked'] = false;
         $post['comments'] = [];
@@ -6231,17 +4705,11 @@ class Database {
         if ($postId === '') {
             return false;
         }
-        if ($this->isMySQL) {
-            $s = $this->pdo->prepare("SELECT 1 FROM feed_posts WHERE id = ? LIMIT 1");
-            $s->execute([$postId]);
-            return (bool)$s->fetchColumn();
-        }
-        foreach ($this->getJSONData('feed_posts') as $p) {
-            if ((string)($p['id'] ?? '') === $postId) {
-                return true;
-            }
-        }
-        return false;
+        // A post hidden by moderation cannot be liked or commented on.
+        $visible = $this->hasColumn('feed_posts', 'hidden_at') ? ' AND hidden_at IS NULL' : '';
+        $s = $this->pdo->prepare("SELECT 1 FROM feed_posts WHERE id = ?{$visible} LIMIT 1");
+        $s->execute([$postId]);
+        return (bool)$s->fetchColumn();
     }
 
     public function toggleLikePost($postId, $userId) {
@@ -6250,58 +4718,26 @@ class Database {
         if (!$this->feedPostExists((string)$postId)) {
             return ['success' => false, 'message' => 'This post is no longer available.'];
         }
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT COUNT(*) as c FROM feed_likes WHERE post_id = ? AND user_id = ?");
-            $stmt->execute([$postId, $userId]);
-            $hasLiked = $stmt->fetch()['c'] > 0;
-            if ($hasLiked) {
-                $del = $this->pdo->prepare("DELETE FROM feed_likes WHERE post_id = ? AND user_id = ?");
-                $del->execute([$postId, $userId]);
-                $decStmt = $this->pdo->prepare("UPDATE feed_posts SET like_count = GREATEST(0, like_count - 1) WHERE id = ?");
-                $decStmt->execute([$postId]);
-                $liked = false;
-            } else {
-                $ins = $this->pdo->prepare("INSERT INTO feed_likes (post_id, user_id) VALUES (?,?)");
-                $ins->execute([$postId, $userId]);
-                $incStmt = $this->pdo->prepare("UPDATE feed_posts SET like_count = like_count + 1 WHERE id = ?");
-                $incStmt->execute([$postId]);
-                $liked = true;
-            }
-            $cntStmt = $this->pdo->prepare("SELECT like_count FROM feed_posts WHERE id = ?");
-            $cntStmt->execute([$postId]);
-            $cnt = $cntStmt->fetch()['like_count'] ?? 0;
-            return ['success' => true, 'i_liked' => $liked, 'like_count' => (int)$cnt];
-        } else {
-            $likes = $this->getJSONData('feed_likes');
-            $posts = $this->getJSONData('feed_posts');
-            $idx = -1;
-            foreach ($likes as $k => $l) {
-                if ($l['post_id'] === $postId && $l['user_id'] === $userId) {
-                    $idx = $k;
-                    break;
-                }
-            }
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) as c FROM feed_likes WHERE post_id = ? AND user_id = ?");
+        $stmt->execute([$postId, $userId]);
+        $hasLiked = $stmt->fetch()['c'] > 0;
+        if ($hasLiked) {
+            $del = $this->pdo->prepare("DELETE FROM feed_likes WHERE post_id = ? AND user_id = ?");
+            $del->execute([$postId, $userId]);
+            $decStmt = $this->pdo->prepare("UPDATE feed_posts SET like_count = GREATEST(0, like_count - 1) WHERE id = ?");
+            $decStmt->execute([$postId]);
             $liked = false;
-            if ($idx !== -1) {
-                unset($likes[$idx]);
-                $liked = false;
-            } else {
-                $likes[] = ['post_id' => $postId, 'user_id' => $userId];
-                $liked = true;
-            }
-            $this->saveJSONData('feed_likes', $likes);
-
-            $newCount = 0;
-            foreach ($posts as &$p) {
-                if ($p['id'] === $postId) {
-                    $p['like_count'] = max(0, $p['like_count'] + ($liked ? 1 : -1));
-                    $newCount = $p['like_count'];
-                    break;
-                }
-            }
-            $this->saveJSONData('feed_posts', $posts);
-            return ['success' => true, 'i_liked' => $liked, 'like_count' => $newCount];
+        } else {
+            $ins = $this->pdo->prepare("INSERT INTO feed_likes (post_id, user_id) VALUES (?,?)");
+            $ins->execute([$postId, $userId]);
+            $incStmt = $this->pdo->prepare("UPDATE feed_posts SET like_count = like_count + 1 WHERE id = ?");
+            $incStmt->execute([$postId]);
+            $liked = true;
         }
+        $cntStmt = $this->pdo->prepare("SELECT like_count FROM feed_posts WHERE id = ?");
+        $cntStmt->execute([$postId]);
+        $cnt = $cntStmt->fetch()['like_count'] ?? 0;
+        return ['success' => true, 'i_liked' => $liked, 'like_count' => (int)$cnt];
     }
 
     /**
@@ -6312,34 +4748,15 @@ class Database {
         if ($facilityId <= 0 || !$this->getFacility($facilityId)) {
             return ['success' => false, 'message' => 'Facility not found.'];
         }
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT COUNT(*) as c FROM facility_favorites WHERE user_id = ? AND facility_id = ?");
-            $stmt->execute([$userId, $facilityId]);
-            $isFavorited = ((int)($stmt->fetch()['c'] ?? 0)) > 0;
-            if ($isFavorited) {
-                $this->pdo->prepare("DELETE FROM facility_favorites WHERE user_id = ? AND facility_id = ?")->execute([$userId, $facilityId]);
-                $favorited = false;
-            } else {
-                $this->pdo->prepare("INSERT INTO facility_favorites (user_id, facility_id) VALUES (?, ?)")->execute([$userId, $facilityId]);
-                $favorited = true;
-            }
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) as c FROM facility_favorites WHERE user_id = ? AND facility_id = ?");
+        $stmt->execute([$userId, $facilityId]);
+        $isFavorited = ((int)($stmt->fetch()['c'] ?? 0)) > 0;
+        if ($isFavorited) {
+            $this->pdo->prepare("DELETE FROM facility_favorites WHERE user_id = ? AND facility_id = ?")->execute([$userId, $facilityId]);
+            $favorited = false;
         } else {
-            $favorites = $this->getJSONData('facility_favorites');
-            $idx = -1;
-            foreach ($favorites as $k => $fav) {
-                if ((string)($fav['user_id'] ?? '') === $userId && (int)($fav['facility_id'] ?? 0) === $facilityId) {
-                    $idx = $k;
-                    break;
-                }
-            }
-            if ($idx !== -1) {
-                unset($favorites[$idx]);
-                $favorited = false;
-            } else {
-                $favorites[] = ['user_id' => $userId, 'facility_id' => $facilityId, 'created_at' => date('Y-m-d H:i:s')];
-                $favorited = true;
-            }
-            $this->saveJSONData('facility_favorites', array_values($favorites));
+            $this->pdo->prepare("INSERT INTO facility_favorites (user_id, facility_id) VALUES (?, ?)")->execute([$userId, $facilityId]);
+            $favorited = true;
         }
         return ['success' => true, 'favorited' => $favorited];
     }
@@ -6349,19 +4766,9 @@ class Database {
         if ($userId === '') {
             return [];
         }
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT facility_id FROM facility_favorites WHERE user_id = ?");
-            $stmt->execute([$userId]);
-            return array_map('intval', array_column($stmt->fetchAll(), 'facility_id'));
-        }
-        $favorites = $this->getJSONData('facility_favorites');
-        $ids = [];
-        foreach ($favorites as $fav) {
-            if ((string)($fav['user_id'] ?? '') === $userId) {
-                $ids[] = (int)($fav['facility_id'] ?? 0);
-            }
-        }
-        return $ids;
+        $stmt = $this->pdo->prepare("SELECT facility_id FROM facility_favorites WHERE user_id = ?");
+        $stmt->execute([$userId]);
+        return array_map('intval', array_column($stmt->fetchAll(), 'facility_id'));
     }
 
     public function addComment($postId, $userId, $comment) {
@@ -6383,43 +4790,18 @@ class Database {
             'created_at' => $createdAt
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO feed_comments (id, post_id, user_id, author_name, author_avatar, comment, created_at) VALUES (?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $postId, $userId, $user['name'], $user['avatar_url'], $comment, $createdAt]);
-            $this->pdo->prepare("UPDATE feed_posts SET comment_count = comment_count + 1 WHERE id = ?")->execute([$postId]);
-        } else {
-            $comments = $this->getJSONData('feed_comments');
-            $comments[] = $entry;
-            $this->saveJSONData('feed_comments', $comments);
-
-            $posts = $this->getJSONData('feed_posts');
-            foreach ($posts as &$p) {
-                if ($p['id'] === $postId) {
-                    $p['comment_count'] += 1;
-                    break;
-                }
-            }
-            $this->saveJSONData('feed_posts', $posts);
-        }
+        $stmt = $this->pdo->prepare("INSERT INTO feed_comments (id, post_id, user_id, author_name, author_avatar, comment, created_at) VALUES (?,?,?,?,?,?,?)");
+        $stmt->execute([$id, $postId, $userId, $user['name'], $user['avatar_url'], $comment, $createdAt]);
+        $this->pdo->prepare("UPDATE feed_posts SET comment_count = comment_count + 1 WHERE id = ?")->execute([$postId]);
 
         return ['success' => true, 'comment' => $entry];
     }
 
     // Direct Messages & Chat
     public function getMessages($userId, $partnerId) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM direct_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at ASC");
-            $stmt->execute([$userId, $partnerId, $partnerId, $userId]);
-            return $stmt->fetchAll();
-        } else {
-            $msgs = $this->getJSONData('direct_messages');
-            $filtered = array_filter($msgs, function($m) use ($userId, $partnerId) {
-                return ($m['sender_id'] === $userId && $m['receiver_id'] === $partnerId) ||
-                       ($m['sender_id'] === $partnerId && $m['receiver_id'] === $userId);
-            });
-            usort($filtered, fn($a,$b) => strcmp($a['created_at'], $b['created_at']));
-            return array_values($filtered);
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM direct_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at ASC");
+        $stmt->execute([$userId, $partnerId, $partnerId, $userId]);
+        return $stmt->fetchAll();
     }
 
     public function sendMessage($senderId, $receiverId, $content) {
@@ -6434,14 +4816,8 @@ class Database {
             'created_at' => $createdAt
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO direct_messages (id, sender_id, receiver_id, content, is_read, created_at) VALUES (?,?,?,?,?,?)");
-            $stmt->execute([$id, $senderId, $receiverId, $content, 0, $createdAt]);
-        } else {
-            $msgs = $this->getJSONData('direct_messages');
-            $msgs[] = $msg;
-            $this->saveJSONData('direct_messages', $msgs);
-        }
+        $stmt = $this->pdo->prepare("INSERT INTO direct_messages (id, sender_id, receiver_id, content, is_read, created_at) VALUES (?,?,?,?,?,?)");
+        $stmt->execute([$id, $senderId, $receiverId, $content, 0, $createdAt]);
 
         return ['success' => true, 'message' => $msg];
     }
@@ -6455,21 +4831,10 @@ class Database {
         if ($userId === '' || $partnerId === '') {
             return;
         }
-        if ($this->isMySQL) {
-            $this->pdo->prepare(
-                "UPDATE direct_messages SET is_read = 1 WHERE receiver_id = ? AND sender_id = ? AND is_read = 0"
-            )->execute([$userId, $partnerId]);
-            return;
-        }
-        $this->lockedJSONUpdate('direct_messages', function (array $rows) use ($userId, $partnerId): array {
-            foreach ($rows as &$row) {
-                if ((string)($row['receiver_id'] ?? '') === $userId && (string)($row['sender_id'] ?? '') === $partnerId) {
-                    $row['is_read'] = 1;
-                }
-            }
-            unset($row);
-            return $rows;
-        });
+        $this->pdo->prepare(
+            "UPDATE direct_messages SET is_read = 1 WHERE receiver_id = ? AND sender_id = ? AND is_read = 0"
+        )->execute([$userId, $partnerId]);
+        return;
     }
 
     /**
@@ -6481,27 +4846,16 @@ class Database {
      * @return array{bookings:string,wallet:float}
      */
     public function getAccountSyncState(string $userId): array {
-        if ($this->isMySQL) {
-            // CRC32 sums instead of GROUP_CONCAT, which silently truncates at
-            // group_concat_max_len for an account with many bookings.
-            $s = $this->pdo->prepare(
-                "SELECT COUNT(*) AS n,
-                        COALESCE(SUM(CRC32(CONCAT(id, ':', status, ':', COALESCE(ended_early, 0)))), 0) AS sig
-                   FROM bookings WHERE user_id = ?"
-            );
-            $s->execute([$userId]);
-            $row = $s->fetch() ?: ['n' => 0, 'sig' => 0];
-            $bookingsSig = (int)$row['n'] . ':' . (string)$row['sig'];
-        } else {
-            $n = 0;
-            $sig = 0;
-            foreach ($this->getJSONData('bookings') as $b) {
-                if ((string)($b['user_id'] ?? '') !== $userId) continue;
-                $n++;
-                $sig += crc32(($b['id'] ?? '') . ':' . ($b['status'] ?? '') . ':' . (int)($b['ended_early'] ?? 0));
-            }
-            $bookingsSig = $n . ':' . $sig;
-        }
+        // CRC32 sums instead of GROUP_CONCAT, which silently truncates at
+        // group_concat_max_len for an account with many bookings.
+        $s = $this->pdo->prepare(
+            "SELECT COUNT(*) AS n,
+                    COALESCE(SUM(CRC32(CONCAT(id, ':', status, ':', COALESCE(ended_early, 0)))), 0) AS sig
+               FROM bookings WHERE user_id = ?"
+        );
+        $s->execute([$userId]);
+        $row = $s->fetch() ?: ['n' => 0, 'sig' => 0];
+        $bookingsSig = (int)$row['n'] . ':' . (string)$row['sig'];
 
         $user = $this->getUserById($userId);
         return [
@@ -6512,16 +4866,9 @@ class Database {
 
     // Notifications
     public function getNotifications($userId) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 20");
-            $stmt->execute([$userId]);
-            $list = $stmt->fetchAll();
-        } else {
-            $notifs = $this->getJSONData('notifications');
-            $filtered = array_filter($notifs, fn($n) => ($n['user_id'] ?? '') === $userId);
-            usort($filtered, fn($a,$b) => strcmp($b['created_at'] ?? '', $a['created_at'] ?? ''));
-            $list = array_slice(array_values($filtered), 0, 20);
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 20");
+        $stmt->execute([$userId]);
+        $list = $stmt->fetchAll();
 
         foreach ($list as &$item) {
             if (!empty($item['created_at'])) {
@@ -6550,55 +4897,19 @@ class Database {
     }
 
     public function addNotification($userId, $title, $body, $type = 'system') {
-        $id = 'notif_' . bin2hex(random_bytes(5));
-        $time = 'Just now';
-        $createdAt = date('Y-m-d H:i:s');
-
-        $notif = [
-            'id' => $id, 'user_id' => $userId, 'title' => $title,
-            'body' => $body, 'type' => $type, 'is_read' => 0,
-            'time' => $time, 'created_at' => $createdAt
-        ];
-
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO notifications (id, user_id, title, body, type, is_read, time, created_at) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->execute([$id, $userId, $title, $body, $type, 0, $time, $createdAt]);
-        } else {
-            $notifs = $this->getJSONData('notifications');
-            array_unshift($notifs, $notif);
-            $this->saveJSONData('notifications', $notifs);
-        }
-        return $notif;
+        return $this->notifier()->notify((string)$userId, (string)$title, (string)$body, (string)$type);
     }
 
     public function markAllNotificationsRead($userId) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
-            $stmt->execute([$userId]);
-        } else {
-            $notifs = $this->getJSONData('notifications');
-            foreach ($notifs as &$n) {
-                if (($n['user_id'] ?? '') === $userId) {
-                    $n['is_read'] = 1;
-                }
-            }
-            $this->saveJSONData('notifications', $notifs);
-        }
+        $stmt = $this->pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
+        $stmt->execute([$userId]);
         return true;
     }
 
     public function deleteNotification($notifId, $userId) {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("DELETE FROM notifications WHERE id = ? AND user_id = ?");
-            $stmt->execute([$notifId, $userId]);
-            return $stmt->rowCount() > 0;
-        } else {
-            $notifs = $this->getJSONData('notifications');
-            $initialCount = count($notifs);
-            $notifs = array_values(array_filter($notifs, fn($n) => !(($n['id'] ?? '') === $notifId && ($n['user_id'] ?? '') === $userId)));
-            $this->saveJSONData('notifications', $notifs);
-            return count($notifs) < $initialCount;
-        }
+        $stmt = $this->pdo->prepare("DELETE FROM notifications WHERE id = ? AND user_id = ?");
+        $stmt->execute([$notifId, $userId]);
+        return $stmt->rowCount() > 0;
     }
 
     // --------------------------------------------------------------------------
@@ -6616,13 +4927,8 @@ class Database {
      * else, seeded honestly with times_used = 0.)
      */
     public function getPromoCodes(): array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT * FROM promo_codes ORDER BY created_at DESC");
-            $rows = $stmt->fetchAll() ?: [];
-        } else {
-            $rows = $this->getJSONData('promo_codes');
-            usort($rows, fn($a, $b) => strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? '')));
-        }
+        $stmt = $this->pdo->query("SELECT * FROM promo_codes ORDER BY created_at DESC");
+        $rows = $stmt->fetchAll() ?: [];
 
         return array_map(function($r) {
             $r['discount_value'] = (float)($r['discount_value'] ?? 0);
@@ -6681,35 +4987,19 @@ class Database {
             'created_at' => $createdAt
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("
-                INSERT INTO promo_codes (id, code, discount_type, discount_value, min_spend, usage_limit, times_used, user_limit, expires_at, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    discount_type = VALUES(discount_type),
-                    discount_value = VALUES(discount_value),
-                    min_spend = VALUES(min_spend),
-                    usage_limit = VALUES(usage_limit),
-                    user_limit = VALUES(user_limit),
-                    expires_at = VALUES(expires_at),
-                    status = VALUES(status)
-            ");
-            $stmt->execute([$id, $code, $type, $value, $minSpend, $usageLimit, $row['times_used'], $userLimit, $expiresAt, $status, $createdAt]);
-        } else {
-            $promos = $this->getJSONData('promo_codes');
-            $found = false;
-            foreach ($promos as &$p) {
-                if (($p['id'] ?? '') === $id || strtoupper((string)($p['code'] ?? '')) === $code) {
-                    $p = array_merge($p, $row);
-                    $found = true;
-                    break;
-                }
-            }
-            if (!$found) {
-                $promos[] = $row;
-            }
-            $this->saveJSONData('promo_codes', $promos);
-        }
+        $stmt = $this->pdo->prepare("
+            INSERT INTO promo_codes (id, code, discount_type, discount_value, min_spend, usage_limit, times_used, user_limit, expires_at, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                discount_type = VALUES(discount_type),
+                discount_value = VALUES(discount_value),
+                min_spend = VALUES(min_spend),
+                usage_limit = VALUES(usage_limit),
+                user_limit = VALUES(user_limit),
+                expires_at = VALUES(expires_at),
+                status = VALUES(status)
+        ");
+        $stmt->execute([$id, $code, $type, $value, $minSpend, $usageLimit, $row['times_used'], $userLimit, $expiresAt, $status, $createdAt]);
 
         return $row;
     }
@@ -6726,32 +5016,15 @@ class Database {
         if (!$target) return false;
 
         $status = $newStatus ?? (($target['status'] ?? 'active') === 'active' ? 'disabled' : 'active');
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("UPDATE promo_codes SET status = ? WHERE id = ?");
-            $stmt->execute([$status, $target['id']]);
-        } else {
-            $all = $this->getJSONData('promo_codes');
-            foreach ($all as &$p) {
-                if (($p['id'] ?? '') === $target['id']) {
-                    $p['status'] = $status;
-                }
-            }
-            $this->saveJSONData('promo_codes', $all);
-        }
+        $stmt = $this->pdo->prepare("UPDATE promo_codes SET status = ? WHERE id = ?");
+        $stmt->execute([$status, $target['id']]);
         return true;
     }
 
     public function deletePromoCode(string $promoId): bool {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("DELETE FROM promo_codes WHERE id = ? OR code = ?");
-            $stmt->execute([$promoId, strtoupper($promoId)]);
-            return $stmt->rowCount() > 0;
-        } else {
-            $all = $this->getJSONData('promo_codes');
-            $filtered = array_values(array_filter($all, fn($p) => !(($p['id'] ?? '') === $promoId || strtoupper((string)($p['code'] ?? '')) === strtoupper($promoId))));
-            $this->saveJSONData('promo_codes', $filtered);
-            return true;
-        }
+        $stmt = $this->pdo->prepare("DELETE FROM promo_codes WHERE id = ? OR code = ?");
+        $stmt->execute([$promoId, strtoupper($promoId)]);
+        return $stmt->rowCount() > 0;
     }
 
     public function recordPromoRedemption(string $code, string $userId, ?string $bookingId = null, float $discountAmount = 0.0): bool {
@@ -6769,52 +5042,50 @@ class Database {
             'created_at' => date('Y-m-d H:i:s')
         ];
 
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare("INSERT INTO promo_redemptions (id, promo_id, promo_code, user_id, booking_id, discount_amount) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$id, $promo['id'], $promo['code'], $userId, $bookingId, $discountAmount]);
-
-            $stmtInc = $this->pdo->prepare("UPDATE promo_codes SET times_used = times_used + 1 WHERE id = ?");
-            $stmtInc->execute([$promo['id']]);
-        } else {
-            $redemptions = $this->getJSONData('promo_redemptions');
-            $redemptions[] = $redemption;
-            $this->saveJSONData('promo_redemptions', $redemptions);
-
-            $allPromos = $this->getJSONData('promo_codes');
-            foreach ($allPromos as &$p) {
-                if (($p['id'] ?? '') === $promo['id']) {
-                    $p['times_used'] = ((int)($p['times_used'] ?? 0)) + 1;
-                }
-            }
-            $this->saveJSONData('promo_codes', $allPromos);
+        // The quote was validated before the booking transaction started, so
+        // two players could both pass "times_used < usage_limit" and both
+        // redeem the last use. Re-check under a row lock, then increment
+        // conditionally; failure aborts the caller's booking transaction.
+        $lock = $this->pdo->prepare("SELECT * FROM promo_codes WHERE id = ? FOR UPDATE");
+        $lock->execute([$promo['id']]);
+        $locked = $lock->fetch();
+        if (!$locked || (string)($locked['status'] ?? '') !== 'active') {
+            throw new \Picklers\Exceptions\PromoUnavailableException('This promo code is no longer active.');
         }
+        if (!empty($locked['expires_at']) && strtotime((string)$locked['expires_at']) < time()) {
+            throw new \Picklers\Exceptions\PromoUnavailableException('This promo code has expired.');
+        }
+        $userLimit = (int)($locked['user_limit'] ?? 1);
+        if ($userLimit > 0) {
+            $uses = $this->pdo->prepare("SELECT COUNT(*) FROM promo_redemptions WHERE promo_id = ? AND user_id = ?");
+            $uses->execute([$promo['id'], $userId]);
+            if ((int)$uses->fetchColumn() >= $userLimit) {
+                throw new \Picklers\Exceptions\PromoUnavailableException('You have already used this promo code.');
+            }
+        }
+        $stmtInc = $this->pdo->prepare(
+            "UPDATE promo_codes SET times_used = times_used + 1 WHERE id = ? AND (usage_limit <= 0 OR times_used < usage_limit)"
+        );
+        $stmtInc->execute([$promo['id']]);
+        if ($stmtInc->rowCount() === 0) {
+            throw new \Picklers\Exceptions\PromoUnavailableException('This promo code has reached its usage limit.');
+        }
+
+        $stmt = $this->pdo->prepare("INSERT INTO promo_redemptions (id, promo_id, promo_code, user_id, booking_id, discount_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$id, $promo['id'], $promo['code'], $userId, $bookingId, $discountAmount, $redemption['created_at']]);
 
         return true;
     }
 
     public function getPromoRedemptionsCount(string $promoId, ?string $userId = null): int {
-        if ($this->isMySQL) {
-            if ($userId) {
-                $stmt = $this->pdo->prepare("SELECT COUNT(*) c FROM promo_redemptions WHERE (promo_id = ? OR promo_code = ?) AND user_id = ?");
-                $stmt->execute([$promoId, strtoupper($promoId), $userId]);
-            } else {
-                $stmt = $this->pdo->prepare("SELECT COUNT(*) c FROM promo_redemptions WHERE promo_id = ? OR promo_code = ?");
-                $stmt->execute([$promoId, strtoupper($promoId)]);
-            }
-            return (int)($stmt->fetch()['c'] ?? 0);
+        if ($userId) {
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) c FROM promo_redemptions WHERE (promo_id = ? OR promo_code = ?) AND user_id = ?");
+            $stmt->execute([$promoId, strtoupper($promoId), $userId]);
         } else {
-            $redemptions = $this->getJSONData('promo_redemptions');
-            $count = 0;
-            $codeUpper = strtoupper($promoId);
-            foreach ($redemptions as $r) {
-                $matchPromo = (($r['promo_id'] ?? '') === $promoId || strtoupper((string)($r['promo_code'] ?? '')) === $codeUpper);
-                $matchUser = (!$userId || ($r['user_id'] ?? '') === $userId);
-                if ($matchPromo && $matchUser) {
-                    $count++;
-                }
-            }
-            return $count;
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) c FROM promo_redemptions WHERE promo_id = ? OR promo_code = ?");
+            $stmt->execute([$promoId, strtoupper($promoId)]);
         }
+        return (int)($stmt->fetch()['c'] ?? 0);
     }
 
     public function getPromoStats(): array {
@@ -6825,15 +5096,8 @@ class Database {
         // The real sum of discount_amount across recorded redemptions, which
         // is legitimately zero when nothing has been redeemed yet.
         $totalSavings = 0.0;
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->query("SELECT SUM(discount_amount) s FROM promo_redemptions");
-            $totalSavings = (float)($stmt->fetch()['s'] ?? 0.0);
-        } else {
-            $redemptions = $this->getJSONData('promo_redemptions');
-            foreach ($redemptions as $r) {
-                $totalSavings += (float)($r['discount_amount'] ?? 0.0);
-            }
-        }
+        $stmt = $this->pdo->query("SELECT SUM(discount_amount) s FROM promo_redemptions");
+        $totalSavings = (float)($stmt->fetch()['s'] ?? 0.0);
 
         return [
             'totalActive' => $totalActive,
@@ -6852,7 +5116,7 @@ class Database {
     // --------------------------------------------------------------------------
 
     private function tournamentService(): \Picklers\Services\TournamentService {
-        return new \Picklers\Services\TournamentService($this);
+        return new \Picklers\Services\TournamentService($this->notifier(), DATA_PATH);
     }
 
     public function getTournaments($facilityId = null): array {
@@ -6885,189 +5149,106 @@ class Database {
         $monthStart = date('Y-m-01');
         $today = date('Y-m-d');
 
-        if ($this->isMySQL) {
-            // Monthly gross (confirmed bookings this calendar month)
+        // Monthly gross (confirmed bookings this calendar month)
+        $s = $this->pdo->prepare(
+            "SELECT COALESCE(SUM(price),0) FROM bookings
+             WHERE facility_id=? AND status IN ('confirmed','completed')
+             AND DATE(created_at)>=?"
+        );
+        $s->execute([$facilityId, $monthStart]);
+        $monthlyGross = (float)$s->fetchColumn();
+
+        // Today gross
+        $s = $this->pdo->prepare(
+            "SELECT COALESCE(SUM(price),0) FROM bookings
+             WHERE facility_id=? AND status IN ('confirmed','completed')
+             AND DATE(created_at)=?"
+        );
+        $s->execute([$facilityId, $today]);
+        $todayGross = (float)$s->fetchColumn();
+
+        // Today's session count (for the "X sessions" quick stat)
+        $s = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM bookings
+             WHERE facility_id=? AND status IN ('confirmed','completed')
+             AND DATE(created_at)=?"
+        );
+        $s->execute([$facilityId, $today]);
+        $todaySessionsCount = (int)$s->fetchColumn();
+
+        // All-time gross (for payout totals)
+        $s = $this->pdo->prepare(
+            "SELECT COALESCE(SUM(price),0) FROM bookings
+             WHERE facility_id=? AND status IN ('confirmed','completed')"
+        );
+        $s->execute([$facilityId]);
+        $allTimeGross = (float)$s->fetchColumn();
+
+        // Active bookings (pending + confirmed)
+        $s = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM bookings WHERE facility_id=? AND status IN ('pending','confirmed')"
+        );
+        $s->execute([$facilityId]);
+        $activeCount = (int)$s->fetchColumn();
+
+        // Distinct new players today
+        $s = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT user_id) FROM bookings WHERE facility_id=? AND DATE(created_at)=?"
+        );
+        $s->execute([$facilityId, $today]);
+        $newPlayersToday = (int)$s->fetchColumn();
+
+        // Spark: daily revenue last 7 days (scaled to chart range), plus the
+        // raw (unscaled) peso amounts for the hero card's Peak Day /
+        // Yesterday's Income quick stats.
+        $spark = [];
+        $dailyRawArr = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $day = date('Y-m-d', strtotime("-{$i} days"));
             $s = $this->pdo->prepare(
                 "SELECT COALESCE(SUM(price),0) FROM bookings
-                 WHERE facility_id=? AND status IN ('confirmed','completed')
-                 AND DATE(created_at)>=?"
+                 WHERE facility_id=? AND status IN ('confirmed','completed') AND DATE(created_at)=?"
             );
-            $s->execute([$facilityId, $monthStart]);
-            $monthlyGross = (float)$s->fetchColumn();
-
-            // Today gross
-            $s = $this->pdo->prepare(
-                "SELECT COALESCE(SUM(price),0) FROM bookings
-                 WHERE facility_id=? AND status IN ('confirmed','completed')
-                 AND DATE(created_at)=?"
-            );
-            $s->execute([$facilityId, $today]);
-            $todayGross = (float)$s->fetchColumn();
-
-            // Today's session count (for the "X sessions" quick stat)
-            $s = $this->pdo->prepare(
-                "SELECT COUNT(*) FROM bookings
-                 WHERE facility_id=? AND status IN ('confirmed','completed')
-                 AND DATE(created_at)=?"
-            );
-            $s->execute([$facilityId, $today]);
-            $todaySessionsCount = (int)$s->fetchColumn();
-
-            // All-time gross (for payout totals)
-            $s = $this->pdo->prepare(
-                "SELECT COALESCE(SUM(price),0) FROM bookings
-                 WHERE facility_id=? AND status IN ('confirmed','completed')"
-            );
-            $s->execute([$facilityId]);
-            $allTimeGross = (float)$s->fetchColumn();
-
-            // Active bookings (pending + confirmed)
-            $s = $this->pdo->prepare(
-                "SELECT COUNT(*) FROM bookings WHERE facility_id=? AND status IN ('pending','confirmed')"
-            );
-            $s->execute([$facilityId]);
-            $activeCount = (int)$s->fetchColumn();
-
-            // Distinct new players today
-            $s = $this->pdo->prepare(
-                "SELECT COUNT(DISTINCT user_id) FROM bookings WHERE facility_id=? AND DATE(created_at)=?"
-            );
-            $s->execute([$facilityId, $today]);
-            $newPlayersToday = (int)$s->fetchColumn();
-
-            // Spark: daily revenue last 7 days (scaled to chart range), plus the
-            // raw (unscaled) peso amounts for the hero card's Peak Day /
-            // Yesterday's Income quick stats.
-            $spark = [];
-            $dailyRawArr = [];
-            for ($i = 6; $i >= 0; $i--) {
-                $day = date('Y-m-d', strtotime("-{$i} days"));
-                $s = $this->pdo->prepare(
-                    "SELECT COALESCE(SUM(price),0) FROM bookings
-                     WHERE facility_id=? AND status IN ('confirmed','completed') AND DATE(created_at)=?"
-                );
-                $s->execute([$facilityId, $day]);
-                $dayGross = (float)$s->fetchColumn();
-                $dailyRawArr[] = $dayGross;
-                $spark[] = max(0, (int)round($dayGross / 100));
-            }
-
-            // Ledger: last 10 confirmed bookings with player name
-            $s = $this->pdo->prepare(
-                "SELECT b.id, b.court_name, b.price, b.status, b.created_at, b.user_id,
-                        COALESCE(u.name,'Player') as player_name
-                 FROM bookings b
-                 LEFT JOIN users u ON b.user_id = u.id
-                 WHERE b.facility_id=? AND b.status IN ('confirmed','completed')
-                 ORDER BY b.created_at DESC LIMIT 10"
-            );
-            $s->execute([$facilityId]);
-            $rawLedger = $s->fetchAll();
-
-            // Repeater rate: users with >1 booking / total users with bookings
-            $s = $this->pdo->prepare(
-                "SELECT user_id, COUNT(*) as cnt FROM bookings
-                 WHERE facility_id=? AND status IN ('confirmed','completed')
-                 GROUP BY user_id"
-            );
-            $s->execute([$facilityId]);
-            $userCounts = $s->fetchAll(\PDO::FETCH_KEY_PAIR);
-            $totalUsers = count($userCounts);
-            $repeaters  = count(array_filter($userCounts, fn($c) => $c > 1));
-            $repeaterRate = $totalUsers > 0 ? round($repeaters / $totalUsers * 100) : 0;
-
-        } else {
-            $bookings = $this->getJSONData('bookings');
-            $users = $this->getAllUsers();
-            $userMap = [];
-            foreach ($users as $u) {
-                $userMap[(string)($u['id'] ?? '')] = $u;
-            }
-
-            $monthlyGross = 0.0;
-            $todayGross = 0.0;
-            $todaySessionsCount = 0;
-            $allTimeGross = 0.0;
-            $activeCount = 0;
-            $newPlayerSet = [];
-            $sparkArr = array_fill(0, 7, 0.0);
-            $rawLedger = [];
-            $userBookCounts = [];
-
-            foreach ($bookings as $b) {
-                if ((string)($b['facility_id'] ?? '') !== $facilityIdStr) continue;
-                $status = (string)($b['status'] ?? '');
-                $bDate = substr((string)($b['created_at'] ?? ''), 0, 10);
-                $price = (float)($b['price'] ?? 0);
-
-                if (in_array($status, ['confirmed', 'completed'], true)) {
-                    $allTimeGross += $price;
-                    if ($bDate >= $monthStart) $monthlyGross += $price;
-                    if ($bDate === $today) {
-                        $todayGross += $price;
-                        $todaySessionsCount++;
-                    }
-
-                    for ($i = 6; $i >= 0; $i--) {
-                        if ($bDate === date('Y-m-d', strtotime("-{$i} days"))) {
-                            $sparkArr[6 - $i] += $price;
-                        }
-                    }
-
-                    $uid = (string)($b['user_id'] ?? '');
-                    $userBookCounts[$uid] = ($userBookCounts[$uid] ?? 0) + 1;
-
-                    $rawLedger[] = [
-                        'id'          => $b['id'] ?? '',
-                        'court_name'  => $b['court_name'] ?? 'Court',
-                        'price'       => $price,
-                        'status'      => $status,
-                        'created_at'  => $b['created_at'] ?? '',
-                        'player_name' => $userMap[$uid]['name'] ?? 'Player',
-                    ];
-                }
-
-                if (in_array($status, ['pending', 'confirmed'], true)) {
-                    $activeCount++;
-                }
-                if ($bDate === $today) {
-                    $newPlayerSet[$b['user_id'] ?? ''] = true;
-                }
-            }
-
-            usort($rawLedger, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
-            $rawLedger = array_slice($rawLedger, 0, 10);
-
-            $dailyRawArr = $sparkArr;
-            $spark = array_map(fn($v) => max(0, (int)round($v / 100)), $sparkArr);
-
-            $newPlayersToday = count($newPlayerSet);
-            $totalUsers  = count($userBookCounts);
-            $repeaters   = count(array_filter($userBookCounts, fn($c) => $c > 1));
-            $repeaterRate = $totalUsers > 0 ? round($repeaters / $totalUsers * 100) : 0;
+            $s->execute([$facilityId, $day]);
+            $dayGross = (float)$s->fetchColumn();
+            $dailyRawArr[] = $dayGross;
+            $spark[] = max(0, (int)round($dayGross / 100));
         }
+
+        // Ledger: last 10 confirmed bookings with player name
+        $s = $this->pdo->prepare(
+            "SELECT b.id, b.court_name, b.price, b.status, b.created_at, b.user_id,
+                    COALESCE(u.name,'Player') as player_name
+             FROM bookings b
+             LEFT JOIN users u ON b.user_id = u.id
+             WHERE b.facility_id=? AND b.status IN ('confirmed','completed')
+             ORDER BY b.created_at DESC LIMIT 10"
+        );
+        $s->execute([$facilityId]);
+        $rawLedger = $s->fetchAll();
+
+        // Repeater rate: users with >1 booking / total users with bookings
+        $s = $this->pdo->prepare(
+            "SELECT user_id, COUNT(*) as cnt FROM bookings
+             WHERE facility_id=? AND status IN ('confirmed','completed')
+             GROUP BY user_id"
+        );
+        $s->execute([$facilityId]);
+        $userCounts = $s->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $totalUsers = count($userCounts);
+        $repeaters  = count(array_filter($userCounts, fn($c) => $c > 1));
+        $repeaterRate = $totalUsers > 0 ? round($repeaters / $totalUsers * 100) : 0;
 
         // Past-30-day daily breakdown for the Daily Income modal, which used
         // to render a hardcoded table of invented dates and revenue for every
         // owner. Dated by created_at, like every other figure here.
         $windowStart = date('Y-m-d', strtotime('-29 days'));
-        if ($this->isMySQL) {
-            $s = $this->pdo->prepare(
-                "SELECT DATE(created_at) AS d, user_id, court_name, price FROM bookings
-                  WHERE facility_id = ? AND status IN ('confirmed','completed') AND DATE(created_at) >= ?"
-            );
-            $s->execute([$facilityId, $windowStart]);
-            $windowRows = $s->fetchAll();
-        } else {
-            $windowRows = [];
-            foreach ($this->getJSONData('bookings') as $b) {
-                if ((string)($b['facility_id'] ?? '') !== $facilityIdStr) continue;
-                if (!in_array((string)($b['status'] ?? ''), ['confirmed', 'completed'], true)) continue;
-                $d = substr((string)($b['created_at'] ?? ''), 0, 10);
-                if ($d < $windowStart) continue;
-                $windowRows[] = ['d' => $d, 'user_id' => $b['user_id'] ?? '', 'court_name' => $b['court_name'] ?? '', 'price' => $b['price'] ?? 0];
-            }
-        }
+        $s = $this->pdo->prepare(
+            "SELECT DATE(created_at) AS d, user_id, court_name, price FROM bookings
+              WHERE facility_id = ? AND status IN ('confirmed','completed') AND DATE(created_at) >= ?"
+        );
+        $s->execute([$facilityId, $windowStart]);
+        $windowRows = $s->fetchAll();
 
         $byDay = [];
         foreach ($windowRows as $r) {
@@ -7183,27 +5364,17 @@ class Database {
 
     /** Total already requested for payout (anything not rejected/cancelled) for one facility. */
     public function getPayoutRequestedTotal(int|string $facilityId): float {
-        if ($this->isMySQL) {
-            try {
-                $s = $this->pdo->prepare(
-                    "SELECT COALESCE(SUM(amount), 0) FROM payout_requests
-                      WHERE facility_id = ? AND status NOT IN ('rejected', 'cancelled', 'failed')"
-                );
-                $s->execute([(string)$facilityId]);
-                return (float)$s->fetchColumn();
-            } catch (\Throwable $e) {
-                error_log('[DB Error] getPayoutRequestedTotal failed: ' . $e->getMessage());
-                return 0.0;
-            }
+        try {
+            $s = $this->pdo->prepare(
+                "SELECT COALESCE(SUM(amount), 0) FROM payout_requests
+                  WHERE facility_id = ? AND status NOT IN ('rejected', 'cancelled', 'failed')"
+            );
+            $s->execute([(string)$facilityId]);
+            return (float)$s->fetchColumn();
+        } catch (\Throwable $e) {
+            error_log('[DB Error] getPayoutRequestedTotal failed: ' . $e->getMessage());
+            return 0.0;
         }
-        $total = 0.0;
-        foreach ($this->getJSONData('payout_requests') as $p) {
-            if ((string)($p['facility_id'] ?? '') === (string)$facilityId
-                && !in_array((string)($p['status'] ?? 'pending'), ['rejected', 'cancelled', 'failed'], true)) {
-                $total += (float)($p['amount'] ?? 0);
-            }
-        }
-        return round($total, 2);
     }
 
     /**
@@ -7224,13 +5395,11 @@ class Database {
 
         $lockName = 'picklers_payout_' . $facilityId;
         $locked = false;
-        if ($this->isMySQL) {
-            $lock = $this->pdo->prepare('SELECT GET_LOCK(?, 5)');
-            $lock->execute([$lockName]);
-            $locked = (int)$lock->fetchColumn() === 1;
-            if (!$locked) {
-                return ['success' => false, 'message' => 'Another payout request for this facility is being processed. Please try again.'];
-            }
+        $lock = $this->pdo->prepare('SELECT GET_LOCK(?, 5)');
+        $lock->execute([$lockName]);
+        $locked = (int)$lock->fetchColumn() === 1;
+        if (!$locked) {
+            return ['success' => false, 'message' => 'Another payout request for this facility is being processed. Please try again.'];
         }
 
         try {
@@ -7258,17 +5427,10 @@ class Database {
                 'updated_at'  => $now,
             ];
 
-            if ($this->isMySQL) {
-                $this->pdo->prepare(
-                    "INSERT INTO payout_requests (id, owner_id, facility_id, amount, method, status, notes, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)"
-                )->execute([$id, $ownerId, $facilityId, $amount, $method, $notes, $now, $now]);
-            } else {
-                $this->lockedJSONUpdate('payout_requests', function (array $rows) use ($record): array {
-                    $rows[] = $record;
-                    return array_values($rows);
-                });
-            }
+            $this->pdo->prepare(
+                "INSERT INTO payout_requests (id, owner_id, facility_id, amount, method, status, notes, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)"
+            )->execute([$id, $ownerId, $facilityId, $amount, $method, $notes, $now, $now]);
 
             return ['success' => true, 'payout' => $record];
         } finally {
@@ -7282,44 +5444,21 @@ class Database {
     // --------------------------------------------------------------------------
 
     public function getConversationPartners(string $ownerId): array {
-        if ($this->isMySQL) {
-            $stmt = $this->pdo->prepare(
-                "SELECT partner_id, MAX(created_at) as last_at,
-                        SUM(CASE WHEN receiver_id=? AND is_read=0 THEN 1 ELSE 0 END) as unread
-                 FROM (
-                     SELECT CASE WHEN sender_id=? THEN receiver_id ELSE sender_id END as partner_id,
-                            created_at, receiver_id, is_read
-                     FROM direct_messages
-                     WHERE sender_id=? OR receiver_id=?
-                 ) t
-                 GROUP BY partner_id
-                 ORDER BY last_at DESC
-                 LIMIT 20"
-            );
-            $stmt->execute([$ownerId, $ownerId, $ownerId, $ownerId]);
-            $partners = $stmt->fetchAll();
-        } else {
-            $msgs = $this->getJSONData('direct_messages');
-            $partnerMap = [];
-            foreach ($msgs as $m) {
-                $sid = (string)($m['sender_id']   ?? '');
-                $rid = (string)($m['receiver_id'] ?? '');
-                if ($sid !== $ownerId && $rid !== $ownerId) continue;
-                $partner = ($sid === $ownerId) ? $rid : $sid;
-                if (!isset($partnerMap[$partner])) {
-                    $partnerMap[$partner] = ['partner_id' => $partner, 'last_at' => '', 'unread' => 0];
-                }
-                $at = (string)($m['created_at'] ?? '');
-                if ($at > $partnerMap[$partner]['last_at']) {
-                    $partnerMap[$partner]['last_at'] = $at;
-                }
-                if ($rid === $ownerId && empty($m['is_read'])) {
-                    $partnerMap[$partner]['unread']++;
-                }
-            }
-            usort($partnerMap, fn($a, $b) => strcmp($b['last_at'], $a['last_at']));
-            $partners = array_slice(array_values($partnerMap), 0, 20);
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT partner_id, MAX(created_at) as last_at,
+                    SUM(CASE WHEN receiver_id=? AND is_read=0 THEN 1 ELSE 0 END) as unread
+             FROM (
+                 SELECT CASE WHEN sender_id=? THEN receiver_id ELSE sender_id END as partner_id,
+                        created_at, receiver_id, is_read
+                 FROM direct_messages
+                 WHERE sender_id=? OR receiver_id=?
+             ) t
+             GROUP BY partner_id
+             ORDER BY last_at DESC
+             LIMIT 20"
+        );
+        $stmt->execute([$ownerId, $ownerId, $ownerId, $ownerId]);
+        $partners = $stmt->fetchAll();
 
         $result = [];
         foreach ($partners as $p) {
@@ -7358,35 +5497,4 @@ class Database {
         return date('M j', $ts);
     }
 
-}
-
-// ------------------------------------------------------------------------------
-// Global Session & Auth Helpers
-// ------------------------------------------------------------------------------
-
-function getDB() {
-    return Database::get();
-}
-
-if (!class_exists('PicklersDB', false)) {
-    class_alias(Database::class, 'PicklersDB');
-}
-
-function getCurrentUser() {
-    if (isset($_SESSION['picklers_user_id'])) {
-        $u = getDB()->getUserById($_SESSION['picklers_user_id']);
-        if ($u) return $u;
-        // Session ID is stale — clear it
-        unset($_SESSION['picklers_user_id']);
-    }
-    return null;
-}
-
-function requireAuth() {
-    $u = getCurrentUser();
-    if (!$u) {
-        header('Location: auth.php');
-        exit;
-    }
-    return $u;
 }

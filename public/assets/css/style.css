@@ -595,7 +595,7 @@ html:not(.dark) .theme-sun {
 
 .btn-nav-signup {
   background-color: var(--accent-primary);
-  color: #020617;
+  color: #FFFFFF !important;
   font-weight: 700;
   font-size: 0.95rem;
   padding: 10px 22px;
@@ -606,11 +606,13 @@ html:not(.dark) .theme-sun {
 
 .btn-nav-signup:hover {
   background-color: var(--accent-primary-hover);
+  color: #FFFFFF !important;
   transform: translateY(-2px);
   box-shadow: 0 8px 24px -4px rgba(0, 217, 139, 0.5);
 }
 
 .btn-nav-signup:active {
+  color: #FFFFFF !important;
   transform: scale(0.97);
 }
 

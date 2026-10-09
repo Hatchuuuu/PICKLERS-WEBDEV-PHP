@@ -1,0 +1,92 @@
+{% import 'admin/components/ui.html.twig' as ui %}
+{% import 'admin/details/_shared.html.twig' as d %}
+{% set f = record %}
+{% set can_manage = is_granted('admin.facilities.manage') %}
+
+<header class="pk-detail__head">
+    <div>
+        <h2 class="pk-detail__title" id="detailTitle">{{ f.name }} {{ ui.status(f.operating_status) }}</h2>
+        <p class="pk-muted pk-small">Facility #{{ f.id }} · {{ f.location ?: 'No location' }}</p>
+    </div>
+</header>
+
+{% if f.operating_status == 'suspended' %}
+    <p class="pk-notice pk-notice--danger" role="status">{{ icon('alert-triangle', 15) }} Suspended{{ f.status_changed_by_name ? ' by ' ~ f.status_changed_by_name }} on {{ f.status_changed_at|when }}: “{{ f.status_reason }}”. No new bookings or Open Play joins are accepted in any channel; existing bookings are unchanged.</p>
+{% endif %}
+
+<div class="pk-detail__grid">
+    <section class="pk-box" aria-labelledby="fac-owner">
+        <h3 class="pk-box__title" id="fac-owner">{{ icon('user', 15) }} Owner &amp; contact</h3>
+        <dl class="pk-dl">
+            <dt>Owner</dt><dd>{% if f.owner_name %}<button type="button" class="pk-link" data-detail="user" data-id="{{ f.owner_id }}">{{ f.owner_name }}</button>{% else %}No owner account{% endif %}</dd>
+            <dt>Email</dt><dd>{{ f.owner_email ?: '—' }}</dd>
+            <dt>Phone</dt><dd>{{ f.owner_phone ?: '—' }}</dd>
+            <dt>Payout destinations</dt><dd>{{ f.gcash_number ? 'GCash on file' : 'No GCash' }} · {{ f.maya_number ? 'Maya on file' : 'No Maya' }}</dd>
+        </dl>
+    </section>
+    <section class="pk-box" aria-labelledby="fac-details">
+        <h3 class="pk-box__title" id="fac-details">{{ icon('building', 15) }} Listing</h3>
+        <dl class="pk-dl">
+            <dt>Name</dt><dd>{{ f.name }}</dd>
+            <dt>Location</dt><dd>{{ f.location ?: '—' }}</dd>
+            <dt>Opening hours</dt><dd>{{ f.hours ?: 'Not set' }}</dd>
+            <dt>Rating</dt><dd>{{ f.reviews > 0 ? '★ ' ~ f.rating ~ ' (' ~ f.reviews|plural('review') ~ ')' : 'No reviews yet' }}</dd>
+            <dt>Upcoming bookings</dt><dd>{{ f.upcoming_total }}</dd>
+        </dl>
+        {% if can_manage %}
+            {{ ui.action_button('Edit details…', 'admin_update_facility', {facility_id: f.id}, {form: 'edit-facility', subject: f.name, title: 'Edit ' ~ f.name}) }}
+            <template data-prefill>{{ {name: f.name, location: f.location, hours: f.hours}|json_encode }}</template>
+        {% endif %}
+    </section>
+</div>
+
+<section aria-labelledby="fac-courts">
+    <h3 class="pk-box__title" id="fac-courts">{{ icon('grid', 15) }} Courts ({{ f.courts|length }})</h3>
+    {% if f.courts is empty %}
+        <p class="pk-muted pk-small">This facility has no courts yet.</p>
+    {% else %}
+        <div class="pk-table-scroll" role="region" aria-label="Courts" tabindex="0">
+            <table class="pk-table pk-table--compact">
+                <thead><tr><th scope="col">Court</th><th scope="col">Surface / type</th><th scope="col" class="pk-num">Hourly rate</th><th scope="col">Status</th><th scope="col" class="pk-num">Upcoming</th><th scope="col" class="pk-actions"><span class="pk-sr">Actions</span></th></tr></thead>
+                <tbody>
+                {% for c in f.courts %}
+                    <tr>
+                        <td class="pk-strong">{{ c.name }}</td>
+                        <td>{{ c.surface ?: '—' }} · {{ c.type ?: '—' }}</td>
+                        <td class="pk-num pk-nowrap">{{ c.price|peso }}</td>
+                        <td>{{ ui.status(c.status) }}{% if c.status_reason %}<p class="pk-small pk-muted">{{ c.status_reason }}</p>{% endif %}</td>
+                        <td class="pk-num">{{ c.upcoming_bookings }}</td>
+                        <td class="pk-actions">
+                            {% if can_manage %}
+                                {% if c.status in ['maintenance', 'unavailable'] %}
+                                    {{ ui.action_button('Mark available', 'admin_update_court_status', {court_id: c.id, status: 'available'}, {form: 'court-available', subject: c.name ~ ' · ' ~ f.name}) }}
+                                {% else %}
+                                    {{ ui.action_button('Maintenance…', 'admin_update_court_status', {court_id: c.id, status: 'maintenance'}, {form: 'court-maintenance', subject: c.name ~ ' · ' ~ c.upcoming_bookings|plural('upcoming booking'), class: 'pk-btn--danger pk-btn--sm'}) }}
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</section>
+
+<section aria-labelledby="fac-upcoming">
+    <h3 class="pk-box__title" id="fac-upcoming">{{ icon('calendar', 15) }} Upcoming bookings{{ f.upcoming_total > f.upcoming_bookings|length ? ' (first ' ~ f.upcoming_bookings|length ~ ' of ' ~ f.upcoming_total ~ ')' }}</h3>
+    {{ d.bookings_list(f.upcoming_bookings, 'No upcoming bookings at this facility.') }}
+    {% if f.upcoming_total > 0 %}<p class="pk-small"><a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'bookings', facility: f.id}) }}">Open these in Bookings &amp; Matches to handle them</a></p>{% endif %}
+</section>
+
+{{ d.history(f.history) }}
+
+<footer class="pk-detail__foot">
+    {% if can_manage %}
+        {% if f.operating_status == 'suspended' %}
+            {{ ui.action_button('Reactivate facility…', 'admin_set_facility_status', {facility_id: f.id, status: 'active'}, {form: 'facility-reactivate', subject: f.name, class: 'pk-btn--primary'}) }}
+        {% else %}
+            {{ ui.action_button('Suspend new bookings…', 'admin_set_facility_status', {facility_id: f.id, status: 'suspended'}, {form: 'facility-suspend', subject: f.name ~ ' · ' ~ f.upcoming_total|plural('upcoming booking') ~ ' will stay as they are', class: 'pk-btn--danger'}) }}
+        {% endif %}
+    {% endif %}
+</footer>
