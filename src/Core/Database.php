@@ -83,18 +83,19 @@ class Database {
         // fallback — bookings and payments must never land anywhere but MySQL.
         $mysql = $config['connections']['mysql'] ?? [];
         $host = $mysql['host'] ?? '127.0.0.1';
+        $port = $mysql['port'] ?? 3306;
         $user = $mysql['username'] ?? 'root';
         $pass = $mysql['password'] ?? '';
         $dbname = $mysql['database'] ?? 'picklers_db';
 
         // First connect without db name to ensure picklers_db exists
-        $rootPdo = new PDO("mysql:host=$host;charset=utf8mb4", $user, $pass, [
+        $rootPdo = new PDO("mysql:host=$host;port=$port;charset=utf8mb4", $user, $pass, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_TIMEOUT => 2
         ]);
         $rootPdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
-        $this->pdo = new PDO("mysql:host=$host;dbname={$dbname};charset=utf8mb4", $user, $pass, [
+        $this->pdo = new PDO("mysql:host=$host;port=$port;dbname={$dbname};charset=utf8mb4", $user, $pass, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             // STRICT_TRANS_TABLES turns an out-of-type value (e.g. a string
