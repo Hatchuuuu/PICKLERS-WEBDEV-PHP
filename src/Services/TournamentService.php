@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Services;
 
+use Doctrine\DBAL\Connection;
 use Picklers\Domain\Notifier;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * PICKLERS — Tournament Service
@@ -13,8 +13,9 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * mix/partner draw pool), bracket generation via BracketEngine, result
  * reporting, and lifecycle status.
  *
- * Persistence is a JSON file in the data directory (tournaments.json), read
- * and written whole on every mutation so a record can never end up half-written.
+ * Persistence is the MySQL `tournaments` table: one row per tournament holding
+ * the whole record as JSON. Every mutation runs under one lock and one
+ * transaction, so a record can never end up half-written.
  */
 final class TournamentService
 {
@@ -29,7 +30,7 @@ final class TournamentService
     /** Roster ceiling for any single event. */
     public const MAX_TEAMS = 32;
 
-    /** Free-text field ceilings; the whole store is rewritten on every mutation. */
+    /** Free-text field ceilings. */
     private const TEXT_LIMITS = [
         'date' => 40, 'end_date' => 40, 'time' => 40, 'venue' => 150,
         'prize_pool' => 60, 'entry_fee' => 60, 'description' => 2000,
@@ -42,71 +43,83 @@ final class TournamentService
         'Mixed',
     ];
 
+    private const LOCK = 'picklers_tournaments';
+
     private readonly Notifier $notifier;
-    private readonly string $dataDir;
+    private readonly Connection $db;
 
     public function __construct(
         mixed $notifier = null,
-        #[Autowire('%picklers.data_dir%')]
-        ?string $dataDir = null,
+        ?Connection $db = null,
     ) {
         $this->notifier = $notifier instanceof Notifier ? $notifier : \Picklers\Core\Database::get()->notifier();
-        $this->dataDir = $dataDir ?? (defined('DATA_PATH') ? DATA_PATH : (getcwd() . '/database/.data'));
+        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
     }
 
-    /** The whole store, read under a shared lock. */
+    /** Every record, in the order they were created. */
     private function rows(): array
     {
-        $path = $this->dataDir . '/tournaments.json';
-        if (!file_exists($path)) return [];
-        $fp = @fopen($path, 'r');
-        if (!$fp) return [];
-        flock($fp, LOCK_SH);
-        $content = stream_get_contents($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
-        return json_decode((string)$content, true) ?: [];
+        $rows = [];
+        foreach ($this->db->fetchFirstColumn('SELECT data FROM tournaments ORDER BY seq') as $json) {
+            $row = json_decode((string)$json, true);
+            if (is_array($row)) {
+                $rows[] = $row;
+            }
+        }
+        return $rows;
     }
 
     /**
-     * Atomically read → transform → write the store under an exclusive flock so
-     * no two concurrent requests can interleave their read-modify-write cycles.
+     * Read → transform → write every record under one exclusive named lock (so no
+     * two requests interleave their read-modify-write cycles) and one transaction.
      * The callable receives the current array and returns the new one; use a
      * closure with `&$result` to surface a side-channel value.
      */
     private function writeRows(callable $fn): void
     {
-        $path = $this->dataDir . '/tournaments.json';
-        $dir = dirname($path);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0750, true);
-        }
-        $fp = @fopen($path, 'c+');
-        if (!$fp) {
+        // ponytail: one lock for all tournaments, as the JSON file's flock was; per-id locks if owners contend.
+        if ((int)$this->db->fetchOne('SELECT GET_LOCK(?, 10)', [self::LOCK]) !== 1) {
             return;
         }
         try {
-            if (!flock($fp, LOCK_EX)) {
-                return;
-            }
-            $raw  = stream_get_contents($fp);
-            $data = json_decode((string)$raw, true);
-            $data = is_array($data) ? $data : [];
-
-            $updated = $fn($data);
-            if (!is_array($updated)) {
+            $before = $this->rows();
+            $after = $fn($before);
+            if (!is_array($after)) {
                 return;
             }
 
-            ftruncate($fp, 0);
-            rewind($fp);
-            fwrite($fp, json_encode(array_values($updated), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            fflush($fp);
+            $byId = static function (array $rows): array {
+                $out = [];
+                foreach ($rows as $row) {
+                    $id = is_array($row) ? (string)($row['id'] ?? '') : '';
+                    if ($id !== '' && !isset($out[$id])) {
+                        $out[$id] = $row;
+                    }
+                }
+                return $out;
+            };
+            $old = $byId($before);
+            $new = $byId($after);
+
+            $this->db->transactional(function (Connection $db) use ($old, $new): void {
+                foreach (array_diff_key($old, $new) as $id => $_) {
+                    $db->executeStatement('DELETE FROM tournaments WHERE id = ?', [$id]);
+                }
+                foreach ($new as $id => $row) {
+                    if (isset($old[$id]) && $old[$id] === $row) {
+                        continue;
+                    }
+                    $data = json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                    $facilityId = (string)($row['facility_id'] ?? '');
+                    if (isset($old[$id])) {
+                        $db->executeStatement('UPDATE tournaments SET facility_id = ?, data = ? WHERE id = ?', [$facilityId, $data, $id]);
+                    } else {
+                        $db->executeStatement('INSERT INTO tournaments (id, facility_id, data) VALUES (?, ?, ?)', [$id, $facilityId, $data]);
+                    }
+                }
+            });
         } finally {
-            if (is_resource($fp)) {
-                flock($fp, LOCK_UN);
-                fclose($fp);
-            }
+            $this->db->executeQuery('SELECT RELEASE_LOCK(?)', [self::LOCK]);
         }
     }
 

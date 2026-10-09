@@ -5116,7 +5116,7 @@ class Database {
     // --------------------------------------------------------------------------
 
     private function tournamentService(): \Picklers\Services\TournamentService {
-        return new \Picklers\Services\TournamentService($this->notifier(), DATA_PATH);
+        return new \Picklers\Services\TournamentService($this->notifier(), $this->dbal());
     }
 
     public function getTournaments($facilityId = null): array {
