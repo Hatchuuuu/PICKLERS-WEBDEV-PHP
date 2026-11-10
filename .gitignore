@@ -4,10 +4,18 @@
 
 # Environment & Secrets
 .env
+.env.docker
+.env.local
+.env.*.local
+.env.local.php
 
 # Editor / OS
 .DS_Store
 Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
 .idea/
 .vscode/
 
@@ -26,6 +34,8 @@ Thumbs.db
 logs/
 *.tmp
 *.cache
+/.phpunit.cache/
+/.phpunit.result.cache
 /database/*.json.bak
 /database/rate_limits/
 
