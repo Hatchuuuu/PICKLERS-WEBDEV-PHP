@@ -9,7 +9,7 @@
     <!-- Header -->
     <div style="margin-bottom: 24px;">
       <h1 style="font-family: 'Montserrat', var(--font-heading), sans-serif; font-size: 26px; font-weight: 800; color: #FFFFFF; margin: 0 0 6px;">Bookings</h1>
-      <p style="font-size: 13px; color: #94A3B8; margin: 0;">Manage your court passes, completed games, and cancellation refunds.</p>
+      <p style="font-size: 13px; color:var(--pk-text-muted); margin: 0;">Manage your court passes, completed games, and cancellation refunds.</p>
     </div>
 
     <!-- Sub-Navigation Bar -->
@@ -43,7 +43,7 @@
           <svg class="booking-empty-icon" xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
           <div class="booking-empty-title">No Upcoming Bookings</div>
           <p class="booking-empty-desc">Bookings you reserve will appear here with your QR check-in passes.</p>
-          <a href="app.php?tab=play" class="btn-view-courts" style="background:#00D98B; color:#FFFFFF; padding:10px 22px; font-weight:800; font-size:13px; text-decoration:none; margin-top:18px; border-radius:12px; display:inline-flex;">Browse Available Courts →</a>
+          <a href="app.php?tab=play" class="btn-view-courts" style="background:#00D98B; color:#FFFFFF !important; padding:10px 22px; font-weight:800; font-size:13px; text-decoration:none; margin-top:18px; border-radius:12px; display:inline-flex;">Browse Available Courts →</a>
         </div>
       {% else %}
         <div style="display:flex; flex-direction:column; gap:16px;">
@@ -57,7 +57,7 @@
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
                       <h4 style="font-size:18px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.2px;">
                         {{ det.display_name }}                      </h4>
-                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:{{ (det.is_op ? 'rgba(56, 189, 248, 0.14)' : 'rgba(0, 217, 139, 0.14)') }}; border:1px solid {{ (det.is_op ? 'rgba(56, 189, 248, 0.35)' : 'rgba(0, 217, 139, 0.3)') }}; color:{{ (det.is_op ? '#38BDF8' : '#00D98B') }}; text-transform:uppercase; letter-spacing:0.04em;">
+                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:{{ (det.is_op ? 'rgba(56, 189, 248, 0.14)' : 'transparent') }}; border:1px solid {{ (det.is_op ? 'rgba(56, 189, 248, 0.35)' : 'transparent') }}; color:{{ (det.is_op ? 'var(--pk-accent-sky)' : 'var(--pk-accent-emerald-text)') }}; text-transform:uppercase; letter-spacing:0.04em;">
                         {{ det.type_label }}                      </span>
                     </div>
                     <div style="font-family:monospace; font-size:12px; font-weight:700; color:#64748B; letter-spacing:0.5px;">
@@ -65,16 +65,16 @@
                   </div>
                   <div style="text-align:right; flex-shrink:0;">
                     <div class="card-price-cyan" style="font-size:19px; font-weight:900;">₱{{ b.price|number_format(2) }}</div>
-                    <div style="font-size:11.5px; font-weight:600; color:#94A3B8; margin-top:2px;">
+                    <div style="font-size:11.5px; font-weight:600; color:var(--pk-text-muted); margin-top:2px;">
                       {{ det.payment_label }}                    </div>
                     <div style="margin-top:5px;">
                       {% if (((b.status ?? '')) == 'confirmed') %}
-                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(0, 217, 139, 0.14); border:1px solid rgba(0, 217, 139, 0.3); color:#00D98B; text-transform:uppercase; letter-spacing:0.03em;">
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(0, 217, 139, 0.14); border:1px solid rgba(0, 217, 139, 0.3); color:var(--pk-accent-emerald-text); text-transform:uppercase; letter-spacing:0.03em;">
                           <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                           Confirmed
                         </span>
                       {% else %}
-                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(255, 184, 0, 0.14); border:1px solid rgba(255, 184, 0, 0.35); color:#FFB800; text-transform:uppercase; letter-spacing:0.03em;">
+                        <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(255, 184, 0, 0.14); border:1px solid rgba(255, 184, 0, 0.35); color:var(--accent-warning-text); text-transform:uppercase; letter-spacing:0.03em;">
                           <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 16 14"/></svg>
                           Pending
                         </span>
@@ -91,19 +91,19 @@
                       <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                       <span>{{ det.facility_name }}</span>
                     </div>
-                    <div style="font-size:12px; color:#94A3B8; display:flex; align-items:center; gap:8px;">
+                    <div style="font-size:12px; color:var(--pk-text-muted); display:flex; align-items:center; gap:8px;">
                       <span>📅 {{ displayDate }}</span>
                       <span style="color:rgba(255,255,255,0.2);">•</span>
                       <span>🕒 {{ b.time }}</span>
                     </div>
                   </div>
 
-                  <div style="display:flex; align-items:center; gap:10px;">
+                  <div style="display:flex; align-items:center; gap:10px; margin-left:auto;">
                     <button type="button" class="btn-view-courts" onclick="openQrPassModal({{ booking_js_args(b.id, det.facility_name, det.display_name, displayDate, b.time, det.type_key) }})">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
                       <span>View Pass</span>
                     </button>
-                    {% if (((b.status ?? '')) != 'confirmed') %}
+                    {% if (b.status ?? '') == 'pending' or not db.hasBookingStarted(b) %}
                       <button type="button" class="btn-danger" onclick="promptCancelBooking({{ booking_js_args(b.id, displayDate, (db.isFullRefundEligible(b) ? '1' : ''), (b.payment_method ?? '')) }})">
                         Cancel
                       </button>
@@ -137,18 +137,18 @@
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
                       <h4 style="font-size:18px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.2px;">
                         {{ det.display_name }}                      </h4>
-                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:{{ (det.is_op ? 'rgba(56, 189, 248, 0.14)' : 'rgba(0, 217, 139, 0.14)') }}; border:1px solid {{ (det.is_op ? 'rgba(56, 189, 248, 0.35)' : 'rgba(0, 217, 139, 0.3)') }}; color:{{ (det.is_op ? '#38BDF8' : '#00D98B') }}; text-transform:uppercase; letter-spacing:0.04em;">
+                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:{{ (det.is_op ? 'rgba(56, 189, 248, 0.14)' : 'transparent') }}; border:1px solid {{ (det.is_op ? 'rgba(56, 189, 248, 0.35)' : 'transparent') }}; color:{{ (det.is_op ? 'var(--pk-accent-sky)' : 'var(--pk-accent-emerald-text)') }}; text-transform:uppercase; letter-spacing:0.04em;">
                         {{ det.type_label }}                      </span>
                     </div>
                     <div style="font-family:monospace; font-size:12px; font-weight:700; color:#64748B; letter-spacing:0.5px;">
                       #{{ b.id }}                    </div>
                   </div>
                   <div style="text-align:right; flex-shrink:0;">
-                    <div style="font-size:19px; font-weight:900; color:#00D98B;">₱{{ b.price|number_format(2) }}</div>
-                    <div style="font-size:11.5px; font-weight:600; color:#94A3B8; margin-top:2px;">
+                    <div style="font-size:19px; font-weight:900; color:var(--pk-accent-emerald-text);">₱{{ b.price|number_format(2) }}</div>
+                    <div style="font-size:11.5px; font-weight:600; color:var(--pk-text-muted); margin-top:2px;">
                       {{ det.payment_label }}                    </div>
                     <div style="margin-top:5px;">
-                      <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(148, 163, 184, 0.14); border:1px solid rgba(148, 163, 184, 0.3); color:#94A3B8; text-transform:uppercase; letter-spacing:0.03em;">
+                      <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(148, 163, 184, 0.14); border:1px solid rgba(148, 163, 184, 0.3); color:var(--pk-text-muted); text-transform:uppercase; letter-spacing:0.03em;">
                         ● COMPLETED
                       </span>
                     </div>
@@ -163,7 +163,7 @@
                       <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                       <span>{{ det.facility_name }}</span>
                     </div>
-                    <div style="font-size:12px; color:#94A3B8; display:flex; align-items:center; gap:8px;">
+                    <div style="font-size:12px; color:var(--pk-text-muted); display:flex; align-items:center; gap:8px;">
                       <span>📅 {{ displayDate }}</span>
                       <span style="color:rgba(255,255,255,0.2);">•</span>
                       <span>🕒 {{ b.time }}</span>
@@ -233,18 +233,18 @@
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
                       <h4 style="font-size:18px; font-weight:800; color:#FFFFFF; margin:0; letter-spacing:-0.2px;">
                         {{ det.display_name }}                      </h4>
-                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:rgba(239, 68, 68, 0.14); border:1px solid rgba(239, 68, 68, 0.35); color:#F87171; text-transform:uppercase; letter-spacing:0.04em;">
+                      <span style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:9999px; background:rgba(239, 68, 68, 0.14); border:1px solid rgba(239, 68, 68, 0.35); color:var(--pk-danger-text); text-transform:uppercase; letter-spacing:0.04em;">
                         {{ det.type_label }}                      </span>
                     </div>
                     <div style="font-family:monospace; font-size:12px; font-weight:700; color:#64748B; letter-spacing:0.5px;">
                       #{{ b.id }}                    </div>
                   </div>
                   <div style="text-align:right; flex-shrink:0;">
-                    <div style="font-size:19px; font-weight:900; color:#F87171; text-decoration:line-through;">₱{{ b.price|number_format(2) }}</div>
-                    <div style="font-size:11.5px; font-weight:600; color:#94A3B8; margin-top:2px;">
+                    <div style="font-size:19px; font-weight:900; color:var(--pk-danger-text); text-decoration:line-through;">₱{{ b.price|number_format(2) }}</div>
+                    <div style="font-size:11.5px; font-weight:600; color:var(--pk-text-muted); margin-top:2px;">
                       {{ det.payment_label }}                    </div>
                     <div style="margin-top:5px;">
-                      <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(239, 68, 68, 0.15); border:1px solid rgba(239, 68, 68, 0.35); color:#F87171; text-transform:uppercase; letter-spacing:0.03em;">
+                      <span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:3px 10px; border-radius:9999px; background:rgba(239, 68, 68, 0.15); border:1px solid rgba(239, 68, 68, 0.35); color:var(--pk-danger-text); text-transform:uppercase; letter-spacing:0.03em;">
                         ● CANCELLED
                       </span>
                     </div>
@@ -259,7 +259,7 @@
                       <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                       <span>{{ det.facility_name }}</span>
                     </div>
-                    <div style="font-size:12px; color:#94A3B8; display:flex; align-items:center; gap:8px;">
+                    <div style="font-size:12px; color:var(--pk-text-muted); display:flex; align-items:center; gap:8px;">
                       <span>📅 {{ displayDate }}</span>
                       <span style="color:rgba(255,255,255,0.2);">•</span>
                       <span>🕒 {{ b.time }}</span>

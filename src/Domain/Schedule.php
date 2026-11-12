@@ -147,6 +147,21 @@ final class Schedule
         return \Picklers\Domain\BookingRules::parseTimeRange($range);
     }
 
+    /** The whole slot must fit one opening window, including its overnight continuation. */
+    public static function slotWithinOperatingHours(?string $hours, array $slot): bool {
+        $window = self::parseTimeRange((string)$hours);
+        // Unconfigured/legacy descriptions and equal endpoints retain the existing open-hours behavior.
+        if ($window === null || $window[1] - $window[0] === 1440) {
+            return true;
+        }
+        foreach ([-1440, 0, 1440] as $offset) {
+            if ($slot[0] >= $window[0] + $offset && $slot[1] <= $window[1] + $offset) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Half-open overlap test: [aStart,aEnd) intersects [bStart,bEnd). */
     public static function rangesOverlap(array $a, array $b): bool {
         return $a[0] < $b[1] && $b[0] < $a[1];

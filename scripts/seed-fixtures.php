@@ -12,7 +12,8 @@ declare(strict_types=1);
  * password is a test value for these fixture accounts only.
  *
  * Re-running is safe: fixture rows (ids prefixed `fx_` / `usr_fx_` / `FX-`) are
- * deleted and recreated; non-fixture rows are left alone.
+ * and their generated dependent records are deleted and recreated. Unrelated
+ * non-fixture records and append-only audit history are left alone.
  */
 
 const FIXTURE_PASSWORD = 'Fixture-Pass-2026';
@@ -28,14 +29,8 @@ if (!preg_match('/^[a-z0-9_]+_(e2e|test)$/', $dbName)) {
 }
 
 $root = dirname(__DIR__);
-date_default_timezone_set('Asia/Manila');
-$env = [];
-foreach (file($root . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-    $line = trim($line);
-    if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
-    [$k, $v] = array_map('trim', explode('=', $line, 2));
-    $env[$k] = trim($v, "\"'");
-}
+require $root . '/config/bootstrap.php';
+$env = $_ENV;
 
 $pdo = new PDO(
     sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $env['DB_HOST'] ?? '127.0.0.1', (int)($env['DB_PORT'] ?? 3306), $dbName),
@@ -51,17 +46,40 @@ $day  = static fn(int $offset): DateTimeImmutable => $now->setTime(0, 0)->modify
 $pdo->beginTransaction();
 try {
     // ---- Clean previous fixture rows ------------------------------------
-    $pdo->exec("DELETE FROM users WHERE id LIKE 'usr_fx_%'");
-    $pdo->exec("DELETE FROM bookings WHERE id LIKE 'FX-%'");
-    $pdo->exec("DELETE FROM wallet_transactions WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM owner_applications WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM feed_posts WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM feed_comments WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM notifications WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM promo_codes WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM promo_redemptions WHERE id LIKE 'fx_%'");
-    $pdo->exec("DELETE FROM courts WHERE facility_id IN (SELECT id FROM facilities WHERE owner_id LIKE 'usr_fx_%')");
-    $pdo->exec("DELETE FROM facilities WHERE owner_id LIKE 'usr_fx_%'");
+    // Booking IDs are reused: old refund keys must not suppress the next demo's refund.
+    $fixtureFacilities = "SELECT id FROM facilities WHERE LEFT(owner_id, 7) = 'usr_fx_'";
+    $fixturePosts = "SELECT id FROM feed_posts WHERE LEFT(id, 3) = 'fx_' OR LEFT(author_id, 7) = 'usr_fx_'";
+    $fixtureComments = "SELECT id FROM feed_comments WHERE LEFT(id, 3) = 'fx_' OR LEFT(user_id, 7) = 'usr_fx_' OR post_id IN ($fixturePosts)";
+    $fixtureCases = "SELECT id FROM moderation_cases WHERE LEFT(content_author_id, 7) = 'usr_fx_' OR (content_type = 'post' AND content_id IN ($fixturePosts)) OR (content_type = 'comment' AND content_id IN ($fixtureComments))";
+    $pdo->exec("DELETE FROM moderation_case_events WHERE case_id IN ($fixtureCases)");
+    $pdo->exec("DELETE FROM moderation_cases WHERE LEFT(content_author_id, 7) = 'usr_fx_' OR (content_type = 'post' AND content_id IN ($fixturePosts)) OR (content_type = 'comment' AND content_id IN ($fixtureComments))");
+    $affectedPosts = $pdo->query("SELECT post_id FROM feed_comments WHERE LEFT(user_id, 7) = 'usr_fx_' UNION SELECT post_id FROM feed_likes WHERE LEFT(user_id, 7) = 'usr_fx_'")->fetchAll(PDO::FETCH_COLUMN);
+    $pdo->exec("DELETE FROM wallet_transactions WHERE LEFT(id, 3) = 'fx_' OR LEFT(user_id, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM notifications WHERE LEFT(id, 3) = 'fx_' OR LEFT(user_id, 7) = 'usr_fx_'");
+    $fixtureRedemptions = "LEFT(id, 3) = 'fx_' OR LEFT(user_id, 7) = 'usr_fx_'";
+    $pdo->exec("UPDATE promo_codes p JOIN (SELECT promo_id, COUNT(*) removed FROM promo_redemptions WHERE $fixtureRedemptions GROUP BY promo_id) r ON r.promo_id=p.id SET p.times_used=GREATEST(0,p.times_used-r.removed)");
+    $pdo->exec("DELETE FROM promo_redemptions WHERE $fixtureRedemptions");
+    $pdo->exec("DELETE FROM bookings WHERE id LIKE 'FX-%' OR LEFT(user_id, 7) = 'usr_fx_' OR facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM feed_comments WHERE LEFT(id, 3) = 'fx_' OR LEFT(user_id, 7) = 'usr_fx_' OR post_id IN ($fixturePosts)");
+    $pdo->exec("DELETE FROM feed_likes WHERE LEFT(user_id, 7) = 'usr_fx_' OR post_id IN ($fixturePosts)");
+    $pdo->exec("DELETE FROM feed_posts WHERE LEFT(id, 3) = 'fx_' OR LEFT(author_id, 7) = 'usr_fx_'");
+    $recountPost = $pdo->prepare('UPDATE feed_posts SET comment_count = (SELECT COUNT(*) FROM feed_comments WHERE post_id = ?), like_count = (SELECT COUNT(*) FROM feed_likes WHERE post_id = ?) WHERE id = ?');
+    foreach ($affectedPosts as $postId) $recountPost->execute([$postId, $postId, $postId]);
+    $pdo->exec("DELETE FROM direct_messages WHERE LEFT(sender_id, 7) = 'usr_fx_' OR LEFT(receiver_id, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM staff WHERE LEFT(user_id, 7) = 'usr_fx_' OR facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM facility_favorites WHERE LEFT(user_id, 7) = 'usr_fx_' OR facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM matches WHERE facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM payout_requests WHERE LEFT(owner_id, 7) = 'usr_fx_' OR facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM tournaments WHERE facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM court_attribute_map WHERE court_id IN (SELECT id FROM courts WHERE facility_id IN ($fixtureFacilities))");
+    $pdo->exec("DELETE FROM facility_amenities WHERE facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM courts WHERE facility_id IN ($fixtureFacilities)");
+    $pdo->exec("DELETE FROM facilities WHERE LEFT(owner_id, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM owner_applications WHERE LEFT(id, 3) = 'fx_' OR LEFT(user_id, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM promo_codes WHERE LEFT(id, 3) = 'fx_' OR LEFT(created_by, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM admin_privileges WHERE LEFT(user_id, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM admin_activity_seen WHERE LEFT(user_id, 7) = 'usr_fx_'");
+    $pdo->exec("DELETE FROM users WHERE LEFT(id, 7) = 'usr_fx_'");
 
     // ---- Users -------------------------------------------------------------
     $users = [
@@ -84,6 +102,7 @@ try {
     foreach ($users as $i => [$id, $name, $email, $role, $isAdmin, $isOwner, $ver, $wallet]) {
         $insUser->execute([$id, $name, $email, sprintf('+63 917 000 %04d', $i), $hash, $role, $ver, $wallet, $isAdmin, $isOwner, $day(-30 + $i)->format('Y-m-d 09:00:00')]);
     }
+    $pdo->exec("INSERT INTO admin_privileges (user_id, level, granted_by, granted_at, note) VALUES ('usr_fx_root', 'privileged', NULL, NOW(), 'Synthetic presentation fixture')");
 
     // ---- Facilities & courts owned by fixture owners -------------------------
     $insFac = $pdo->prepare(
@@ -129,6 +148,8 @@ try {
     // ---- Wallet movements ---------------------------------------------------
     $insTx = $pdo->prepare("INSERT INTO wallet_transactions (id, user_id, type, amount, label, date, created_at) VALUES (?,?,?,?,?,?,?)");
     $txs = [
+        ['fx_tx_open_p1', 'usr_fx_p1', 'credit', '100.00', 'Synthetic opening credits', -30],
+        ['fx_tx_open_owner', 'usr_fx_owner1', 'credit', '250.00', 'Synthetic opening credits', -30],
         ['fx_tx01', 'usr_fx_p1', 'credit', '2000.00', 'GCash Top-Up',                                 -20],
         ['fx_tx02', 'usr_fx_p1', 'debit',  '300.00',  'Booking #FX-DONE01 at Fixture Arena Dumaguete via Pickle Credits', -7],
         ['fx_tx03', 'usr_fx_p1', 'debit',  '300.00',  'Booking #FX-CONF01 at Fixture Arena Dumaguete via Pickle Credits', -2],

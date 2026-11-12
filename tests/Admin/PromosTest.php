@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Picklers\Tests\Admin;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\BookingRepository;
 use Picklers\Services\PricingService;
 
 /** R09 — promo codes: validation, Manila expiry, archive-not-delete, concurrent redemption. */
@@ -39,7 +39,7 @@ final class PromosTest extends AdminWebTestCase
     public function testToggleAndExpiredCannotBeEnabled(): void
     {
         self::assertSame('disabled', $this->action('admin_toggle_promo', ['promo_id' => 'fx_promo_live'])['json']['status']);
-        $q = (new PricingService(Database::get()))->evaluatePromo('FXLIVE50', 500.0, 'usr_fx_p2');
+        $q = static::getContainer()->get(PricingService::class)->evaluatePromo('FXLIVE50', 500.0, 'usr_fx_p2');
         self::assertFalse($q['valid'], 'disabled promo is not redeemable');
         self::assertSame('active', $this->action('admin_toggle_promo', ['promo_id' => 'fx_promo_live'])['json']['status']);
         self::assertSame(200, $this->action('admin_toggle_promo', ['promo_id' => 'fx_promo_old'])['status'], 'disable an expired promo');
@@ -53,7 +53,7 @@ final class PromosTest extends AdminWebTestCase
         self::assertTrue($r['json']['archived']);
         self::assertSame('archived', $this->scalar("SELECT status FROM promo_codes WHERE id = 'fx_promo_live'"));
         self::assertSame(1, (int)$this->scalar("SELECT COUNT(*) FROM promo_redemptions WHERE promo_id = 'fx_promo_live'"), 'history kept');
-        self::assertFalse((new PricingService(Database::get()))->evaluatePromo('FXLIVE50', 500.0, 'usr_fx_p2')['valid']);
+        self::assertFalse(static::getContainer()->get(PricingService::class)->evaluatePromo('FXLIVE50', 500.0, 'usr_fx_p2')['valid']);
         self::assertSame(409, $this->action('admin_toggle_promo', ['promo_id' => 'fx_promo_live'])['status'], 'archived stays retired');
 
         $r = $this->action('admin_delete_promo', ['promo_id' => 'fx_promo_old']);
@@ -66,7 +66,7 @@ final class PromosTest extends AdminWebTestCase
         $fac = (int)$this->scalar("SELECT id FROM facilities WHERE name = 'Fixture Arena Dumaguete'");
         $date = (new \DateTimeImmutable('+9 days'))->format('D, M j, Y');
         // FXFULL10 is already at its limit: the booking must fail and nothing be charged.
-        $res = Database::get()->createBooking('usr_fx_p1', $fac, 'Court 1', $date, '7:00 AM - 8:00 AM', 1, 300.0, 'Pickle Credits', 'crt_' . $fac . '_1', 'FXFULL10', 30.0);
+        $res = static::getContainer()->get(BookingRepository::class)->createBooking('usr_fx_p1', $fac, 'Court 1', $date, '7:00 AM - 8:00 AM', 1, 300.0, 'Pickle Credits', 'crt_' . $fac . '_1', 'FXFULL10', 30.0);
         self::assertFalse($res['success']);
         self::assertStringContainsString('usage limit', $res['message']);
         self::assertSame('1200.00', (string)$this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p1'"), 'nothing was charged');

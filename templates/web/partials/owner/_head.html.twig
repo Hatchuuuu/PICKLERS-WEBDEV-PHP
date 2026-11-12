@@ -1,6 +1,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {% include 'web/partials/_theme.html.twig' %}
   <meta name="description" content="Picklers Court Owner Portal — Manage pickleball facility courts, monitor live bookings, organize tournaments, and analyze revenue streams.">
   <meta name="color-scheme" content="dark light">
   <meta name="csrf-token" content="{{ csrfToken }}">
@@ -15,16 +16,4 @@
   <link rel="stylesheet" href="{{ asset('assets/css/tournament.css') }}">
   <link rel="stylesheet" href="{{ asset('assets/css/ux-core.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-  <script>
-    (function() {
-      const savedTheme = localStorage.getItem('picklers_theme') || 'dark';
-      if (savedTheme === 'light') {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.classList.add('light');
-      } else {
-        document.documentElement.classList.remove('light');
-        document.documentElement.classList.add('dark');
-      }
-    })();
-  </script>
 </head>

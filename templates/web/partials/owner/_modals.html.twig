@@ -7,7 +7,7 @@
     <div class="modal-box-card" style="text-align:center; max-width:480px; width:92%;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <div style="width:32px; height:32px; border-radius:50%; background: var(--pk-status-success-bg); display:flex; align-items:center; justify-content:center; color: var(--pk-status-success);">
+          <div style="width:32px; height:32px; border-radius:50%; background: var(--pk-status-success-bg); display:flex; align-items:center; justify-content:center; color: var(--pk-accent-emerald-text);">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
           </div>
           <h3 style="font-size:18px; font-weight:800; color: var(--pk-text-primary); margin:0;">Court Pass QR Scanner</h3>
@@ -50,20 +50,20 @@
 
         <!-- Initial Placeholder Screen when camera starts -->
         <div id="qrCamFallbackScreen" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; gap:10px;">
-          <div style="width:50px; height:50px; border-radius:50%; background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); display:flex; align-items:center; justify-content:center; color: var(--pk-status-success);">
+          <div style="width:50px; height:50px; border-radius:50%; background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); display:flex; align-items:center; justify-content:center; color: var(--pk-accent-emerald-text);">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
           </div>
           <span id="qrFallbackText" style="font-size:13px; color: var(--pk-text-muted); text-align:center;">Requesting camera permissions...</span>
-          <button type="button" id="btnStartCam" onclick="initQrCamera()" style="background: var(--pk-status-success); color: var(--pk-bg-card); border:none; font-weight:800; font-size:12px; padding:8px 16px; border-radius:8px; cursor:pointer; display:none;">Start Camera</button>
+          <button type="button" id="btnStartCam" onclick="initQrCamera()" style="background: var(--pk-status-success); color: var(--on-accent); border:none; font-weight:800; font-size:12px; padding:8px 16px; border-radius:8px; cursor:pointer; display:none;">Start Camera</button>
         </div>
 
         <!-- Scan Result Success Alert Banner -->
         <div id="qrScanSuccessOverlay" style="position:absolute; inset:0; background:rgba(5,11,20,0.95); display:none; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center; gap:8px; z-index:10;">
-          <div style="width:48px; height:48px; border-radius:50%; background: var(--pk-status-success-bg); border:2px solid var(--pk-status-success); display:flex; align-items:center; justify-content:center; color: var(--pk-status-success); font-size:24px;">✓</div>
+          <div style="width:48px; height:48px; border-radius:50%; background: var(--pk-status-success-bg); border:2px solid var(--pk-status-success); display:flex; align-items:center; justify-content:center; color: var(--pk-accent-emerald-text); font-size:24px;">✓</div>
           <div style="font-size:16px; font-weight:800; color: var(--pk-text-primary);" id="qrSuccessTitle">Check-In Verified!</div>
-          <div style="font-size:14px; color: var(--pk-status-success); font-weight:800;" id="qrSuccessPlayer">Marcus Vance</div>
+          <div style="font-size:14px; color: var(--pk-accent-emerald-text); font-weight:800;" id="qrSuccessPlayer">Marcus Vance</div>
           <div style="font-size:12px; color: var(--pk-text-muted);" id="qrSuccessDetails">Court 1 • Mon 2:00 PM</div>
-          <button type="button" onclick="resetQrScanner()" style="margin-top:10px; background: var(--pk-status-success); border:none; color: var(--pk-bg-card); padding:8px 18px; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer;">Scan Another Code</button>
+          <button type="button" onclick="resetQrScanner()" style="margin-top:10px; background: var(--pk-status-success); border:none; color: var(--on-accent); padding:8px 18px; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer;">Scan Another Code</button>
         </div>
 
       </div>
@@ -71,7 +71,7 @@
       <!-- Manual Code Input / Fallback Simulation -->
       <div style="margin-top:14px; display:flex; gap:8px;">
         <input type="text" id="manualQrInput" placeholder="Or enter Pass Code (e.g. BK-2026-8819)" style="flex:1; background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.12); padding:10px 14px; border-radius:10px; color: var(--pk-text-primary); font-size:13px;">
-        <button type="button" onclick="processManualQrInput()" style="background: var(--pk-status-success); color: var(--pk-bg-card); font-weight:800; border:none; padding:0 16px; border-radius:10px; cursor:pointer; font-size:13px;">Verify</button>
+        <button type="button" onclick="processManualQrInput()" style="background: var(--pk-status-success); color: var(--on-accent); font-weight:800; border:none; padding:0 16px; border-radius:10px; cursor:pointer; font-size:13px;">Verify</button>
       </div>
 
     </div>
@@ -88,7 +88,7 @@
         <div style="position: relative;">
           <label style="display:block; font-size:13px; font-weight:700; color: var(--pk-text-muted); margin-bottom:6px;">Guest Name</label>
           <input type="text" id="walkin_name" class="input-field" placeholder="e.g. Kuya Jobert & Team" style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);" oninput="onWalkinNameInput(this.value)" onfocus="onWalkinNameInput(this.value)" autocomplete="off">
-          <div id="walkinNameAutocomplete" class="autocomplete-dropdown-menu" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000; background:#0F1A2D; border:1px solid rgba(255,255,255,0.15); border-radius:12px; margin-top:4px; max-height:220px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.6);"></div>
+          <div id="walkinNameAutocomplete" class="autocomplete-dropdown-menu" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000; background: var(--pk-bg-card); border:1px solid rgba(0, 229, 255, 0.35); border-radius:12px; margin-top:4px; max-height:220px; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.6);"></div>
         </div>
         <div>
           <label style="display:block; font-size:13px; font-weight:700; color: var(--pk-text-muted); margin-bottom:6px;">Assign Court</label>
@@ -119,13 +119,28 @@
   </div>
 
   <!-- 3. Decline Request Modal -->
+  <div class="app-modal-overlay" id="acceptModal">
+    <div class="modal-box-card">
+      <h3 class="modal-text-primary">Accept Booking Request?</h3>
+      <p id="acceptRequestSummary" class="modal-text-primary" style="white-space:pre-line; overflow-wrap:anywhere; margin:16px 0;"></p>
+      <p role="status" aria-live="polite" class="modal-text-muted"></p>
+      <p class="modal-text-muted" style="font-size:13px; margin-bottom:18px;">This confirms the reservation and notifies the player in the app. The selected payment method does not confirm an external payment was collected.</p>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn-end-session" style="flex:1;" onclick="closeModal('acceptModal')">Keep Pending</button>
+        <button type="button" class="btn-req-accept-v2" id="confirmAcceptButton" style="flex:1;" onclick="confirmAccept()">Accept Booking</button>
+      </div>
+    </div>
+  </div>
   <div class="app-modal-overlay" id="declineModal">
     <div class="modal-box-card">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
         <h3 style="font-size:18px; font-weight:800; color: var(--pk-status-error);">Decline Booking Request</h3>
-        <button type="button" onclick="closeModal('declineModal')" style="background:none; border:none; font-size:20px; cursor:pointer;" class="modal-text-muted">&times;</button>
+        <button type="button" aria-label="Close decline dialog" onclick="closeModal('declineModal')" style="background:none; border:none; font-size:20px; cursor:pointer;" class="modal-text-muted">&times;</button>
       </div>
-      <p style="font-size:13px; margin-bottom:14px;" class="modal-text-muted">Select the reason for declining. Booking hold will be released and funds refunded to the player.</p>
+      <p id="declineRequestSummary" class="modal-text-primary" style="white-space:pre-line; overflow-wrap:anywhere; margin-bottom:16px;"></p>
+      <p role="status" aria-live="polite" class="modal-text-muted"></p>
+      <p style="font-size:13px; margin-bottom:14px;" class="modal-text-muted">Select the reason for declining. The booking hold will be released. Pickle Credits are refunded to the wallet; external payments require follow-up with the facility. Pay at Venue bookings have no in-app charge to refund.</p>
+      <label for="declineReason" class="modal-text-muted">Reason for declining</label>
       <select id="declineReason" style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:12px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary); margin-bottom:16px;">
         <option>Court is reserved for coaching clinic / league</option>
         <option>Court is scheduled for maintenance & cleaning</option>
@@ -148,15 +163,16 @@
       </div>
       <div style="background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); border-radius:12px; padding:12px 16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:13px;" class="modal-text-muted">Available Balance</span>
-        <span style="font-size:18px; font-weight:900; color: var(--pk-status-success);" id="payoutAvailableBalance">₱{{ ((((earnings.available ?? 0)))|float)|number_format(2) }}</span>
+        <span style="font-size:18px; font-weight:900; color: var(--pk-accent-emerald-text);" id="payoutAvailableBalance">₱{{ ((((earnings.available ?? 0)))|float)|number_format(2) }}</span>
       </div>
       <form id="payoutForm" autocomplete="off" onsubmit="event.preventDefault(); dispatchPayout();">
+        <p class="modal-text-muted" style="font-size:13px; margin-bottom:14px;">This records a manual payout request only. No funds are transferred by this local demo.</p>
         <input type="hidden" name="csrf_token" value="{{ (csrfToken ?? '') }}">
         <div style="display:flex; flex-direction:column; gap:14px;">
           <div>
             <label style="display:block; font-size:13px; font-weight:700; margin-bottom:6px;" class="modal-text-muted">Disbursement Method</label>
             <select id="payoutMethod" style="background: var(--pk-bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px 14px; border-radius:10px; width:100%; color: var(--pk-text-primary);">
-              <option>GCash (Instant Disbursement)</option>
+              <option value="GCash (Instant Disbursement)">GCash — manual payout request</option>
               <option>Bank Deposit — BDO Unibank</option>
               <option>Bank Deposit — BPI</option>
               <option>Bank Deposit — UnionBank</option>
@@ -217,19 +233,19 @@
   <!-- 6. Create Tournament Modal -->
   <!-- 6. Create Tournament Modal -->
   <div class="app-modal-overlay" id="createTournamentModal">
-    <div class="modal-box-card" style="max-width: 520px; width: 92%; padding: 22px 24px; background: #0b1426; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 18px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8); scrollbar-width: none; -ms-overflow-style: none;">
+    <div class="modal-box-card" style="max-width: 520px; width: 92%; padding: 22px 24px; border-radius: 18px; scrollbar-width: none; -ms-overflow-style: none;">
       <!-- Modal Header -->
       <div class="tb-modal-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; width: 100%;">
         <div style="display: flex; align-items: center; gap: 12px; flex: 1; padding-right: 12px;">
-          <div class="tb-modal-title-icon" style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255, 184, 0, 0.12); border: 1px solid rgba(255, 184, 0, 0.25); color: #FFB800; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <div class="tb-modal-title-icon" style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255, 184, 0, 0.12); border: 1px solid rgba(255, 184, 0, 0.25); color:var(--accent-warning-text); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
           </div>
           <div>
-            <h3 style="font-family: 'Montserrat', var(--font-heading), sans-serif; font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0 0 2px; letter-spacing: -0.01em;">Create Tournament</h3>
-            <p style="font-size: 11.5px; font-weight: 500; color: #94A3B8; margin: 0;">Host a league, championship cup or prize ladder at your facility</p>
+            <h3 style="font-family: 'Montserrat', var(--font-heading), sans-serif; font-size: 18px; font-weight: 800; color: var(--pk-text-primary); margin: 0 0 2px; letter-spacing: -0.01em;">Create Tournament</h3>
+            <p style="font-size: 11.5px; font-weight: 500; color:var(--pk-text-muted); margin: 0;">Host a league, championship cup or prize ladder at your facility</p>
           </div>
         </div>
-        <button type="button" class="tb-modal-close-btn" onclick="closeModal('createTournamentModal')" aria-label="Close" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #94A3B8; width: 30px; height: 30px; min-width: 30px; min-height: 30px; max-width: 30px; max-height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)'">&times;</button>
+        <button type="button" class="tb-modal-close-btn" onclick="closeModal('createTournamentModal')" aria-label="Close">&times;</button>
       </div>
 
       <form id="createTournamentForm" autocomplete="off" onsubmit="submitCreateTournamentForm(event)">
@@ -238,8 +254,8 @@
         <div style="display: flex; flex-direction: column; gap: 10px;">
 
           <!-- Section 1: Tournament Identity & Category -->
-          <div class="tb-section-card" style="background: #0f182a; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px;">
-            <div class="tb-section-title" style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #FFB800; margin-bottom: 8px;">
+          <div class="tb-section-card">
+            <div class="tb-section-title" style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color:var(--accent-warning-text); margin-bottom: 8px;">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               <span>Tournament Details</span>
             </div>
@@ -248,7 +264,7 @@
             <div style="margin-bottom: 8px;">
               <label class="tb-label" for="tournTitleInput">Tournament Name</label>
               <div class="tb-input-icon-wrap" style="position: relative;">
-                <div class="tb-input-icon-prefix" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748B; pointer-events: none;">
+                <div class="tb-input-icon-prefix">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 </div>
                 <input type="text" id="tournTitleInput" class="tb-input tb-input-with-icon" style="padding-left: 32px;" required maxlength="120" placeholder="e.g. Pro Circuit Manila 2026">
@@ -281,14 +297,14 @@
           </div>
 
           <!-- Date -->
-          <div class="tb-section-card" style="background: #0f182a; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px;">
+          <div class="tb-section-card">
             <label class="tb-label" for="tournDateInput">Date</label>
             <input type="date" id="tournDateInput" class="tb-input" required>
           </div>
 
           <!-- Section 3: Capacity & Pairing Mode -->
-          <div class="tb-section-card" style="background: #0f182a; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px;">
-            <div class="tb-section-title" style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #FFB800; margin-bottom: 8px;">
+          <div class="tb-section-card">
+            <div class="tb-section-title" style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color:var(--accent-warning-text); margin-bottom: 8px;">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               <span>Capacity & Teammates</span>
             </div>
@@ -322,13 +338,13 @@
           </div>
 
           <!-- Section 4: Add Tournament Players (Roster Draft) -->
-          <div class="tb-section-card" style="background: #0f182a; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px;">
+          <div class="tb-section-card">
             <div class="tb-section-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <div style="display:flex; align-items:center; gap:6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #FFB800;">
+              <div style="display:flex; align-items:center; gap:6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color:var(--accent-warning-text);">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                 <span>Add Tournament Players</span>
               </div>
-              <span style="font-size: 11px; font-weight: 600; text-transform:none; color: #FFFFFF;">Search registered players</span>
+              <span style="font-size: 11px; font-weight: 600; text-transform:none; color: var(--pk-text-muted);">Search registered players</span>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -346,19 +362,18 @@
                 <div class="tb-suggestions" id="tournEntrantSuggest2" role="listbox"></div>
               </div>
 
-              <button type="button" class="tb-btn" style="width:100%; padding: 9px; font-weight: 800; font-size: 12px; background: #131e33; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; color: #FFFFFF;" id="tournAddEntrantBtn"
-                      onclick="addTournEntrantDraft()">+ Add to Roster</button>
+              <button type="button" class="tb-btn" id="tournAddEntrantBtn" onclick="addTournEntrantDraft()">+ Add to Roster</button>
             </div>
           </div>
 
           <!-- Roster Chips Pool -->
-          <div style="background: rgba(0, 0, 0, 0.25); border: 1px dashed rgba(255, 255, 255, 0.14); border-radius: 14px; padding: 14px; margin-bottom: 4px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; font-weight:800; color: #94A3B8; margin-bottom:8px;">
+          <div class="tb-roster-box" style="border-radius: 14px; padding: 14px; margin-bottom: 4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; font-weight:800; color:var(--pk-text-muted); margin-bottom:8px;">
               <span id="tournRosterLabel">Registered Teams</span>
-              <span id="tournRosterCount" style="color: #FFB800; font-weight: 900;">0</span>
+              <span id="tournRosterCount" style="color:var(--accent-warning-text); font-weight: 900;">0</span>
             </div>
             <div id="tournRosterChips" class="tb-pool"></div>
-            <p class="tb-hint" style="margin-top:8px; font-size: 11px; color: #64748B;">Optional — you can build or edit the roster later from the bracket console.</p>
+            <p class="tb-hint" style="margin-top:8px; font-size: 11px; color: var(--pk-text-muted);">Optional — you can build or edit the roster later from the bracket console.</p>
           </div>
 
           <!-- Alert box -->
@@ -387,7 +402,7 @@
             <p style="font-size: 12px; color: var(--pk-text-muted); margin: 0;">Schedule a joinable match at your court</p>
           </div>
         </div>
-        <button type="button" onclick="closeModal('hostOpenPlayModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #94A3B8; width: 30px; height: 30px; min-width: 30px; min-height: 30px; max-width: 30px; max-height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)'" aria-label="Close modal">&times;</button>
+        <button type="button" onclick="closeModal('hostOpenPlayModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color:var(--pk-text-muted); width: 30px; height: 30px; min-width: 30px; min-height: 30px; max-width: 30px; max-height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)'" aria-label="Close modal">&times;</button>
       </div>
 
       <form id="hostOpenPlayForm" autocomplete="off" onsubmit="submitHostOpenPlayForm(event)">
@@ -399,18 +414,18 @@
             <div style="display: flex; align-items: center; gap: 10px;">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--pk-brand-amber)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
               <div>
-                <div id="modalTargetCourtName" style="font-size: 13.5px; font-weight: 800; color: var(--pk-brand-amber);">Court 2</div>
+                <div id="modalTargetCourtName" style="font-size: 13.5px; font-weight: 800; color: var(--accent-warning-text);">Court 2</div>
                 <div id="modalTargetCourtSpecs" style="display: none;"></div>
               </div>
             </div>
-            <span style="font-size: 10px; font-weight: 800; color: var(--pk-brand-amber); background: rgba(255, 184, 0, 0.12); border: 1px solid rgba(255, 184, 0, 0.3); border-radius: 9999px; padding: 3px 9px; letter-spacing: 0.05em; white-space: nowrap;">TARGET COURT</span>
+            <span style="font-size: 10px; font-weight: 800; color: var(--accent-warning-text); background: rgba(255, 184, 0, 0.12); border: 1px solid rgba(255, 184, 0, 0.3); border-radius: 9999px; padding: 3px 9px; letter-spacing: 0.05em; white-space: nowrap;">TARGET COURT</span>
           </div>
 
           <!-- Section: SESSION DATE -->
           <div>
             <div style="font-size: 10.5px; font-weight: 800; color: var(--pk-text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;">SESSION DATE</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; background: var(--pk-bg-card); border-radius: 9999px; padding: 3px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 8px;">
-              <button type="button" id="btnDateSpecific" onclick="toggleOpenPlayDateMode('specific')" style="border-radius: 9999px; padding: 7px 10px; font-size: 12px; font-weight: 800; background: var(--pk-brand-amber); color: var(--pk-bg-card); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
+              <button type="button" id="btnDateSpecific" onclick="toggleOpenPlayDateMode('specific')" style="border-radius: 9999px; padding: 7px 10px; font-size: 12px; font-weight: 800; background: var(--pk-brand-amber); color: var(--on-accent); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" x2="16" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
                 <span>Specific Date</span>
               </button>
@@ -473,7 +488,7 @@
           <div>
             <div style="font-size: 10.5px; font-weight: 800; color: var(--pk-text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;">PLAYER CAPACITY & LIMIT</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; background: var(--pk-bg-card); border-radius: 9999px; padding: 3px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 8px;">
-              <button type="button" id="btnCapMax" onclick="toggleOpenPlayCapMode('capped')" style="border-radius: 9999px; padding: 7px 10px; font-size: 12px; font-weight: 800; background: var(--pk-brand-amber); color: var(--pk-bg-card); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
+              <button type="button" id="btnCapMax" onclick="toggleOpenPlayCapMode('capped')" style="border-radius: 9999px; padding: 7px 10px; font-size: 12px; font-weight: 800; background: var(--pk-brand-amber); color: var(--on-accent); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <span>Max Player Cap</span>
               </button>
@@ -493,14 +508,14 @@
             <div style="font-size: 10.5px; font-weight: 800; color: var(--pk-text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;">PRICE (₱ / PLAYER)</div>
             <div style="position: relative;">
               <input type="number" id="openPlayFee" value="250" min="0" max="5000" step="10" style="background: var(--pk-bg-card); border: 1px solid rgba(255, 255, 255, 0.1); padding: 9px 14px 9px 34px; border-radius: 10px; width: 100%; box-sizing: border-box; color: var(--pk-text-primary); font-size: 13px; font-weight: 700;">
-              <span style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 13.5px; font-weight: 800; color: var(--pk-brand-amber); pointer-events: none;">₱</span>
+              <span style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 13.5px; font-weight: 800; color: var(--accent-warning-text); pointer-events: none;">₱</span>
             </div>
           </div>
 
           <!-- Footer Action Buttons -->
           <div style="display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-top: 6px;">
             <button type="button" onclick="closeModal('hostOpenPlayModal')" style="background: none; border: none; color: var(--pk-text-muted); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 12px; transition: color 0.2s;" onmouseover="this.style.color='var(--pk-text-primary)'" onmouseout="this.style.color='var(--pk-text-muted)'">Cancel</button>
-            <button type="submit" style="background: var(--pk-brand-amber); border: none; border-radius: 10px; color: var(--pk-bg-card); font-size: 13px; font-weight: 800; padding: 10px 20px; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: background 0.2s; box-shadow: 0 4px 14px rgba(255, 184, 0, 0.25);" onmouseover="this.style.background='var(--pk-brand-amber-hover)'" onmouseout="this.style.background='var(--pk-brand-amber)'">
+            <button type="submit" style="background: var(--pk-brand-amber); border: none; border-radius: 10px; color: var(--on-accent); font-size: 13px; font-weight: 800; padding: 10px 20px; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: background 0.2s; box-shadow: 0 4px 14px rgba(255, 184, 0, 0.25);" onmouseover="this.style.background='var(--pk-brand-amber-hover)'" onmouseout="this.style.background='var(--pk-brand-amber)'">
               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="var(--pk-bg-card)" stroke="none"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
               <span>Host Open Play</span>
             </button>
@@ -515,7 +530,7 @@
   <div class="app-modal-overlay" id="confirmHostOpenPlayModal">
     <div class="modal-box-card" style="max-width:440px; text-align:center; padding: 26px 24px;">
       <div style="padding:4px;">
-        <div class="confirm-modal-icon" style="background:rgba(255,184,0,0.15); color: var(--pk-brand-amber); border: 1px solid rgba(255,184,0,0.3); width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+        <div class="confirm-modal-icon" style="background:rgba(255,184,0,0.15); color: var(--accent-warning-text); border: 1px solid rgba(255,184,0,0.3); width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="var(--pk-brand-amber)" stroke="none"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
         </div>
         <h3 class="confirm-modal-title" style="font-size: 19px; font-weight: 800; color: var(--pk-text-primary); margin-bottom: 6px;">Confirm Open Play Session?</h3>
@@ -527,7 +542,7 @@
         <div style="background: var(--pk-bg-surface); border: 1px solid rgba(255, 184, 0, 0.25); border-radius: 14px; padding: 14px 16px; margin-bottom: 20px; text-align: left; display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Court</span>
-            <span style="font-size: 13px; font-weight: 800; color: var(--pk-brand-amber);" id="confirmHostCourtName">Court 2</span>
+            <span style="font-size: 13px; font-weight: 800; color: var(--accent-warning-text);" id="confirmHostCourtName">Court 2</span>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Date &amp; Time</span>
@@ -535,7 +550,7 @@
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Player Fee</span>
-            <span style="font-size: 13px; font-weight: 800; color: var(--pk-status-success);" id="confirmHostFee">₱250 / player</span>
+            <span style="font-size: 13px; font-weight: 800; color: var(--pk-accent-emerald-text);" id="confirmHostFee">₱250 / player</span>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 11.5px; color: var(--pk-text-muted); font-weight: 600;">Capacity Limit</span>
@@ -547,7 +562,7 @@
           <button type="button" onclick="closeModal('confirmHostOpenPlayModal')" class="btn-modal-cancel" style="flex:1; padding: 11px 16px; border-radius: 10px; font-weight: 700;">
             Go Back
           </button>
-          <button type="button" id="btnConfirmPublishHostOpenPlay" onclick="executePublishHostOpenPlay()" style="flex:1; background: var(--pk-brand-amber); border: none; border-radius: 10px; color: var(--pk-bg-card); font-size: 13px; font-weight: 800; padding: 11px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--pk-brand-amber-hover)'" onmouseout="this.style.background='var(--pk-brand-amber)'">
+          <button type="button" id="btnConfirmPublishHostOpenPlay" onclick="executePublishHostOpenPlay()" style="flex:1; background: var(--pk-brand-amber); border: none; border-radius: 10px; color: var(--on-accent); font-size: 13px; font-weight: 800; padding: 11px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--pk-brand-amber-hover)'" onmouseout="this.style.background='var(--pk-brand-amber)'">
             Yes, Host Session
           </button>
         </div>
@@ -581,6 +596,7 @@
     </div>
   </div>
 
+{% if canManageFacility %}
   <!-- 10. Revoke Staff Member Confirmation Modal -->
   <div class="app-modal-overlay" id="revokeStaffModal">
     <div class="modal-box-card" style="max-width:420px; text-align:center;">
@@ -595,7 +611,7 @@
 
         <div style="margin: 14px 0 16px; text-align: left;">
           <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px; text-align: center;">
-            Type <strong style="color: #EF4444; font-weight: 800;">REVOKE</strong> below to confirm:
+            Type <strong style="color:var(--pk-danger-text); font-weight: 800;">REVOKE</strong> below to confirm:
           </label>
           <input type="text" id="revokeConfirmInput" class="tb-input" placeholder="REVOKE" autocomplete="off"
                  oninput="checkRevokeConfirmInput(this.value)"
@@ -615,11 +631,12 @@
     </div>
   </div>
 
+{% endif %}
   <!-- 11. Disable / Remove Court Confirmation Modal -->
   <div class="app-modal-overlay" id="disableCourtModal">
     <div class="modal-box-card" style="max-width:420px; text-align:center;">
       <div style="padding:12px 6px;">
-        <div class="confirm-modal-icon red" style="background:rgba(245,158,11,0.15); color: var(--pk-brand-amber); border-color:rgba(245,158,11,0.25);">
+        <div class="confirm-modal-icon red" style="background:rgba(245,158,11,0.15); color: var(--accent-warning-text); border-color:rgba(245,158,11,0.25);">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" x2="12" y1="2" y2="12"/></svg>
         </div>
         <h3 class="confirm-modal-title">Disable Court?</h3>
@@ -630,7 +647,7 @@
           <button type="button" onclick="closeModal('disableCourtModal')" class="btn-modal-cancel">
             Keep Active
           </button>
-          <button type="button" onclick="executeDisableCourt()" class="btn-modal-danger" style="background: var(--pk-brand-amber); color: var(--pk-bg-card) !important; box-shadow:0 4px 14px rgba(245,158,11,0.35);">
+          <button type="button" onclick="executeDisableCourt()" class="btn-modal-danger" style="background: var(--pk-brand-amber); color: var(--on-accent) !important; box-shadow:0 4px 14px rgba(245,158,11,0.35);">
             Yes, Take Offline
           </button>
         </div>
@@ -652,7 +669,7 @@
 
         <div style="margin: 14px 0 16px; text-align: left;">
           <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px; text-align: center;">
-            Type <strong style="color: #EF4444; font-weight: 800;">DELETE</strong> below to confirm:
+            Type <strong style="color:var(--pk-danger-text); font-weight: 800;">DELETE</strong> below to confirm:
           </label>
           <input type="text" id="deleteCourtConfirmInput" class="tb-input" placeholder="DELETE" autocomplete="off"
                  oninput="onDeleteCourtConfirmInput(this.value)"
@@ -685,7 +702,7 @@
 
         <div style="margin: 14px 0 16px; text-align: left;">
           <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px; text-align: center;">
-            Type <strong style="color: #EF4444; font-weight: 800;">DELETE</strong> below to confirm:
+            Type <strong style="color:var(--pk-danger-text); font-weight: 800;">DELETE</strong> below to confirm:
           </label>
           <input type="text" id="deleteTournamentConfirmInput" class="tb-input" placeholder="DELETE" autocomplete="off"
                  oninput="onDeleteTournamentConfirmInput(this.value)"
@@ -718,7 +735,7 @@
 
         <div style="margin: 14px 0 16px; text-align: left;">
           <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px; text-align: center;">
-            Type <strong style="color: #EF4444; font-weight: 800;">CANCEL</strong> below to confirm:
+            Type <strong style="color:var(--pk-danger-text); font-weight: 800;">CANCEL</strong> below to confirm:
           </label>
           <input type="text" id="cancelOpenPlayConfirmInput" class="tb-input" placeholder="CANCEL" autocomplete="off"
                  oninput="onCancelOpenPlayConfirmInput(this.value)"
@@ -746,14 +763,13 @@
         </div>
         <h3 class="confirm-modal-title">Sign Out of Owner Portal?</h3>
         <p class="confirm-modal-desc">You will need to sign in again to manage your courts, staff, and view earnings.</p>
-        <div style="display:flex; gap:12px;">
+        <form method="post" action="{{ path('logout') }}" class="confirm-modal-actions">
+          <input type="hidden" name="csrf_token" value="{{ csrfToken }}">
           <button type="button" onclick="closeModal('ownerLogoutModal')" class="btn-modal-cancel">
             Cancel
           </button>
-          <a href="{{ url_to('auth?logout=1') }}" class="btn-modal-danger">
-            Sign Out
-          </a>
-        </div>
+          <button type="submit" class="btn-modal-danger">Sign Out</button>
+        </form>
       </div>
     </div>
   </div>
@@ -762,8 +778,8 @@
   <div class="app-modal-overlay notif-modal-overlay" id="notifModal">
     <div class="app-modal-box notif-modal-box">
       <div class="modal-head notif-modal-head">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div class="notif-header-icon-box">
+        <div class="notif-heading-group">
+          <div class="notif-header-icon-box" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
           </div>
           <div>
@@ -772,44 +788,44 @@
               {% set totalNotifs = userNotifications|length %}{{ unreadNotifsCount > 0 ? unreadNotifsCount ~ ' unread of ' ~ totalNotifs : totalNotifs ~ ' total' }}            </span>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="notif-header-actions">
           <button type="button" class="notif-mark-read-btn" onclick="markAllNotificationsAsRead()">
-            Mark read
+            Mark all read
           </button>
-          <button type="button" class="modal-close-btn" onclick="closeModal('notifModal')" style="font-size: 18px; line-height: 1; background:none; border:none; color: var(--pk-text-muted); cursor:pointer;">✕</button>
+          <button type="button" class="modal-close-btn notif-close-btn" onclick="closeModal('notifModal')" aria-label="Close notifications">✕</button>
         </div>
       </div>
       <div class="modal-body notif-modal-list" id="notifModalList">
         {% if userNotifications %}{% for n in userNotifications %}
           {% set isUnread = not n.is_read %}
           {% set notifId = n.id ?? '' %}          <div class="notif-swipe-row" data-id="{{ notifId }}">
-            <div class="notif-swipe-action" onclick="dismissNotification(this.closest('.notif-swipe-row'), '{{ notifId }}')">
-              <div class="notif-swipe-action-icon">
+            <button type="button" class="notif-swipe-action" aria-label="Delete notification: {{ n.title ?? 'Notification' }}" onclick="dismissNotification(this.closest('.notif-swipe-row'), '{{ notifId }}')">
+              <span class="notif-swipe-action-icon" aria-hidden="true">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-              </div>
+              </span>
               <span class="notif-swipe-action-text">Delete</span>
-            </div>
-            <div class="notif-card-item {{ (isUnread ? 'unread' : '') }}" data-id="{{ notifId }}">
-              <div class="notif-card-icon">
+            </button>
+            <div class="notif-card-item {{ (isUnread ? 'unread' : '') }}" data-id="{{ notifId }}" data-date="{{ n.created_at ? n.created_at|date('M j, Y · g:i A') : (n.time ?? '') }}" role="button" tabindex="0" aria-haspopup="dialog" onclick="openNotificationDetails(this)" onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openNotificationDetails(this); }">
+              <div class="notif-card-icon" aria-hidden="true">
                 {% if ((stripos_found((n.title ?? ''), 'Open Play')) or (stripos_found((n.title ?? ''), 'Match'))) %}
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
                 {% elseif ((((stripos_found((n.title ?? ''), 'Top-Up')) or (stripos_found((n.title ?? ''), 'Credit'))) or (stripos_found((n.title ?? ''), 'Wallet'))) or (stripos_found((n.title ?? ''), 'Payout'))) %}
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                 {% elseif (((stripos_found((n.title ?? ''), 'Verified')) or (stripos_found((n.title ?? ''), 'Identity'))) or (stripos_found((n.title ?? ''), 'Audit'))) %}
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
                 {% elseif ((((stripos_found((n.title ?? ''), 'Booking')) or (stripos_found((n.title ?? ''), 'Court'))) or (stripos_found((n.title ?? ''), 'Request'))) or (stripos_found((n.title ?? ''), 'Reservation'))) %}
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
                 {% else %}
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
                 {% endif %}
               </div>
               <div class="notif-card-content">
                 <div class="notif-card-head">
-                  <div class="notif-item-title">{{ (n.title ?? '') }}</div>
+                  <div class="notif-item-title">{{ (n.title ?? '')|replace({'🔥': '', '🎾': '', '🏸': ''})|trim }}</div>
                   <div class="notif-item-meta">
                     <span class="notif-item-time">{{ (n.time ?? 'Just now') }}</span>
                     {% if isUnread %}
-                      <span class="notif-card-unread-dot" title="Unread"></span>
+                      <span class="notif-card-unread-dot" role="img" aria-label="Unread"></span>
                     {% endif %}
                   </div>
                 </div>
@@ -819,12 +835,25 @@
           </div>
         {% endfor %}
 {% else %}
-          <div style="text-align: center; padding: 48px 20px; color: var(--pk-text-muted);">
-            <div style="font-size: 36px; margin-bottom: 10px;">🔔</div>
-            <div style="font-size: 15px; font-weight: 700; color: var(--pk-text-primary); margin-bottom: 4px;">No notifications yet</div>
-            <div style="font-size: 12px; color: rgba(255, 255, 255, 0.55);">When players book courts or scan QR passes, updates will show up here.</div>
+          <div class="notif-empty-state">
+            <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            <h4>No notifications yet</h4>
+            <p>Booking requests and facility updates will appear here.</p>
           </div>
         {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="app-modal-overlay" id="notificationDetailModal">
+    <div class="app-modal-box notif-modal-box">
+      <div class="modal-head notif-modal-head">
+        <h3 class="modal-title notif-title" id="notificationDetailTitle">Notification details</h3>
+        <button type="button" class="modal-close-btn notif-close-btn" onclick="closeModal('notificationDetailModal')" aria-label="Close notification details">✕</button>
+      </div>
+      <div class="modal-body notification-detail-content">
+        <p class="notif-item-time" id="notificationDetailDate"></p>
+        <p class="notification-detail-body" id="notificationDetailBody"></p>
       </div>
     </div>
   </div>
@@ -836,15 +865,15 @@
       <!-- Modal Top Header -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:14px;">
         <div style="display:flex; align-items:center; gap:12px;">
-          <div style="width:38px; height:38px; border-radius:12px; background:rgba(0,217,139,0.14); border:1px solid rgba(0,217,139,0.3); display:flex; align-items:center; justify-content:center; color: #00D98B; flex-shrink:0;">
+          <div style="width:38px; height:38px; border-radius:12px; background:rgba(0,217,139,0.14); border:1px solid rgba(0,217,139,0.3); display:flex; align-items:center; justify-content:center; color:var(--pk-accent-emerald-text); flex-shrink:0;">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h7a5.5 5.5 0 0 1 0 11H6z"/><line x1="3" y1="7" x2="18" y2="7"/><line x1="3" y1="11" x2="18" y2="11"/><line x1="6" y1="3" x2="6" y2="21"/></svg>
           </div>
           <div>
             <h3 style="font-size:20px; font-weight:900; color: #FFFFFF; margin:0; font-family:'Montserrat', sans-serif; letter-spacing:-0.01em;">Daily Income Breakdown</h3>
-            <p style="font-size:12.5px; color: #94A3B8; margin:2px 0 0; font-weight:500;">Past 30 days of confirmed court &amp; Open Play earnings</p>
+            <p style="font-size:12.5px; color:var(--pk-text-muted); margin:2px 0 0; font-weight:500;">Past 30 days of confirmed court &amp; Open Play earnings</p>
           </div>
         </div>
-        <button type="button" class="btn-close-modal" onclick="closeModal('dailyRevenueModal')" title="Close" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color: #94A3B8; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; transition:all 0.2s; flex-shrink:0;">&times;</button>
+        <button type="button" class="btn-close-modal" onclick="closeModal('dailyRevenueModal')" title="Close" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--pk-text-muted); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; transition:all 0.2s; flex-shrink:0;">&times;</button>
       </div>
 
       {# Real figures only (this modal once rendered invented dates, sessions and revenue). #}
@@ -858,23 +887,23 @@
       <div class="daily-rev-summary-grid">
         <div class="daily-rev-summary-box">
           <span class="daily-rev-summary-label">{{ 'now'|date('F') }} Total</span>
-          <span class="daily-rev-summary-val" style="color: #00D98B;">₱{{ ((((financials.monthly_gross ?? 0)))|float)|number_format(0) }}</span>
-          <span style="font-size:11px; color: #94A3B8;">Gross booking revenue</span>
+          <span class="daily-rev-summary-val" style="color:var(--pk-accent-emerald-text);">₱{{ ((((financials.monthly_gross ?? 0)))|float)|number_format(0) }}</span>
+          <span style="font-size:11px; color:var(--pk-text-muted);">Gross booking revenue</span>
         </div>
-        <div class="daily-rev-summary-box" style="border-color:rgba(0,229,255,0.3) !important; background:linear-gradient(135deg, rgba(0,229,255,0.08), rgba(11,24,43,0.95)) !important;">
-          <span class="daily-rev-summary-label" style="color: #00E5FF;">Yesterday{{ yesterdayRow ? ' (' ~ yesterdayRow.date|date('M j') ~ ')' : '' }}</span>
-          <span class="daily-rev-summary-val" style="color: #00E5FF;">₱{{ ((((yesterdayRow.revenue ?? 0)))|float)|number_format(0) }}</span>
-          <span style="font-size:11px; color: #00E5FF;">{{ (((yesterdaySessions ~ ' session') ~ (((yesterdaySessions == 1) ? '' : 's'))) ~ ' booked') }}</span>
+        <div class="daily-rev-summary-box" style="border-color:rgba(0,229,255,0.3) !important; background:var(--pk-bg-card) !important;">
+          <span class="daily-rev-summary-label" style="color: var(--pk-accent-cyan);">Yesterday{{ yesterdayRow ? ' (' ~ yesterdayRow.date|date('M j') ~ ')' : '' }}</span>
+          <span class="daily-rev-summary-val" style="color: var(--pk-accent-cyan);">₱{{ ((((yesterdayRow.revenue ?? 0)))|float)|number_format(0) }}</span>
+          <span style="font-size:11px; color: var(--pk-accent-cyan);">{{ (((yesterdaySessions ~ ' session') ~ (((yesterdaySessions == 1) ? '' : 's'))) ~ ' booked') }}</span>
         </div>
-        <div class="daily-rev-summary-box" style="border-color:rgba(255,184,0,0.3) !important; background:linear-gradient(135deg, rgba(255,184,0,0.08), rgba(11,24,43,0.95)) !important;">
-          <span class="daily-rev-summary-label" style="color: #FFB800;">Peak Day{{ peakRow ? ' (' ~ peakRow.date|date('M j') ~ ')' : '' }}</span>
-          <span class="daily-rev-summary-val" style="color: #FFB800;">₱{{ ((((peakRow.revenue ?? 0)))|float)|number_format(0) }}</span>
-          <span style="font-size:11px; color: #94A3B8;">{{ (peakRow ? peakRow.dow : 'No bookings yet') }}</span>
+        <div class="daily-rev-summary-box" style="border-color:rgba(255,184,0,0.3) !important; background:var(--pk-bg-card) !important;">
+          <span class="daily-rev-summary-label" style="color:var(--accent-warning-text);">Peak Day{{ peakRow ? ' (' ~ peakRow.date|date('M j') ~ ')' : '' }}</span>
+          <span class="daily-rev-summary-val" style="color:var(--accent-warning-text);">₱{{ ((((peakRow.revenue ?? 0)))|float)|number_format(0) }}</span>
+          <span style="font-size:11px; color:var(--pk-text-muted);">{{ (peakRow ? peakRow.dow : 'No bookings yet') }}</span>
         </div>
         <div class="daily-rev-summary-box">
           <span class="daily-rev-summary-label">Daily Average</span>
           <span class="daily-rev-summary-val" style="color: #FFFFFF;">₱{{ ((((financials.daily_avg_gross ?? 0)))|float)|number_format(0) }}</span>
-          <span style="font-size:11px; color: #94A3B8;">This month, per day</span>
+          <span style="font-size:11px; color:var(--pk-text-muted);">This month, per day</span>
         </div>
       </div>
 
@@ -912,11 +941,11 @@
                 <td>
                   <div style="font-weight:700; color: var(--pk-text-primary); display:flex; align-items:center; gap:6px;">
                     {{ row.date }}                    {% if not ((not (row.is_today ?? null))) %}
-                      <span style="background:rgba(0,217,139,0.18); border:1px solid rgba(0,217,139,0.35); color: var(--pk-status-success); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Today</span>
+                      <span style="background:rgba(0,217,139,0.18); border:1px solid rgba(0,217,139,0.35); color: var(--pk-accent-emerald-text); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Today</span>
                     {% elseif not ((not (row.is_yesterday ?? null))) %}
-                      <span style="background:rgba(0,229,255,0.18); border:1px solid rgba(0,229,255,0.35); color: var(--pk-status-info); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Yesterday</span>
+                      <span style="background:rgba(0,229,255,0.18); border:1px solid rgba(0,229,255,0.35); color: var(--pk-accent-sky); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Yesterday</span>
                     {% elseif not ((not (row.is_peak ?? null))) %}
-                      <span style="background:rgba(255,184,0,0.18); border:1px solid rgba(255,184,0,0.35); color: var(--pk-brand-amber); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Peak Day</span>
+                      <span style="background:rgba(255,184,0,0.18); border:1px solid rgba(255,184,0,0.35); color: var(--accent-warning-text); font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; text-transform:uppercase;">Peak Day</span>
                     {% endif %}
                   </div>
                   <div style="font-size:11px; color: var(--pk-text-muted); margin-top:2px;">{{ row.dow }}</div>
@@ -933,11 +962,11 @@
                   </div>
                   <span style="font-size:11px; color: var(--pk-text-muted);">{{ pct }}%</span>
                 </td>
-                <td style="text-align:right; font-weight:800; font-family:'Montserrat', sans-serif; font-size:14px; {{ (((not ((not (row.is_peak ?? null))) or not ((not (row.is_yesterday ?? null))))) ? 'color: var(--pk-status-info);' : 'color: var(--pk-status-success);') }}">
+                <td style="text-align:right; font-weight:800; font-family:'Montserrat', sans-serif; font-size:14px; {{ (((not ((not (row.is_peak ?? null))) or not ((not (row.is_yesterday ?? null))))) ? 'color: var(--pk-accent-sky);' : 'color: var(--pk-accent-emerald-text);') }}">
                   ₱{{ ((row.revenue)|float)|number_format(0) }}                </td>
                 <td style="text-align:center;">
                   {% if ((row.sessions)|int > 0) %}
-                    <span style="background: var(--pk-status-success-bg); color: var(--pk-status-success); font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid var(--pk-status-success);">Confirmed</span>
+                    <span style="background: var(--pk-status-success-bg); color: var(--pk-accent-emerald-text); font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid var(--pk-status-success);">Confirmed</span>
                   {% else %}
                     <span style="color: var(--pk-text-muted); font-size:11px; font-weight:600;">No bookings</span>
                   {% endif %}
@@ -956,12 +985,13 @@
     </div>
   </div>
 
+{% if canManageFacility %}
   <!-- Add Staff Member Modal -->
   <div class="app-modal-overlay" id="addStaffModal">
     <div class="modal-box-card" style="max-width: 480px; width: 92%; padding: 26px 28px; border-radius: 20px; overflow: visible;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px;">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.3); display: flex; align-items: center; justify-content: center; color: #00D98B; flex-shrink: 0;">
+          <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.3); display: flex; align-items: center; justify-content: center; color:var(--pk-accent-emerald-text); flex-shrink: 0;">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
           </div>
           <div>
@@ -969,24 +999,23 @@
             <p style="font-size: 12px; color: var(--pk-text-muted); margin: 0;">Assign staff roles and facility access</p>
           </div>
         </div>
-        <button type="button" onclick="closeModal('addStaffModal')" style="background: none; border: none; color: var(--pk-text-muted); font-size: 20px; cursor: pointer;">&times;</button>
+        <button type="button" aria-label="Close staff dialog" onclick="closeModal('addStaffModal')" style="background: none; border: none; color: var(--pk-text-muted); font-size: 20px; cursor: pointer;">&times;</button>
       </div>
 
       <form id="addStaffForm" autocomplete="off" onsubmit="submitAddStaffForm(event)">
         <input type="hidden" name="csrf_token" value="{{ (csrfToken ?? '') }}">
         <div style="display: flex; flex-direction: column; gap: 14px;">
           <div style="position: relative;">
-            <label style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px;">
+            <label for="staffNameInput" style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px;">
               <span>Staff Full Name</span>
-              <span style="font-size: 11px; font-weight: 500; color: #FFFFFF;">Search registered players</span>
+              <span style="font-size: 11px; font-weight: 500; color: var(--pk-text-muted);">Search registered players</span>
             </label>
             <input type="text" id="staffNameInput" required placeholder="Type player name to search (e.g. D)..." autocomplete="off" oninput="onStaffNameInput(this.value)" onfocus="onStaffNameInput(this.value)" style="background: var(--pk-bg-card); border: 1px solid rgba(0, 229, 255, 0.3); padding: 10px 14px; border-radius: 10px; width: 100%; color: var(--pk-text-primary); font-size: 13px;">
-            <div id="staffNameAutocomplete" class="autocomplete-dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 9999; background: #0B1728; border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; max-height: 220px; overflow-y: auto; margin-top: 6px; box-shadow: 0 12px 28px rgba(0,0,0,0.65);"></div>
+            <div id="staffNameAutocomplete" class="autocomplete-dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 9999; background: var(--pk-bg-card); border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; max-height: 220px; overflow-y: auto; margin-top: 6px; box-shadow: 0 12px 28px rgba(0,0,0,0.65);"></div>
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px;">Email Address</label>
-            <input type="email" id="staffEmailInput" required placeholder="e.g. maria@bgcpickle.ph" style="background: var(--pk-bg-card); border: 1px solid rgba(255, 255, 255, 0.1); padding: 10px 14px; border-radius: 10px; width: 100%; color: var(--pk-text-primary); font-size: 13px;">
-          </div>
+            <label for="staffEmailInput" style="display: block; font-size: 12px; font-weight: 700; color: var(--pk-text-muted); margin-bottom: 6px;">Email Address</label>
+            <input type="email" id="staffEmailInput" required oninput="clearStaffSelection()" placeholder="e.g. maria@bgcpickle.ph" style="background: var(--pk-bg-card); border: 1px solid rgba(255, 255, 255, 0.1); padding: 10px 14px; border-radius: 10px; width: 100%; color: var(--pk-text-primary); font-size: 13px;">
           </div>
           <button type="submit" class="btn-walkin-open" style="width: 100%; justify-content: center; margin-top: 8px; font-weight: 800;">
             <span>Grant Staff Access</span>
@@ -996,12 +1025,13 @@
     </div>
   </div>
 
+{% endif %}
   <!-- Add / List Court Modal -->
   <div class="app-modal-overlay" id="addCourtModal">
     <div class="modal-box-card" style="max-width: 500px; width: 92%; padding: 26px 28px; border-radius: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px;">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.3); display: flex; align-items: center; justify-content: center; color: #00D98B; flex-shrink: 0;">
+          <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(0, 217, 139, 0.12); border: 1px solid rgba(0, 217, 139, 0.3); display: flex; align-items: center; justify-content: center; color:var(--pk-accent-emerald-text); flex-shrink: 0;">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/><line x1="12" y1="3" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="21"/></svg>
           </div>
           <div>
@@ -1039,7 +1069,7 @@
       <!-- Modal Header -->
       <div style="padding: 20px 24px; background: linear-gradient(180deg, rgba(15, 26, 46, 0.9), rgba(11, 19, 34, 0.9)); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10;">
         <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, rgba(0, 217, 139, 0.2), rgba(6, 182, 212, 0.2)); border: 1px solid rgba(0, 217, 139, 0.4); display: flex; align-items: center; justify-content: center; color: #00D98B; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 217, 139, 0.25);">
+          <div style="width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, rgba(0, 217, 139, 0.2), rgba(6, 182, 212, 0.2)); border: 1px solid rgba(0, 217, 139, 0.4); display: flex; align-items: center; justify-content: center; color:var(--pk-accent-emerald-text); flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 217, 139, 0.25);">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
               <circle cx="9" cy="7" r="4"/>
@@ -1048,11 +1078,11 @@
             </svg>
           </div>
           <div>
-            <h3 id="openPlayRosterTitle" style="font-family: 'Montserrat', sans-serif; font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0 0 2px; letter-spacing: -0.01em;">Joined Players</h3>
-            <p id="openPlayRosterSubtitle" style="font-size: 12px; color: #94A3B8; margin: 0; font-weight: 600;">Court 2 • Open Play Session</p>
+            <h3 id="openPlayRosterTitle" style="font-family: 'Montserrat', sans-serif; font-size: 18px; font-weight: 800; color: var(--pk-text-primary); margin: 0 0 2px; letter-spacing: -0.01em;">Joined Players</h3>
+            <p id="openPlayRosterSubtitle" style="font-size: 12px; color:var(--pk-text-muted); margin: 0; font-weight: 600;">Court 2 • Open Play Session</p>
           </div>
         </div>
-        <button type="button" onclick="closeModal('openPlayRosterModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #94A3B8; width: 34px; height: 34px; min-width: 34px; min-height: 34px; max-width: 34px; max-height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)';" aria-label="Close modal">&times;</button>
+        <button type="button" onclick="closeModal('openPlayRosterModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color:var(--pk-text-muted); width: 34px; height: 34px; min-width: 34px; min-height: 34px; max-width: 34px; max-height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)';" aria-label="Close modal">&times;</button>
       </div>
 
       <!-- Roster Players List Container -->
@@ -1070,7 +1100,7 @@
       <!-- Modal Header -->
       <div style="padding: 20px 24px; background: linear-gradient(180deg, rgba(15, 26, 46, 0.9), rgba(11, 19, 34, 0.9)); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10;">
         <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, rgba(0, 217, 139, 0.2), rgba(6, 182, 212, 0.2)); border: 1px solid rgba(0, 217, 139, 0.4); display: flex; align-items: center; justify-content: center; color: #00D98B; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 217, 139, 0.25);">
+          <div style="width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, rgba(0, 217, 139, 0.2), rgba(6, 182, 212, 0.2)); border: 1px solid rgba(0, 217, 139, 0.4); display: flex; align-items: center; justify-content: center; color:var(--pk-accent-emerald-text); flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 217, 139, 0.25);">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
               <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -1079,11 +1109,11 @@
             </svg>
           </div>
           <div>
-            <h3 id="courtScheduleTitle" style="font-family: 'Montserrat', sans-serif; font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0 0 2px; letter-spacing: -0.01em;">Court Schedule</h3>
-            <p id="courtScheduleSubtitle" style="font-size: 12px; color: #94A3B8; margin: 0; font-weight: 600;">Court Reservations • Scheduled Players</p>
+            <h3 id="courtScheduleTitle" style="font-family: 'Montserrat', sans-serif; font-size: 18px; font-weight: 800; color: var(--pk-text-primary); margin: 0 0 2px; letter-spacing: -0.01em;">Court Schedule</h3>
+            <p id="courtScheduleSubtitle" style="font-size: 12px; color:var(--pk-text-muted); margin: 0; font-weight: 600;">Court Reservations • Scheduled Players</p>
           </div>
         </div>
-        <button type="button" onclick="closeModal('courtScheduleModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #94A3B8; width: 34px; height: 34px; min-width: 34px; min-height: 34px; max-width: 34px; max-height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)';" aria-label="Close modal">&times;</button>
+        <button type="button" onclick="closeModal('courtScheduleModal')" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color:var(--pk-text-muted); width: 34px; height: 34px; min-width: 34px; min-height: 34px; max-width: 34px; max-height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; padding: 0; flex-shrink: 0; aspect-ratio: 1 / 1; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#FFFFFF'; this.style.background='rgba(255,255,255,0.16)';" onmouseout="this.style.color='#94A3B8'; this.style.background='rgba(255,255,255,0.06)';" aria-label="Close modal">&times;</button>
       </div>
 
       <!-- Schedule List Container -->

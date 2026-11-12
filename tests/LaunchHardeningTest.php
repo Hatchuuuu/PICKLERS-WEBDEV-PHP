@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
  * Regression coverage for the launch-readiness audit: booking slot integrity,
  * precise Open Play cancellation with refunds, promo redemption on Open Play
@@ -16,23 +14,30 @@ use Picklers\Core\Database;
 final class LaunchHardeningTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $userRepository = $this->service(\Picklers\Repositories\UserRepository::class);
+        $ownerRepository = $this->service(\Picklers\Repositories\OwnerRepository::class);
+        $facilityRepository = $this->service(\Picklers\Repositories\FacilityRepository::class);
+        $bookingRepository = $this->service(\Picklers\Repositories\BookingRepository::class);
+        $matchRepository = $this->service(\Picklers\Repositories\MatchRepository::class);
+        $openplayRepository = $this->service(\Picklers\Repositories\OpenPlayRepository::class);
+        $promoRepository = $this->service(\Picklers\Repositories\PromoRepository::class);
+        $walletRepository = $this->service(\Picklers\Repositories\WalletRepository::class);
         $tag = bin2hex(random_bytes(4));
 
-        $makeUser = function (string $label, float $wallet = 0.0) use ($db, $tag): string {
+        $makeUser = function (string $label, float $wallet = 0.0) use ($userRepository, $tag): string {
             $id = "usr_test_harden_{$label}_{$tag}";
-            $db->createUser([
+            $userRepository->createUser([
                 'id' => $id, 'name' => "Hardening {$label}",
                 'email' => "{$id}@example.test", 'password_hash' => password_hash('x1234567', PASSWORD_DEFAULT),
             ]);
             if ($wallet > 0) {
-                $db->updateUser($id, ['wallet_balance' => $wallet]);
+                $userRepository->updateUser($id, ['wallet_balance' => $wallet]);
             }
             return $id;
         };
 
         $ownerId = $makeUser('owner');
-        $facilityId = $db->createFacilityFromApplication([
+        $facilityId = $ownerRepository->createFacilityFromApplication([
             'id' => "app_test_harden_{$tag}",
             'user_id' => $ownerId,
             'facility_name' => "Hardening Facility {$tag}",
@@ -41,111 +46,117 @@ final class LaunchHardeningTest extends TestCase {
             'operating_hours' => '6:00 AM – 11:00 PM',
         ]);
         $courts = [];
-        foreach ($db->getCourtsByFacility($facilityId) as $c) {
+        foreach ($facilityRepository->getCourtsByFacility($facilityId) as $c) {
             $courts[(string)$c['name']] = $c;
         }
         $this->assertTrue(isset($courts['Court 1'], $courts['Court 10']), 'Fixture facility has Court 1 and Court 10');
 
         // ── A booking must carry a real time range ─────────────────────────
         $booker = $makeUser('booker');
-        $bad = $db->createBooking($booker, $facilityId, 'Court 2', 'Tomorrow', '8:00 AM - whenever', 1, 440.0, 'Pay at Venue', (string)$courts['Court 2']['id']);
+        $bad = $bookingRepository->createBooking($booker, $facilityId, 'Court 2', 'Tomorrow', '8:00 AM - whenever', 1, 440.0, 'Pay at Venue', (string)$courts['Court 2']['id']);
         $this->assertFalse((bool)($bad['success'] ?? true), 'REGRESSION: a time slot with an unparseable end is rejected');
 
         // ── Fixtures: one Open Play session on Court 1 and one on Court 10 ─
         $sessionDate = date('Y-m-d', strtotime('+3 days'));
-        $matchCourt1 = $db->insertMatch([
+        $matchCourt1 = $matchRepository->insertMatch([
             'id' => "op_harden_c1_{$tag}", 'facility_id' => $facilityId, 'facility_name' => "Hardening Facility {$tag}",
             'date' => $sessionDate, 'time' => '6:00 PM - 8:00 PM', 'max_players' => 8, 'price' => 100.0, 'type' => 'Court 1', 'title' => 'C1 Social',
         ]);
-        $matchCourt10 = $db->insertMatch([
+        $matchCourt10 = $matchRepository->insertMatch([
             'id' => "op_harden_c10_{$tag}", 'facility_id' => $facilityId, 'facility_name' => "Hardening Facility {$tag}",
             'date' => $sessionDate, 'time' => '6:00 PM - 8:00 PM', 'max_players' => 8, 'price' => 100.0, 'type' => 'Court 10', 'title' => 'C10 Social',
         ]);
 
         $creditsPlayer = $makeUser('credits', 1000.0);
-        $join1 = $db->joinMatch($matchCourt1['id'], $creditsPlayer, 'Pickle Credits');
+        $join1 = $openplayRepository->joinMatch($matchCourt1['id'], $creditsPlayer, 'Pickle Credits');
         $this->assertTrue((bool)($join1['success'] ?? false), 'A Pickle Credits player joins the Court 1 session: ' . ($join1['message'] ?? ''));
-        $this->assertEquals(890.0, (float)($db->getUserById($creditsPlayer)['wallet_balance'] ?? 0), 'The join debits entry + service fee (₱110)');
+        $this->assertEquals(890.0, (float)($userRepository->getUserById($creditsPlayer)['wallet_balance'] ?? 0), 'The join debits entry + service fee (₱110)');
 
         $venuePlayer = $makeUser('venue');
-        $join10 = $db->joinMatch($matchCourt10['id'], $venuePlayer, 'Pay at Venue');
+        $join10 = $openplayRepository->joinMatch($matchCourt10['id'], $venuePlayer, 'Pay at Venue');
         $this->assertTrue((bool)($join10['success'] ?? false), 'A pay-at-venue player joins the Court 10 session');
 
         // ── REGRESSION: an Open Play join with a valid promo code succeeds ─
         // (swapped recordPromoRedemption() arguments threw inside the
         // transaction, so every promo join failed with a system error)
-        $promo = $db->createPromoCode(['code' => 'HARDEN' . strtoupper($tag), 'discount_type' => 'fixed', 'discount_value' => 20, 'user_limit' => 1]);
+        $promo = $promoRepository->createPromoCode(['code' => 'HARDEN' . strtoupper($tag), 'discount_type' => 'fixed', 'discount_value' => 20, 'user_limit' => 1]);
         $promoPlayer = $makeUser('promo', 500.0);
-        $promoJoin = $db->joinMatch($matchCourt10['id'], $promoPlayer, 'Pickle Credits', $promo['code']);
+        $promoJoin = $openplayRepository->joinMatch($matchCourt10['id'], $promoPlayer, 'Pickle Credits', $promo['code']);
         $this->assertTrue((bool)($promoJoin['success'] ?? false), 'REGRESSION: an Open Play join with a valid promo code succeeds: ' . ($promoJoin['message'] ?? ''));
         $this->assertEquals(90.0, (float)($promoJoin['booking']['price'] ?? 0), 'The promo discount is applied to the charged price');
-        $this->assertSame(1, $db->getPromoRedemptionsCount((string)$promo['id'], $promoPlayer), 'The redemption is recorded against the player');
+        $this->assertSame(1, $promoRepository->getPromoRedemptionsCount((string)$promo['id'], $promoPlayer), 'The redemption is recorded against the player');
 
         // A regular court reservation on Court 1 that is NOT part of Open Play.
-        $reservation = $db->createBooking($booker, $facilityId, 'Court 1', 'Tomorrow', '9:00 AM - 10:00 AM', 1, 440.0, 'Pay at Venue', (string)$courts['Court 1']['id']);
+        $reservation = $bookingRepository->createBooking($booker, $facilityId, 'Court 1', 'Tomorrow', '9:00 AM - 10:00 AM', 1, 440.0, 'Pay at Venue', (string)$courts['Court 1']['id']);
         $this->assertTrue((bool)($reservation['success'] ?? false), 'A regular reservation on Court 1 is booked: ' . ($reservation['message'] ?? ''));
 
         // ── Roster is the session's own players only ───────────────────────
-        $roster10 = $db->getOpenPlayRoster($facilityId, 'Court 10');
+        $roster10 = $openplayRepository->getOpenPlayRoster($facilityId, 'Court 10');
         $this->assertSame(2, count($roster10), "Court 10's roster lists exactly its two joined players");
 
         // ── REGRESSION: cancelling Court 1's Open Play is precise ──────────
-        $outcome = $db->cancelOpenPlaySessions('', $facilityId, 'Court 1');
+        $outcome = $openplayRepository->cancelOpenPlaySessions('', $facilityId, 'Court 1');
         $this->assertTrue($outcome['deleted'], 'The Court 1 session is removed');
         $this->assertSame(1, $outcome['cancelled_bookings'], 'Only the Court 1 join booking is cancelled');
         $this->assertEquals(110.0, $outcome['refunded_amount'], 'The Pickle Credits payment is refunded');
-        $this->assertEquals(1000.0, (float)($db->getUserById($creditsPlayer)['wallet_balance'] ?? 0), "The player's wallet is made whole");
-        $this->assertNotNull($db->getMatchById($matchCourt10['id']), 'REGRESSION: "Court 10" is not caught by cancelling "Court 1"');
-        $this->assertSame('pending', (string)($db->getBookingById((string)$join10['booking']['id'])['status'] ?? ''), "Court 10's join request is untouched");
-        $this->assertSame('pending', (string)($db->getBookingById((string)$reservation['booking']['id'])['status'] ?? ''),
+        $this->assertEquals(1000.0, (float)($userRepository->getUserById($creditsPlayer)['wallet_balance'] ?? 0), "The player's wallet is made whole");
+        $this->assertNotNull($matchRepository->getMatchById($matchCourt10['id']), 'REGRESSION: "Court 10" is not caught by cancelling "Court 1"');
+        $this->assertSame('pending', (string)($bookingRepository->getBookingById((string)$join10['booking']['id'])['status'] ?? ''), "Court 10's join request is untouched");
+        $this->assertSame('pending', (string)($bookingRepository->getBookingById((string)$reservation['booking']['id'])['status'] ?? ''),
             'REGRESSION: an ordinary reservation on Court 1 is not cancelled with the Open Play session');
-        $this->assertSame([], $db->getOpenPlayRoster($facilityId, 'Court 1'), 'A court without an active session has an empty roster');
+        $this->assertSame([], $openplayRepository->getOpenPlayRoster($facilityId, 'Court 1'), 'A court without an active session has an empty roster');
 
         // ── Atomic status transition ───────────────────────────────────────
         $venueBookingId = (string)$join10['booking']['id'];
-        $this->assertTrue($db->transitionBookingStatus($venueBookingId, ['pending'], 'confirmed'), 'The first approval moves the request to confirmed');
-        $this->assertFalse($db->transitionBookingStatus($venueBookingId, ['pending'], 'confirmed'), 'REGRESSION: a repeated approval reports no change');
+        $this->assertTrue($bookingRepository->transitionBookingStatus($venueBookingId, ['pending'], 'confirmed'), 'The first approval moves the request to confirmed');
+        $this->assertFalse($bookingRepository->transitionBookingStatus($venueBookingId, ['pending'], 'confirmed'), 'REGRESSION: a repeated approval reports no change');
 
         // ── The owner's request queue and daily income use real data ───────
-        $queue = $db->getPendingBookingRequests($facilityId);
+        $queue = $bookingRepository->getPendingBookingRequests($facilityId);
         $queueIds = array_column($queue, 'id');
         $this->assertTrue(in_array((string)$promoJoin['booking']['id'], $queueIds, true) && in_array((string)$reservation['booking']['id'], $queueIds, true),
             'The facility-scoped request queue lists this facility\'s pending requests');
         $this->assertFalse(in_array($venueBookingId, $queueIds, true), 'A confirmed booking has left the request queue');
 
-        $breakdown = $db->getOwnerFinancials($facilityId)['daily_breakdown'];
+        $breakdown = $ownerRepository->getOwnerFinancials($facilityId)['daily_breakdown'];
         $this->assertSame(30, count($breakdown), 'The daily income breakdown covers exactly 30 days');
         $this->assertEquals(110.0, (float)$breakdown[0]['revenue'], "Today's row carries today's confirmed revenue, not an invented figure");
         $this->assertSame(1, (int)$breakdown[0]['sessions'], "Today's row counts the one confirmed booking");
 
         // ── Payout availability accounts for earlier requests ──────────────
-        $available = (float)$db->getOwnerFinancials($facilityId)['available'];
-        $this->assertEquals(83.6, $available, 'Available = 80% of net confirmed revenue (₱110 gross, 5% fee)');
-        $firstPayout = $db->createPayoutRequest($ownerId, (string)$facilityId, $available, 'GCash', 'test');
+        $this->assertEquals(0.0, (float)$ownerRepository->getOwnerFinancials($facilityId)['available'], 'Venue-paid bookings cannot fund platform payouts');
+        $collectedId = (string)$promoJoin['booking']['id'];
+        $bookingRepository->transitionBookingStatus($collectedId, ['pending'], 'confirmed');
+        $this->assertEquals(0.0, (float)$ownerRepository->getOwnerFinancials($facilityId)['available'], 'Collected future bookings remain unavailable until the session ends');
+        $this->service(\Doctrine\DBAL\Connection::class)->update('bookings', ['booking_date' => date('Y-m-d', strtotime('-1 day')), 'end_min' => 1200], ['id' => $collectedId]);
+        $available = (float)$ownerRepository->getOwnerFinancials($facilityId)['available'];
+        $this->assertEquals(68.4, $available, 'Available = 80% of collected elapsed credit revenue after 5% fee (₱90 gross)');
+        $firstPayout = $ownerRepository->createPayoutRequest($ownerId, (string)$facilityId, $available, 'GCash', 'test');
         $this->assertTrue((bool)($firstPayout['success'] ?? false), 'A payout of the full available balance is accepted');
-        $this->assertEquals(0.0, (float)$db->getOwnerFinancials($facilityId)['available'], 'The requested amount is no longer available');
-        $secondPayout = $db->createPayoutRequest($ownerId, (string)$facilityId, 1.0, 'GCash', 'test');
+        $this->assertEquals(0.0, (float)$ownerRepository->getOwnerFinancials($facilityId)['available'], 'The requested amount is no longer available');
+        $secondPayout = $ownerRepository->createPayoutRequest($ownerId, (string)$facilityId, 1.0, 'GCash', 'test');
         $this->assertFalse((bool)($secondPayout['success'] ?? true), 'REGRESSION: the same earnings cannot be requested twice');
+        $this->service(\Doctrine\DBAL\Connection::class)->update('bookings', ['booking_date' => $sessionDate], ['id' => $collectedId]);
 
         // ── A session that has already started cannot be cancelled ─────────
         $nowMin = ((int)date('G') * 60) + (int)date('i');
         $startMin = max(0, $nowMin - 30);
         $endMin = min(1439, $nowMin + 30);
         $liveId = "test_harden_live_{$tag}";
-        $db->insertBooking([
+        $bookingRepository->insertBooking([
             'id' => $liveId, 'user_id' => $booker, 'facility_id' => $facilityId, 'court_id' => (string)$courts['Court 3']['id'],
             'facility_name' => "Hardening Facility {$tag}", 'court_name' => 'Court 3', 'date' => date('Y-m-d'),
             'time' => date('g:i A', strtotime('today') + $startMin * 60) . ' - ' . date('g:i A', strtotime('today') + $endMin * 60),
             'booking_date' => date('Y-m-d'), 'start_min' => $startMin, 'end_min' => $endMin,
             'duration' => 1, 'price' => 440.0, 'payment_method' => 'Pay at Venue', 'status' => 'confirmed',
         ]);
-        $lateCancel = $db->cancelBooking($liveId, $booker);
+        $lateCancel = $bookingRepository->cancelBooking($liveId, $booker);
         $this->assertFalse((bool)($lateCancel['success'] ?? true), 'REGRESSION: a booking already in play cannot be cancelled');
 
         // ── Reading the wallet ledger never writes to it ───────────────────
         $legacy = $makeUser('legacy', 250.0);
-        $first = $db->getWalletTransactions($legacy);
-        $second = $db->getWalletTransactions($legacy);
+        $first = $walletRepository->getWalletTransactions($legacy);
+        $second = $walletRepository->getWalletTransactions($legacy);
         $labels = array_column($second, 'label');
         $this->assertTrue(in_array('Opening Balance', array_column($first, 'label'), true), 'An unexplained balance is shown as an opening balance');
         $this->assertTrue(in_array('Opening Balance', $labels, true) && !in_array('GCash Top-Up', $labels, true),
@@ -153,30 +164,30 @@ final class LaunchHardeningTest extends TestCase {
 
         // ── The cancel dialog's refund promise matches cancelBooking() ─────
         $promoBookingId = (string)$promoJoin['booking']['id'];
-        $promoBooking = $db->getBookingById($promoBookingId);
-        $this->assertTrue($db->isFullRefundEligible($promoBooking), 'A Pickle Credits booking days away is shown as fully refundable');
-        $this->assertFalse($db->isFullRefundEligible($db->getBookingById((string)$reservation['booking']['id'])),
+        $promoBooking = $bookingRepository->getBookingById($promoBookingId);
+        $this->assertTrue($bookingRepository->isFullRefundEligible($promoBooking), 'A Pickle Credits booking days away is shown as fully refundable');
+        $this->assertFalse($bookingRepository->isFullRefundEligible($bookingRepository->getBookingById((string)$reservation['booking']['id'])),
             'A Pay at Venue booking is never promised a refund');
         $imminent = $promoBooking;
         $imminent['status'] = 'confirmed';
         $imminent['booking_date'] = date('Y-m-d');
         $imminent['start_min'] = min(1439, $nowMin + 60);
         $imminent['end_min'] = min(1439, $nowMin + 120);
-        $this->assertFalse($db->isFullRefundEligible($imminent), 'A Pickle Credits booking within 24 hours is not promised a refund');
+        $this->assertFalse($bookingRepository->isFullRefundEligible($imminent), 'A Pickle Credits booking within 24 hours is not promised a refund');
 
-        $promoCancel = $db->cancelBooking($promoBookingId, $promoPlayer);
+        $promoCancel = $bookingRepository->cancelBooking($promoBookingId, $promoPlayer);
         $this->assertEquals(90.0, (float)($promoCancel['refund_amount'] ?? 0), 'Cancelling the eligible booking refunds exactly what was charged');
-        $this->assertEquals(500.0, (float)($db->getUserById($promoPlayer)['wallet_balance'] ?? 0), "The promo player's wallet is made whole");
+        $this->assertEquals(500.0, (float)($userRepository->getUserById($promoPlayer)['wallet_balance'] ?? 0), "The promo player's wallet is made whole");
 
         $gcashId = "test_harden_gcash_{$tag}";
         $gcashDate = date('Y-m-d', strtotime('+3 days'));
-        $db->insertBooking([
+        $bookingRepository->insertBooking([
             'id' => $gcashId, 'user_id' => $booker, 'facility_id' => $facilityId, 'court_id' => (string)$courts['Court 4']['id'],
             'facility_name' => "Hardening Facility {$tag}", 'court_name' => 'Court 4', 'date' => $gcashDate,
             'time' => '10:00 AM - 11:00 AM', 'booking_date' => $gcashDate, 'start_min' => 600, 'end_min' => 660,
             'duration' => 1, 'price' => 440.0, 'payment_method' => 'GCash', 'status' => 'pending',
         ]);
-        $gcashCancel = $db->cancelBooking($gcashId, $booker);
+        $gcashCancel = $bookingRepository->cancelBooking($gcashId, $booker);
         $gcashMessage = (string)($gcashCancel['message'] ?? '');
         $this->assertTrue((bool)($gcashCancel['success'] ?? false), 'A GCash booking days away can be cancelled');
         $this->assertTrue(str_contains($gcashMessage, 'GCash') && !str_contains($gcashMessage, 'within 24 hours'),
@@ -189,11 +200,11 @@ final class LaunchHardeningTest extends TestCase {
         $this->assertSame($canonicalPhone, \Picklers\Helpers\Format::phMobile('+63917' . $phoneDigits), 'An international +639… number normalizes to the stored format');
         $this->assertNull(\Picklers\Helpers\Format::phMobile('player@example.test'), 'An email address is not treated as a phone number');
         $phoneUser = $makeUser('phone');
-        $db->updateUser($phoneUser, ['phone' => $canonicalPhone]);
-        $this->assertSame($phoneUser, (string)($db->getUserByEmailOrPhone('0917' . $phoneDigits)['id'] ?? ''),
+        $userRepository->updateUser($phoneUser, ['phone' => $canonicalPhone]);
+        $this->assertSame($phoneUser, (string)($userRepository->getUserByEmailOrPhone('0917' . $phoneDigits)['id'] ?? ''),
             'REGRESSION: signing in with 09… finds the account stored as +63 9xx xxx xxxx');
 
         // Tidy the court fixtures' remaining session.
-        $db->cancelOpenPlaySessions('', $facilityId, 'Court 10');
+        $openplayRepository->cancelOpenPlaySessions('', $facilityId, 'Court 10');
     }
 }

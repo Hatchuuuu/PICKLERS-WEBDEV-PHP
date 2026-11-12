@@ -24,27 +24,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {% include 'web/partials/_theme.html.twig' %}
   <title>List Your Court | Owner Onboarding Pipeline — PICKLERS</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="{{ asset('assets/images/favicon.svg') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
+  <link rel="stylesheet" href="{{ asset('assets/css/ux-core.css') }}">
   <style>
     :root {
       /* PICKLERS brand system (docs/PICKLERS_BRAND_GUIDE.md) — expanded here,
          not replaced. Mint/navy/sky-blue stay the only accent hues. */
-      --bg-dark: #0A121F;
-      --card-dark: #0E1A2D;
-      --card-border: rgba(255, 255, 255, 0.08);
+      --bg-dark: var(--surface-base);
+      --card-dark: var(--surface-raised);
+      --card-border: var(--border-subtle);
       --mint: #00D98B;
       --mint-dim: rgba(0, 217, 139, 0.14);
       --sky: #69A2D0;
       --sky-dim: rgba(105, 162, 208, 0.14);
       --accent-amber: #FFB800;
       --accent-coral: #EF4444;
-      --text-white: #FFFFFF;
-      --text-muted: #94A3B8;
+      --text-white: var(--ink-primary);
+      --text-muted: var(--ink-muted);
       --ease: cubic-bezier(0.16, 1, 0.3, 1);
     }
     * {
@@ -57,7 +59,7 @@
     }
     body {
       background-color: var(--bg-dark);
-      color: #F8FAFC;
+      color: var(--ink-primary);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       min-height: 100vh;
       -webkit-font-smoothing: antialiased;
@@ -66,7 +68,7 @@
     }
     ::selection {
       background: rgba(0, 217, 139, 0.35);
-      color: #FFFFFF;
+      color: var(--ink-primary);
     }
     :focus-visible {
       outline: 2px solid var(--mint);
@@ -78,7 +80,7 @@
     .app-header {
       background: rgba(14, 26, 45, 0.85);
       backdrop-filter: blur(16px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid var(--border-default);
       padding: 16px 32px;
       display: flex;
       align-items: center;
@@ -104,7 +106,7 @@
       font-size: 19px;
       font-weight: 900;
       letter-spacing: -0.02em;
-      color: var(--mint);
+      color: var(--accent-primary-text);
       line-height: 1.2;
     }
     .btn-ghost-back {
@@ -113,18 +115,18 @@
       gap: 8px;
       padding: 8px 16px;
       border-radius: 9999px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #94A3B8;
+      background: var(--surface-veil);
+      border: 1px solid var(--border-default);
+      color: var(--ink-muted);
       font-size: 13px;
       font-weight: 600;
       text-decoration: none;
       transition: color 0.2s var(--ease), background 0.2s var(--ease), border-color 0.2s var(--ease);
     }
     .btn-ghost-back:hover {
-      color: #FFFFFF;
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--ink-primary);
+      background: var(--surface-veil);
+      border-color: var(--border-default);
     }
 
     .wizard-top-nav {
@@ -152,7 +154,7 @@
       display: flex;
       align-items: flex-start;
       gap: 14px;
-      color: #FFB800;
+      color: var(--accent-warning-text);
       margin-bottom: 28px;
       font-size: 14px;
       font-weight: 600;
@@ -170,12 +172,12 @@
       font-size: 34px;
       font-weight: 900;
       letter-spacing: -0.02em;
-      color: #FFFFFF;
+      color: var(--ink-primary);
       margin-bottom: 10px;
     }
     .wizard-hero p {
       font-size: 15px;
-      color: #94A3B8;
+      color: var(--ink-muted);
       max-width: 560px;
       margin: 0 auto;
       line-height: 1.55;
@@ -228,21 +230,21 @@
       justify-content: center;
       font-size: 18px;
       font-weight: 900;
-      color: #FFFFFF;
+      color: var(--ink-primary);
     }
     .verify-progress-meta { min-width: 0; }
     .verify-step-eyebrow {
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.08em;
-      color: var(--mint);
+      color: var(--accent-primary-text);
       text-transform: uppercase;
       margin-bottom: 3px;
     }
     .verify-step-name {
       font-size: 18px;
       font-weight: 800;
-      color: #FFFFFF;
+      color: var(--ink-primary);
     }
 
     .verify-form { padding: 36px; }
@@ -258,7 +260,7 @@
     }
     .verify-screen-intro {
       font-size: 13px;
-      color: #94A3B8;
+      color: var(--ink-muted);
       line-height: 1.5;
       margin-bottom: 26px;
     }
@@ -271,25 +273,25 @@
       display: block;
       font-size: 13px;
       font-weight: 700;
-      color: #E2E8F0;
+      color: var(--ink-secondary);
       margin-bottom: 8px;
       letter-spacing: 0.2px;
     }
     .form-hint {
       font-size: 12px;
-      color: #94A3B8;
+      color: var(--ink-muted);
       margin-top: 6px;
       line-height: 1.4;
     }
     .input-field {
       width: 100%;
       background: rgba(10, 22, 40, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--border-default);
       border-radius: 12px;
       padding: 14px 18px;
       font-size: 14px;
       font-family: inherit;
-      color: #FFFFFF;
+      color: var(--ink-primary);
       outline: none;
       transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
     }
@@ -316,7 +318,7 @@
       gap: 8px;
       background: var(--sky-dim);
       border: 1px solid rgba(105, 162, 208, 0.4);
-      color: var(--sky);
+      color: var(--accent-secondary-text);
       font-weight: 700;
       font-size: 13px;
       padding: 10px 18px;
@@ -342,22 +344,22 @@
       text-align: center;
       padding: 14px 16px;
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1.5px solid rgba(255, 255, 255, 0.1);
-      color: #94A3B8;
+      background: var(--surface-veil);
+      border: 1.5px solid var(--border-default);
+      color: var(--ink-muted);
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
       transition: border-color 0.2s var(--ease), background 0.2s var(--ease), color 0.2s var(--ease);
     }
     .surface-pill-option:hover {
-      border-color: rgba(255, 255, 255, 0.25);
-      color: #FFFFFF;
+      border-color: var(--border-default);
+      color: var(--ink-primary);
     }
     .surface-pill-option.active {
       border-color: var(--mint);
       background: var(--mint-dim);
-      color: var(--mint);
+      color: var(--accent-primary-text);
     }
 
     /* ====================================================================
@@ -367,8 +369,10 @@
        to serve.
        ==================================================================== */
     .capture-frame {
+      width: 100%;
+      font: inherit;
       position: relative;
-      border: 2px dashed rgba(255, 255, 255, 0.18);
+      border: 2px dashed var(--border-default);
       background: rgba(10, 22, 40, 0.6);
       border-radius: 18px;
       padding: 30px 20px;
@@ -395,7 +399,7 @@
       position: absolute;
       width: 22px;
       height: 22px;
-      border-color: rgba(255, 255, 255, 0.3);
+      border-color: var(--border-default);
       transition: border-color 0.25s var(--ease);
     }
     .capture-frame.filled .capture-bracket { border-color: var(--mint); }
@@ -420,27 +424,27 @@
       width: 44px;
       height: 44px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--surface-veil);
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: var(--mint);
+      color: var(--accent-primary-text);
       margin-bottom: 6px;
     }
     .capture-frame.filled .capture-icon-wrap { background: var(--mint-dim); }
     .capture-text {
       font-size: 14px;
       font-weight: 700;
-      color: #FFFFFF;
+      color: var(--ink-primary);
     }
     .capture-sub {
       font-size: 12px;
-      color: #64748B;
+      color: var(--ink-muted);
     }
     .capture-done-name {
       font-size: 13px;
       font-weight: 700;
-      color: #FFFFFF;
+      color: var(--ink-primary);
       max-width: 260px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -449,7 +453,7 @@
     .capture-done-label {
       font-size: 12px;
       font-weight: 700;
-      color: var(--mint);
+      color: var(--accent-primary-text);
       letter-spacing: 0.02em;
     }
 
@@ -465,7 +469,7 @@
       gap: 12px;
     }
     .terms-row input[type="checkbox"] { margin-top: 3px; accent-color: var(--mint); width: 16px; height: 16px; }
-    .terms-row label { font-size: 12px; color: #94A3B8; line-height: 1.45; }
+    .terms-row label { font-size: 12px; color: var(--ink-muted); line-height: 1.45; }
     .form-error-banner {
       display: none;
       margin-top: 16px;
@@ -474,7 +478,7 @@
       border: 1px solid rgba(239, 68, 68, 0.3);
       border-radius: 12px;
       font-size: 12.5px;
-      color: #F87171;
+      color: var(--accent-danger-text);
       line-height: 1.4;
     }
 
@@ -485,26 +489,26 @@
       align-items: center;
       margin-top: 32px;
       padding-top: 24px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      border-top: 1px solid var(--border-default);
     }
     .btn-prev {
       padding: 12px 24px;
       border-radius: 9999px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #94A3B8;
+      background: var(--surface-veil);
+      border: 1px solid var(--border-default);
+      color: var(--ink-muted);
       font-size: 14px;
       font-weight: 700;
       cursor: pointer;
       font-family: inherit;
       transition: background 0.2s var(--ease), color 0.2s var(--ease);
     }
-    .btn-prev:hover { background: rgba(255, 255, 255, 0.1); color: #FFFFFF; }
+    .btn-prev:hover { background: var(--surface-veil); color: var(--ink-primary); }
     .btn-next {
       padding: 12px 28px;
       border-radius: 9999px;
       background: var(--mint);
-      color: #FFFFFF !important;
+      color: var(--on-accent) !important;
       font-size: 14px;
       font-weight: 800;
       border: none;
@@ -517,7 +521,7 @@
       box-shadow: 0 4px 14px rgba(0, 217, 139, 0.3);
     }
     .btn-next:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
-    .btn-next, .btn-next * { color: #FFFFFF !important; stroke: #FFFFFF !important; }
+    .btn-next, .btn-next * { color: var(--on-accent) !important; stroke: var(--on-accent) !important; }
     .btn-next:hover:not(:disabled) {
       background: #00C27C;
       transform: translateY(-1px);
@@ -544,6 +548,8 @@
       border-radius: 24px;
       width: 100%;
       max-width: 480px;
+      max-height: calc(100dvh - 40px);
+      overflow-y: auto;
       padding: 36px 32px;
       text-align: center;
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 24px rgba(255, 255, 255, 0.12);
@@ -554,7 +560,7 @@
       border-radius: 50%;
       background: var(--mint-dim);
       border: 2px solid var(--mint);
-      color: var(--mint);
+      color: var(--accent-primary-text);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -570,23 +576,23 @@
     .elevation-pill {
       padding: 6px 12px;
       border-radius: 9999px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: var(--surface-veil);
+      border: 1px solid var(--border-default);
       font-size: 12px;
       font-weight: 700;
-      color: #94A3B8;
+      color: var(--ink-muted);
     }
     .elevation-pill.highlight {
       background: rgba(255, 184, 0, 0.15);
       border-color: #FFB800;
-      color: #FFB800;
+      color: var(--accent-warning-text);
     }
     .btn-launch-owner {
       width: 100%;
       padding: 14px 24px;
       border-radius: 9999px;
       background: var(--mint);
-      color: #FFFFFF !important;
+      color: var(--on-accent) !important;
       font-size: 15px;
       font-weight: 800;
       border: none;
@@ -600,7 +606,7 @@
       transition: background 0.2s var(--ease), transform 0.2s var(--ease);
       box-shadow: 0 4px 16px rgba(0, 217, 139, 0.3);
     }
-    .btn-launch-owner, .btn-launch-owner * { color: #FFFFFF !important; stroke: #FFFFFF !important; }
+    .btn-launch-owner, .btn-launch-owner * { color: var(--on-accent) !important; stroke: var(--on-accent) !important; }
     .btn-launch-owner:hover { background: #00C27C; transform: translateY(-1px); }
 
     @media (max-width: 640px) {
@@ -619,13 +625,116 @@
       }
       .verify-ring-fill { transition: none !important; }
     }
+
+    /* Light Mode Overrides */
+    html.light body,
+    html:not(.dark) body {
+      background-color: #F8FAFC !important;
+      color: #0F172A !important;
+    }
+    html.light .app-header,
+    html:not(.dark) .app-header {
+      background: #FFFFFF !important;
+      border-bottom: 1px solid #E2E8F0 !important;
+    }
+    html.light .btn-ghost-back,
+    html:not(.dark) .btn-ghost-back {
+      background: #FFFFFF !important;
+      border-color: #CBD5E1 !important;
+      color: #334155 !important;
+    }
+    html.light .btn-ghost-back:hover,
+    html:not(.dark) .btn-ghost-back:hover {
+      background: #F1F5F9 !important;
+      color: #0F172A !important;
+    }
+    html.light .verify-card,
+    html:not(.dark) .verify-card {
+      background: #FFFFFF !important;
+      border-color: #E2E8F0 !important;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.06) !important;
+    }
+    html.light .verify-progress,
+    html:not(.dark) .verify-progress {
+      background: linear-gradient(180deg, rgba(0, 217, 139, 0.08), transparent) !important;
+      border-bottom: 1px solid #E2E8F0 !important;
+    }
+    html.light .verify-ring-track,
+    html:not(.dark) .verify-ring-track {
+      stroke: #E2E8F0 !important;
+    }
+    html.light .form-label,
+    html:not(.dark) .form-label {
+      color: #0F172A !important;
+      font-weight: 700 !important;
+    }
+    html.light .form-hint,
+    html:not(.dark) .form-hint {
+      color: #64748B !important;
+    }
+    html.light .input-field,
+    html:not(.dark) .input-field {
+      background: #F8FAFC !important;
+      border: 1.5px solid #CBD5E1 !important;
+      color: #0F172A !important;
+    }
+    html.light .input-field::placeholder,
+    html:not(.dark) .input-field::placeholder {
+      color: #94A3B8 !important;
+    }
+    html.light .input-field:focus,
+    html:not(.dark) .input-field:focus {
+      background: #FFFFFF !important;
+      border-color: var(--mint) !important;
+      box-shadow: 0 0 0 3px var(--mint-dim) !important;
+      color: #0F172A !important;
+    }
+    html.light select.input-field option,
+    html:not(.dark) select.input-field option {
+      background: #FFFFFF !important;
+      color: #0F172A !important;
+    }
+    html.light .btn-gps-detect,
+    html:not(.dark) .btn-gps-detect {
+      background: #E0F2FE !important;
+      border-color: #BAE6FD !important;
+      color: #0369A1 !important;
+    }
+    html.light .btn-gps-detect:hover,
+    html:not(.dark) .btn-gps-detect:hover {
+      background: #BAE6FD !important;
+    }
+    html.light .surface-pill-option,
+    html:not(.dark) .surface-pill-option {
+      background: #F8FAFC !important;
+      border-color: #CBD5E1 !important;
+      color: #475569 !important;
+    }
+    html.light .surface-pill-option.active,
+    html:not(.dark) .surface-pill-option.active {
+      background: rgba(0, 217, 139, 0.12) !important;
+      border-color: #00D98B !important;
+      color: #065F46 !important;
+    }
+    html.light .capture-frame,
+    html:not(.dark) .capture-frame {
+      background: #F8FAFC !important;
+      border-color: #CBD5E1 !important;
+    }
+    html.light .capture-frame:hover,
+    html.light .capture-frame.dragover,
+    html:not(.dark) .capture-frame:hover,
+    html:not(.dark) .capture-frame.dragover {
+      background: rgba(0, 217, 139, 0.05) !important;
+      border-color: #00D98B !important;
+    }
   </style>
 </head>
 <body>
 
   <!-- Top App Navigation -->
   <header class="app-header">
-    <a href="app.php" class="brand-wrap">
+    <a href="{{ url_to('app.php') }}" class="brand-wrap">
       <img src="{{ asset('assets/images/PICKLERS_OFFICIAL_LOGO.svg') }}" alt="PICKLERS" class="brand-logo" onerror="this.src='{{ asset('assets/images/PICKLERS_LOGO.png') }}'">
       <span class="brand-title">PICKLERS</span>
     </a>
@@ -633,7 +742,7 @@
 
   <!-- Left Back Action Button (On the Red Line Position) -->
   <div class="wizard-top-nav">
-    <a href="app.php" class="btn-ghost-back">
+    <a href="{{ url_to('app.php') }}" class="btn-ghost-back">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       <span>Player App</span>
     </a>
@@ -647,7 +756,7 @@
         <span>Your last submission was missing required details or documents. Please review every step below and try again.</span>
       </div>
     {% elseif (notice == 'pending') %}
-      <div class="notice-card" style="background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38BDF8;">
+      <div class="notice-card" style="background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-secondary-text);">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         <span>Your facility application is currently under review by PICKLERS administrators. You may update your details below.</span>
       </div>
@@ -670,7 +779,7 @@
         </div>
         <div class="verify-progress-meta">
           <div class="verify-step-eyebrow" id="stepEyebrow">Step 1 of 3</div>
-          <div class="verify-step-name" id="stepName">Facility Details</div>
+          <h2 class="verify-step-name" id="stepName" tabindex="-1">Facility Details</h2>
         </div>
       </div>
 
@@ -683,7 +792,7 @@
            checkValidity()/reportValidity() per-field when moving forward
            between screens, and handleFormSubmit() does the same for the final
            step plus a dedicated, visible check for the two documents. -->
-      <form id="ownerApplicationForm" class="verify-form" method="POST" action="owner-application.php" enctype="multipart/form-data" onsubmit="handleFormSubmit(event)" novalidate>
+      <form id="ownerApplicationForm" class="verify-form" method="POST" action="{{ url_to('owner-application.php') }}" enctype="multipart/form-data" onsubmit="handleFormSubmit(event)" novalidate>
         <input type="hidden" name="csrf_token" value="{{ (csrfToken ?? '') }}">
 
         <!-- ====================================================================
@@ -700,13 +809,14 @@
 
           <div class="form-group">
             <label class="form-label" for="address">Street Address / City *</label>
-            <input type="text" id="address" name="address" class="input-field" placeholder="e.g. 9th Ave & 28th St, Bonifacio High Street, BGC, Taguig" value="" required>
+            <input type="text" id="address" name="address" class="input-field" placeholder="e.g. 9th Ave & 28th St, Bonifacio High Street, BGC, Taguig" value="" maxlength="200" required>
             <button type="button" class="btn-gps-detect" onclick="detectGPSLocation()">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
               <span id="gpsBtnText">Auto-Detect GPS Location</span>
             </button>
-            <input type="hidden" id="latitude" name="latitude" value="14.5547">
-            <input type="hidden" id="longitude" name="longitude" value="121.0244">
+            <p class="form-hint" id="gpsStatus" role="status"></p>
+            <input type="hidden" id="latitude" name="latitude" value="">
+            <input type="hidden" id="longitude" name="longitude" value="">
           </div>
 
           <div class="form-group">
@@ -723,7 +833,7 @@
           <div class="form-group">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
               <label class="form-label" style="margin-bottom:0;">Standard Operating Hours *</label>
-              <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12.5px; font-weight:700; color:var(--mint); user-select:none;">
+              <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12.5px; font-weight:700; color: var(--accent-primary-text); user-select:none;">
                 <input type="checkbox" id="is_24_hours" onchange="updateOperatingHoursValue()" style="accent-color:var(--mint); width:16px; height:16px; cursor:pointer;">
                 <span>Open 24 Hours (24/7)</span>
               </label>
@@ -731,7 +841,7 @@
 
             <div class="form-grid-2" id="operatingHoursTimeGrid">
               <div>
-                <label style="font-size:11px; font-weight:700; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:block;">Opening Time</label>
+                <label for="operating_start" style="font-size:11px; font-weight:700; color: var(--ink-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:block;">Opening Time</label>
                 <select id="operating_start" class="input-field" onchange="updateOperatingHoursValue()">
                   <option value="04:00 AM">04:00 AM</option>
                   <option value="05:00 AM">05:00 AM</option>
@@ -748,7 +858,7 @@
               </div>
 
               <div>
-                <label style="font-size:11px; font-weight:700; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:block;">Closing Time</label>
+                <label for="operating_end" style="font-size:11px; font-weight:700; color: var(--ink-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; display:block;">Closing Time</label>
                 <select id="operating_end" class="input-field" onchange="updateOperatingHoursValue()">
                   <option value="06:00 PM">06:00 PM</option>
                   <option value="07:00 PM">07:00 PM</option>
@@ -798,7 +908,7 @@
           <div class="form-group">
             <label class="form-label" for="phone">Philippine Mobile Number (+63) *</label>
             <input type="tel" id="phone" name="phone" class="input-field" placeholder="+63 917 888 2026" value="{{ (currentUser.phone ?? '') }}" maxlength="16" onkeydown="return isPhoneKey(event)" oninput="formatPHPhone(this)" required>
-            <div class="form-hint">Strict 10-digit format for GCash payouts and instant booking SMS alerts.</div>
+            <div class="form-hint">Use a Philippine mobile number where the facility operator can be reached.</div>
           </div>
 
           <div class="form-grid-2">
@@ -833,58 +943,58 @@
 
           <!-- Mayor's / Business Permit Capture -->
           <div class="form-group">
-            <label class="form-label">Mayor's Permit / Business License (PDF or Image, max 5MB) *</label>
-            <div class="capture-frame" id="dropzonePermit" onclick="triggerFileInput('permitInput')">
-              <div class="capture-bracket tl"></div>
-              <div class="capture-bracket tr"></div>
-              <div class="capture-bracket bl"></div>
-              <div class="capture-bracket br"></div>
-              <div class="capture-idle">
-                <div class="capture-icon-wrap">
+            <label class="form-label" id="permitLabel" for="permitInput">Mayor's Permit / Business License (PDF or Image, max 5MB) *</label>
+            <button type="button" class="capture-frame" id="dropzonePermit" aria-labelledby="permitLabel" onclick="triggerFileInput('permitInput')">
+              <span class="capture-bracket tl"></span>
+              <span class="capture-bracket tr"></span>
+              <span class="capture-bracket bl"></span>
+              <span class="capture-bracket br"></span>
+              <span class="capture-idle">
+                <span class="capture-icon-wrap">
                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                </div>
-                <div class="capture-text">Tap or drag in your Mayor's / Business Permit</div>
-                <div class="capture-sub">PDF, PNG, or JPG · up to 5MB</div>
-              </div>
-              <div class="capture-done" id="badgePermit">
-                <div class="capture-icon-wrap">
+                </span>
+                <span class="capture-text">Tap or drag in your Mayor's / Business Permit</span>
+                <span class="capture-sub">PDF, PNG, or JPG · up to 5MB</span>
+              </span>
+              <span class="capture-done" id="badgePermit">
+                <span class="capture-icon-wrap">
                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </div>
-                <div class="capture-done-name" id="badgePermitName"></div>
-                <div class="capture-done-label">Ready for review</div>
-              </div>
-            </div>
+                </span>
+                <span class="capture-done-name" id="badgePermitName"></span>
+                <span class="capture-done-label">Ready for review</span>
+              </span>
+            </button>
             <input type="file" id="permitInput" name="permit_file" style="display:none;" accept=".pdf,.png,.jpg,.jpeg" onchange="handleFileSelected(this, 'dropzonePermit', 'badgePermitName')" required>
           </div>
 
           <!-- Government ID Capture -->
           <div class="form-group">
-            <label class="form-label">Valid Government ID of Primary Registrant *</label>
-            <div class="capture-frame" id="dropzoneGovId" onclick="triggerFileInput('govIdInput')">
-              <div class="capture-bracket tl"></div>
-              <div class="capture-bracket tr"></div>
-              <div class="capture-bracket bl"></div>
-              <div class="capture-bracket br"></div>
-              <div class="capture-idle">
-                <div class="capture-icon-wrap">
+            <label class="form-label" id="govIdLabel" for="govIdInput">Valid Government ID of Primary Registrant *</label>
+            <button type="button" class="capture-frame" id="dropzoneGovId" aria-labelledby="govIdLabel" onclick="triggerFileInput('govIdInput')">
+              <span class="capture-bracket tl"></span>
+              <span class="capture-bracket tr"></span>
+              <span class="capture-bracket bl"></span>
+              <span class="capture-bracket br"></span>
+              <span class="capture-idle">
+                <span class="capture-icon-wrap">
                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><circle cx="9" cy="12" r="2"/><path d="M15 9h2"/><path d="M15 12h2"/><path d="M15 15h2"/></svg>
-                </div>
-                <div class="capture-text">Tap or drag in your Official Photo ID</div>
-                <div class="capture-sub">Passport, Driver's License, UMID, or National ID</div>
-              </div>
-              <div class="capture-done" id="badgeGovId">
-                <div class="capture-icon-wrap">
+                </span>
+                <span class="capture-text">Tap or drag in your Official Photo ID</span>
+                <span class="capture-sub">Passport, Driver's License, UMID, or National ID</span>
+              </span>
+              <span class="capture-done" id="badgeGovId">
+                <span class="capture-icon-wrap">
                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </div>
-                <div class="capture-done-name" id="badgeGovIdName"></div>
-                <div class="capture-done-label">Ready for review</div>
-              </div>
-            </div>
+                </span>
+                <span class="capture-done-name" id="badgeGovIdName"></span>
+                <span class="capture-done-label">Ready for review</span>
+              </span>
+            </button>
             <input type="file" id="govIdInput" name="gov_id_file" style="display:none;" accept=".png,.jpg,.jpeg,.pdf" onchange="handleFileSelected(this, 'dropzoneGovId', 'badgeGovIdName')" required>
           </div>
 
           <div class="terms-row">
-            <input type="checkbox" id="terms_check" checked>
+            <input type="checkbox" id="terms_check">
             <label for="terms_check">
               I certify that I am the authorized operator of this sports facility and that the information and documents provided are accurate. I agree to PICKLERS Court Operator Terms &amp; Safety Standards.
             </label>
@@ -913,16 +1023,16 @@
   {% set shouldShowSubmittedModal = hasPendingApp or noticeStr == 'pending' or (noticeStr == 'verification_required' and hasPendingApp) %}
   {% set formattedStatusText = (latestApp.status ?? 'pending_review')|replace({'_': ' ', '-': ' '})|title %}  <div class="elevation-modal-overlay" id="elevationModal" style="{{ (shouldShowSubmittedModal ? 'display: flex;' : '') }}">
     <div class="elevation-modal-card">
-      <div class="elevation-icon-wrap" style="background: rgba(255, 184, 0, 0.14); border: 1.5px solid rgba(255, 184, 0, 0.4); color: #FFB800; box-shadow: 0 0 20px rgba(255, 184, 0, 0.2);">
+      <div class="elevation-icon-wrap" style="background: rgba(255, 184, 0, 0.14); border: 1.5px solid rgba(255, 184, 0, 0.4); color: var(--accent-warning-text); box-shadow: 0 0 20px rgba(255, 184, 0, 0.2);">
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       </div>
-      <h2 style="font-size: 24px; font-weight: 900; color: #FFFFFF; margin-bottom: 8px;">Application Submitted!</h2>
-      <p style="font-size: 14px; color: #94A3B8; line-height: 1.55;">
+      <h2 style="font-size: 24px; font-weight: 900; color: var(--ink-primary); margin-bottom: 8px;">Application Submitted!</h2>
+      <p style="font-size: 14px; color: var(--ink-muted); line-height: 1.55;">
         Thanks! Your facility application and documents are now with the Picklers team for review. We'll notify you as soon as a decision is made.
       </p>
 
       <div class="elevation-pill-row">
-        <div class="elevation-pill highlight" style="display:inline-flex; align-items:center; gap:8px; padding:8px 18px; border-radius:9999px; font-size:13px; font-weight:800; background:transparent; border:1px solid #FFFFFF; color:#FFFFFF; box-shadow:none;">
+        <div class="elevation-pill highlight" style="display:inline-flex; align-items:center; gap:8px; padding:8px 18px; border-radius:9999px; font-size:13px; font-weight:800; background:transparent; border:1px solid #FFFFFF; color: var(--ink-primary); box-shadow:none;">
           <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#FFB800; box-shadow:0 0 8px #FFB800;"></span>
           <span>Status: {{ formattedStatusText }}</span>
         </div>
@@ -930,8 +1040,8 @@
 
       <!-- Action Button Row -->
       <div style="margin-top: 24px; width: 100%;">
-        <a href="app.php" style="width: 100%; padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: 9999px; background: #00D98B; color: #FFFFFF !important; text-decoration: none; border: none; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: transform 0.2s, background 0.2s;">
-          <span style="color: #FFFFFF !important;">OK, Got It</span>
+        <a href="{{ url_to('app.php') }}" style="width: 100%; padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: 9999px; background: #00D98B; color: var(--on-accent) !important; text-decoration: none; border: none; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: transform 0.2s, background 0.2s;">
+          <span style="color: var(--on-accent) !important;">OK, Got It</span>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </a>
       </div>
@@ -940,25 +1050,25 @@
 
   <!-- Verification Notice Modal Notification Overlay -->
   {% if not (shouldShowSubmittedModal) %}
-  <div class="elevation-modal-overlay" id="ownerAppNoticeModal" style="display: flex;" onclick="if(event.target===this) dismissNoticeModal()">
+  <div class="elevation-modal-overlay" id="ownerAppNoticeModal" style="display: flex;">
     <div class="elevation-modal-card">
       <!-- Centered Glowing Icon Badge matching 2nd modal -->
-      <div class="elevation-icon-wrap" style="background: rgba(255, 184, 0, 0.14); border: 1.5px solid rgba(255, 184, 0, 0.4); color: #FFB800; box-shadow: 0 0 20px rgba(255, 184, 0, 0.2);">
+      <div class="elevation-icon-wrap" style="background: rgba(255, 184, 0, 0.14); border: 1.5px solid rgba(255, 184, 0, 0.4); color: var(--accent-warning-text); box-shadow: 0 0 20px rgba(255, 184, 0, 0.2);">
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       </div>
 
       <!-- Centered Title matching 2nd modal -->
-      <h2 style="font-size: 24px; font-weight: 900; color: #FFFFFF; margin-bottom: 8px; text-align: center;">Court Owner Verification</h2>
+      <h2 style="font-size: 24px; font-weight: 900; color: var(--ink-primary); margin-bottom: 8px; text-align: center;">Court Owner Verification</h2>
 
       <!-- Centered Subtitle Body Text matching 2nd modal -->
-      <p style="font-size: 14px; color: #94A3B8; line-height: 1.55; text-align: center; margin-bottom: 24px;">
+      <p style="font-size: 14px; color: var(--ink-muted); line-height: 1.55; text-align: center; margin-bottom: 24px;">
         To access the Court Owner Portal, please complete your facility details and verification documents below.
       </p>
 
       <!-- Full-Width Action Button matching 2nd modal -->
       <div style="width: 100%;">
-        <button type="button" onclick="dismissNoticeModal()" style="width: 100%; padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: 9999px; background: #00D98B; color: #FFFFFF !important; border: none; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: transform 0.2s, background 0.2s;">
-          <span style="color: #FFFFFF !important;">OK, Fill Up Form</span>
+        <button type="button" onclick="dismissNoticeModal()" style="width: 100%; padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: 9999px; background: #00D98B; color: var(--on-accent) !important; border: none; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; transition: transform 0.2s, background 0.2s;">
+          <span style="color: var(--on-accent) !important;">OK, Fill Up Form</span>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </button>
       </div>
@@ -966,14 +1076,14 @@
   </div>
   {% endif %}
 
+  <script src="{{ asset('assets/js/ux-core.js') }}"></script>
   <script>
     let currentStep = 1;
     const STEP_NAMES = ['Facility Details', 'Business & Contact', 'Permits & ID'];
     const RING_CIRCUMFERENCE = 2 * Math.PI * 27; // r=27, matches the SVG circle above
 
     function dismissNoticeModal() {
-      const el = document.getElementById('ownerAppNoticeModal');
-      if (el) el.style.display = 'none';
+      UX.closeDialog('ownerAppNoticeModal');
     }
 
     function updateOperatingHoursValue() {
@@ -1042,6 +1152,7 @@
       });
 
       updateVerifyProgress(step);
+      document.getElementById('stepName').focus();
     }
 
     function selectSurface(element, surface) {
@@ -1083,6 +1194,8 @@
 
     function detectGPSLocation() {
       const btnText = document.getElementById('gpsBtnText');
+      const status = document.getElementById('gpsStatus');
+      if (status) status.textContent = '';
       if (btnText) btnText.innerText = 'Detecting GPS Coordinates...';
 
       if ('geolocation' in navigator) {
@@ -1107,30 +1220,26 @@
                   if (parts.length > 0) formatted = parts.join(', ');
                 }
                 if (!formatted) {
-                  formatted = (lat >= 9.0 && lat <= 10.5 && lng >= 122.5 && lng <= 124.0) ? 'Bunao, Dumaguete City' : `${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`;
+                  formatted = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
                 }
                 document.getElementById('address').value = formatted;
                 if (btnText) btnText.innerText = `✓ GPS Locked (${formatted})`;
               })
               .catch(() => {
-                const fallback = (lat >= 9.0 && lat <= 10.5 && lng >= 122.5 && lng <= 124.0) ? 'Bunao, Dumaguete City' : `${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`;
+                const fallback = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
                 document.getElementById('address').value = fallback;
                 if (btnText) btnText.innerText = `✓ GPS Locked (${fallback})`;
               });
           },
-          (err) => {
-            const fallback = 'Bunao, Dumaguete City';
-            document.getElementById('latitude').value = '9.3289';
-            document.getElementById('longitude').value = '123.2960';
-            document.getElementById('address').value = fallback;
-            if (btnText) btnText.innerText = `✓ GPS Location Set (${fallback})`;
+          () => {
+            if (btnText) btnText.innerText = 'Retry GPS Location';
+            if (status) status.textContent = 'GPS could not be detected. Your location is unchanged; enter the address manually or allow location access and retry.';
           },
           { timeout: 8000, enableHighAccuracy: true }
         );
       } else {
-        const fallback = 'Bunao, Dumaguete City';
-        document.getElementById('address').value = fallback;
-        if (btnText) btnText.innerText = `✓ GPS Location Set (${fallback})`;
+        if (btnText) btnText.innerText = 'GPS Unavailable';
+        if (status) status.textContent = 'GPS is unavailable in this browser. Your location is unchanged; enter the address manually.';
       }
     }
 
@@ -1177,6 +1286,10 @@
 
     function handleFormSubmit(e) {
       e.preventDefault();
+      if (currentStep < 3) {
+        goToStep(currentStep + 1);
+        return;
+      }
       const form = document.getElementById('ownerApplicationForm');
       const errorBox = document.getElementById('applicationFormError');
       if (errorBox) errorBox.style.display = 'none';
@@ -1235,14 +1348,14 @@
       // auto-elevates (see submitApplication() — status is always
       // 'pending_review' for a human admin to act on), so this now only
       // shows that modal, with accurate copy, on a real success response.
-      fetch('owner-application.php', {
+      fetch(form.action, {
         method: 'POST',
         body: formData
       })
       .then(res => res.json().then(data => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (ok && data && data.success) {
-          document.getElementById('elevationModal').style.display = 'flex';
+          UX.openDialog('elevationModal', { dismissible: false });
         } else {
           restoreSubmitBtn();
           showApplicationError((data && data.message) || 'Could not submit your application. Please try again.');
@@ -1252,6 +1365,12 @@
         restoreSubmitBtn();
         showApplicationError('Network error — your application was not submitted. Please try again.');
       });
+    }
+    if (document.getElementById('elevationModal').style.display === 'flex') {
+      UX.openDialog('elevationModal', { dismissible: false });
+    } else if (document.getElementById('ownerAppNoticeModal')) {
+      document.getElementById('facility_name').focus({ preventScroll: true });
+      UX.openDialog('ownerAppNoticeModal');
     }
   </script>
 </body>

@@ -39,6 +39,16 @@ final class PagesTest extends AdminWebTestCase
         self::assertSelectorTextContains('a.btn-nav-login', 'Open App');
     }
 
+    public function testLandingEmptyStatesExplainMissingListings(): void
+    {
+        $html = static::getContainer()->get('twig')->render('web/home.html.twig', [
+            'currentUser' => null, 'facilities' => [], 'matches' => [], 'brands' => [], 'faqs' => [], 'site_name' => 'PICKLERS', 'city_count' => 0,
+        ]);
+        self::assertStringContainsString('No facilities are listed yet.', $html);
+        self::assertStringContainsString('No Open Play sessions are listed yet.', $html);
+        self::assertStringContainsString('href="owner-application.php">List your court', $html);
+    }
+
     public function testSignInPageTabsAndFlash(): void
     {
         $this->client->request('GET', '/auth.php', ['intent' => 'signup']);
@@ -49,6 +59,22 @@ final class PagesTest extends AdminWebTestCase
         self::assertSame(302, $r['status']);
         $this->client->followRedirect();
         self::assertSelectorTextContains('.auth-toast-error', 'No account found');
+    }
+
+    public function testExploreEmptyStateIsVisibleOnInitialRenderOnlyWhenThereAreNoMatches(): void
+    {
+        $twig = static::getContainer()->get('twig');
+        foreach ([[], [['id' => 'empty-state-test', 'level' => 'Beginner', 'location' => 'Test venue', 'time' => '10:00 AM']]] as $matches) {
+            $html = $twig->render('web/partials/app/_tab-explore.html.twig', [
+                'activeTab' => 'explore', 'matches' => $matches, 'bookings' => [],
+            ]);
+            $crawler = new \Symfony\Component\DomCrawler\Crawler($html);
+            $emptyState = $crawler->filter('#matchesEmptyState');
+            self::assertCount(1, $emptyState);
+            self::assertStringContainsString('No Matches Found', $emptyState->text());
+            self::assertSame($matches === [], !str_contains((string)$emptyState->attr('style'), 'display:none'));
+            self::assertCount(count($matches), $crawler->filter('.match-card-item'));
+        }
     }
 
     public function testSignInChecksPasswordThrottlesAndStartsTheSession(): void
@@ -85,10 +111,32 @@ final class PagesTest extends AdminWebTestCase
         self::pdo()->exec("DELETE FROM users WHERE email = 'newbie@fixture.test'");
     }
 
+    public function testRegistrationChecksSubmittedPasswordConfirmationBeforeWriting(): void
+    {
+        $email = 'confirm-pass2@fixture.test';
+        $base = ['auth_action' => 'signup', 'name' => 'Confirmation Customer', 'email' => $email, 'password' => 'Fixture-Pass-2026'];
+        self::pdo()->exec("DELETE FROM users WHERE email = 'confirm-pass2@fixture.test'");
+        try {
+            foreach (['Different-Pass-2026', ''] as $confirmation) {
+                $result = $this->auth($base + ['password_confirm' => $confirmation]);
+                self::assertSame(400, $result['status']);
+                self::assertStringContainsString('Passwords do not match', $result['json']['message']);
+                self::assertSame(0, (int)$this->scalar('SELECT COUNT(*) FROM users WHERE email = ?', [$email]));
+            }
+            $result = $this->auth($base + ['password_confirm' => $base['password']]);
+            self::assertSame(200, $result['status']);
+            self::assertTrue($result['json']['success']);
+            self::assertSame(1, (int)$this->scalar('SELECT COUNT(*) FROM users WHERE email = ?', [$email]));
+        } finally {
+            self::pdo()->exec("DELETE FROM users WHERE email = 'confirm-pass2@fixture.test'");
+        }
+    }
+
     public function testLogoutEndsTheSession(): void
     {
         $this->signIn('usr_fx_p1');
-        $this->client->request('GET', '/logout');
+        $_SESSION['_sf2_attributes']['_csrf/picklers'] = 'logout-token';
+        $this->client->request('POST', '/logout', ['csrf_token' => 'logout-token']);
         self::assertResponseRedirects('/auth?logout=1');
         self::assertArrayNotHasKey('picklers_user_id', $_SESSION['_sf2_attributes'] ?? []);
     }

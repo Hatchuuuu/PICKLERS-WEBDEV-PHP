@@ -19,11 +19,11 @@
             Player Conversations ({{ conversations|length }})
           </div>
           {% for idx, conv in conversations %}
-            <div class="inbox-item {{ ((idx == 0) ? 'active' : '') }}" id="inbox_item_{{ conv.user_id }}" onclick="selectConversation('{{ addslashes(conv.user_id) }}', '{{ addslashes(conv.user_name) }}', '{{ addslashes(conv.user_avatar) }}', this)">
+            <div class="inbox-item {{ ((idx == 0) ? 'active' : '') }}" id="inbox_item_{{ conv.user_id }}" role="button" tabindex="0" onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" onclick="selectConversation('{{ addslashes(conv.user_id) }}', '{{ addslashes(conv.user_name) }}', '{{ addslashes(conv.user_avatar) }}', this)">
               <img src="{{ conv.user_avatar }}" alt="Avatar" style="width:38px; height:38px; border-radius:50%; object-fit:cover;">
               <div style="flex:1; overflow:hidden;">
                 <div style="font-size:14px; font-weight:700; color:#FFFFFF;">{{ conv.user_name }}</div>
-                <div style="font-size:12px; color:#94A3B8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ conv.last_message }}</div>
+                <div style="font-size:12px; color:var(--pk-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ conv.last_message }}</div>
               </div>
               {% if not ((not (conv.unread ?? null))) %}
                 <div class="inbox-unread-count">{{ conv.unread }}</div>
@@ -53,7 +53,7 @@
           </div>
 
           <div class="chat-input-bar">
-            <input type="text" id="chatMessageInput" class="chat-input-field" placeholder="Reply to player..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+            <input type="text" id="chatMessageInput" aria-label="Reply to player" class="chat-input-field" placeholder="Reply to player..." onkeydown="if(event.key==='Enter') sendChatMessage()">
             <button type="button" class="btn-chat-send" onclick="sendChatMessage()">
               <span>Send</span>
               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>

@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Picklers\Tests\Admin;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\BookingRepository;
+use Picklers\Repositories\FacilityRepository;
+use Picklers\Repositories\OpenPlayRepository;
 
 /** R03 — facilities & courts: real aggregates, governed edits, availability enforcement. */
 final class FacilitiesTest extends AdminWebTestCase
@@ -46,8 +48,8 @@ final class FacilitiesTest extends AdminWebTestCase
         self::assertNotEmpty($r['json']['affected_bookings'], 'existing bookings are listed for explicit handling');
         self::assertSame($upcomingBefore, (int)$this->scalar("SELECT COUNT(*) FROM bookings WHERE facility_id = ? AND status IN ('pending','confirmed')", [$this->fac1]), 'and are not cancelled');
 
-        $db = Database::get();
-        $db->invalidateReadCache();
+        $db = static::getContainer()->get(BookingRepository::class);
+        static::getContainer()->get(FacilityRepository::class)->invalidateReadCache();
         // Channel 1: player court booking.
         $res = $db->createBooking('usr_fx_p1', $this->fac1, 'Court 1', $this->futureDate(), '8:00 AM - 9:00 AM', 1, 300.0, 'GCash', 'crt_' . $this->fac1 . '_1');
         self::assertFalse($res['success']);
@@ -56,17 +58,17 @@ final class FacilitiesTest extends AdminWebTestCase
         self::pdo()->exec("DELETE FROM matches WHERE id = 'FX-MATCH1'");
         self::pdo()->prepare("INSERT INTO matches (id, facility_id, facility_name, location, date, time, level, current_players, max_players, price, type, host) VALUES ('FX-MATCH1', ?, 'Fixture Arena Dumaguete', 'x', ?, '6:00 PM - 8:00 PM', 'Intermediate', 0, 4, 150, 'Court 2', 'Host')")
             ->execute([$this->fac1, $this->futureDate(3)]);
-        $join = $db->joinMatch('FX-MATCH1', 'usr_fx_p2', 'GCash');
+        $join = static::getContainer()->get(OpenPlayRepository::class)->joinMatch('FX-MATCH1', 'usr_fx_p2', 'GCash');
         self::assertFalse($join['success']);
         self::assertStringContainsString('temporarily unavailable', $join['message']);
         // Channel 3: owner-hosted session guard + Discover listing.
         self::assertNotNull($db->bookingBlockReason($this->fac1, 'crt_' . $this->fac1 . '_2', 'Court 2'));
-        self::assertNotContains($this->fac1, array_map(fn($f) => (int)$f['id'], $db->getFacilities()), 'suspended facilities leave Discover');
+        self::assertNotContains($this->fac1, array_map(fn($f) => (int)$f['id'], static::getContainer()->get(FacilityRepository::class)->getFacilities()), 'suspended facilities leave Discover');
         self::assertSame('suspended', $this->lastAudit('facility.suspend') ? 'suspended' : null);
 
         // Reactivate restores booking.
         self::assertSame(200, $this->action('admin_set_facility_status', ['facility_id' => $this->fac1, 'status' => 'active', 'reason' => 'Inspection passed'])['status']);
-        $db->invalidateReadCache();
+        static::getContainer()->get(FacilityRepository::class)->invalidateReadCache();
         $ok = $db->createBooking('usr_fx_p1', $this->fac1, 'Court 1', $this->futureDate(), '8:00 AM - 9:00 AM', 1, 300.0, 'GCash', 'crt_' . $this->fac1 . '_1');
         self::assertTrue($ok['success'], json_encode($ok));
     }
@@ -76,8 +78,8 @@ final class FacilitiesTest extends AdminWebTestCase
         $court2 = 'crt_' . $this->fac1 . '_2';
         $r = $this->action('admin_update_court_status', ['court_id' => $court2, 'status' => 'maintenance', 'reason' => 'Resurfacing the court']);
         self::assertSame(200, $r['status'], json_encode($r['json']));
-        $db = Database::get();
-        $db->invalidateReadCache();
+        $db = static::getContainer()->get(BookingRepository::class);
+        static::getContainer()->get(FacilityRepository::class)->invalidateReadCache();
         $blocked = $db->createBooking('usr_fx_p1', $this->fac1, 'Court 2', $this->futureDate(12), '9:00 AM - 10:00 AM', 1, 350.0, 'GCash', $court2);
         self::assertFalse($blocked['success']);
         self::assertStringContainsString('maintenance', $blocked['message']);

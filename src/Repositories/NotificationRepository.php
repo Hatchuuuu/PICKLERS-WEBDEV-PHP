@@ -13,13 +13,13 @@ final class NotificationRepository
     private readonly \Picklers\Repositories\UserRepository $users;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\Notifier $notifier = null,
-        ?\Picklers\Repositories\UserRepository $users = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\Notifier $notifier,
+        \Picklers\Repositories\UserRepository $users,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->notifier = $notifier ?? \Picklers\Core\Database::get()->notifier();
-        $this->users = $users ?? new \Picklers\Repositories\UserRepository($this->db);
+        $this->db = $db;
+        $this->notifier = $notifier;
+        $this->users = $users;
     }
 
     /** @return array<string,int> channel => current version */

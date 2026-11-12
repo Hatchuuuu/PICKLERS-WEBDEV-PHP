@@ -8,6 +8,7 @@ namespace Picklers\Repositories;
  */
 final class OpenPlayRepository
 {
+    use \Picklers\Domain\SharedTransaction;
     private readonly \Doctrine\DBAL\Connection $db;
     private readonly \Picklers\Domain\Notifier $notifier;
     private readonly \Picklers\Repositories\UserRepository $users;
@@ -19,25 +20,25 @@ final class OpenPlayRepository
     private readonly \Picklers\Repositories\BookingRepository $bookings;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\Notifier $notifier = null,
-        ?\Picklers\Repositories\UserRepository $users = null,
-        ?\Picklers\Repositories\NotificationRepository $notifications = null,
-        ?\Picklers\Repositories\PromoRepository $promos = null,
-        ?\Picklers\Repositories\WalletRepository $wallet = null,
-        ?\Picklers\Repositories\MatchRepository $matches = null,
-        ?\Picklers\Repositories\FacilityRepository $facilities = null,
-        ?\Picklers\Repositories\BookingRepository $bookings = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\Notifier $notifier,
+        \Picklers\Repositories\UserRepository $users,
+        \Picklers\Repositories\NotificationRepository $notifications,
+        \Picklers\Repositories\PromoRepository $promos,
+        \Picklers\Repositories\WalletRepository $wallet,
+        \Picklers\Repositories\MatchRepository $matches,
+        \Picklers\Repositories\FacilityRepository $facilities,
+        \Picklers\Repositories\BookingRepository $bookings,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->notifier = $notifier ?? \Picklers\Core\Database::get()->notifier();
-        $this->users = $users ?? new \Picklers\Repositories\UserRepository($this->db);
-        $this->notifications = $notifications ?? new \Picklers\Repositories\NotificationRepository($this->db);
-        $this->promos = $promos ?? new \Picklers\Repositories\PromoRepository($this->db);
-        $this->wallet = $wallet ?? new \Picklers\Repositories\WalletRepository($this->db);
-        $this->matches = $matches ?? new \Picklers\Repositories\MatchRepository($this->db);
-        $this->facilities = $facilities ?? new \Picklers\Repositories\FacilityRepository($this->db, $this->notifier);
-        $this->bookings = $bookings ?? new \Picklers\Repositories\BookingRepository($this->db);
+        $this->db = $db;
+        $this->notifier = $notifier;
+        $this->users = $users;
+        $this->notifications = $notifications;
+        $this->promos = $promos;
+        $this->wallet = $wallet;
+        $this->matches = $matches;
+        $this->facilities = $facilities;
+        $this->bookings = $bookings;
     }
 
     /**
@@ -74,7 +75,8 @@ final class OpenPlayRepository
         }
 
         $targets = [];
-        foreach ($this->matches->getMatchesByFacility($facilityId) as $m) {
+        // Publication already holds the court; read current rows after any lock wait.
+        foreach ($this->matches->getMatchesByFacility($facilityId, $this->inTransaction()) as $m) {
             $mId    = (string)($m['id'] ?? '');
             $mTitle = trim((string)($m['title'] ?? ''));
             $mCourt = trim((string)($m['court_name'] ?? $m['type'] ?? ''));
@@ -105,7 +107,7 @@ final class OpenPlayRepository
 
         $matchIds = array_keys($targets);
         $sessionCourts = array_values(array_filter(array_map(fn($m) => trim((string)($m['type'] ?? '')), $targets)));
-        $settled = []; // bookings actually cancelled, for notifications after commit
+        $settled = []; // bookings actually cancelled, for transactional notifications
 
         $settle = function (array $booking) use (&$result, &$settled): ?array {
             if (\Picklers\Domain\Schedule::isBookingPast($booking)) {
@@ -119,7 +121,7 @@ final class OpenPlayRepository
             return ['refund' => $refund];
         };
 
-        $this->db->beginTransaction();
+        $owns = $this->beginOwnTransaction();
         try {
             $idPh = implode(',', array_fill(0, count($matchIds), '?'));
             $sql = "SELECT * FROM bookings WHERE facility_id = ? AND status IN ('pending', 'confirmed')
@@ -155,15 +157,13 @@ final class OpenPlayRepository
             $del = $this->db->executeQuery("DELETE FROM matches WHERE facility_id = ? AND id IN ($idPh)", array_merge([$facilityId], $matchIds));
             $result['sessions'] = $del->rowCount();
 
-            $this->db->commit();
         } catch (\Throwable $e) {
-            if ($this->db->isTransactionActive()) {
-                $this->db->rollBack();
-            }
+            $this->rollBackOwn($owns);
             error_log('[DB Error] cancelOpenPlaySessions failed: ' . $e->getMessage());
             throw $e;
         }
 
+        try {
         $result['deleted'] = $result['sessions'] > 0;
 
         foreach ($settled as $s) {
@@ -187,7 +187,28 @@ final class OpenPlayRepository
         $this->facilities->invalidateReadCache();
         $this->notifier->bumpSync('matches', 'bookings', 'courts');
 
+        if ($owns) {
+            $this->db->commit();
+        }
+        } catch (\Throwable $e) {
+            $this->rollBackOwn($owns);
+            throw $e;
+        }
+
         return $result;
+    }
+
+    /** Refund recipients precede court/match locks, matching join and booking's user-first order. */
+    public function lockCourtSessionUsers(int|string $facilityId, string $courtName): void {
+        $ids = $this->db->fetchFirstColumn(
+            "SELECT DISTINCT b.user_id FROM bookings b LEFT JOIN matches m ON m.id = b.match_id
+             WHERE b.facility_id = ? AND b.status IN ('pending', 'confirmed')
+               AND ((m.facility_id = ? AND m.type = ?) OR (b.match_id IS NULL AND b.id LIKE 'PKL-OP-%' AND b.court_name = ?))
+             ORDER BY b.user_id", [$facilityId, $facilityId, $courtName, $courtName]
+        );
+        foreach ($ids as $id) {
+            $this->db->fetchOne('SELECT id FROM users WHERE id = ? FOR UPDATE', [$id]);
+        }
     }
 
     public function getOpenPlayRoster(int|string $facilityId, string $courtName, string $courtId = ''): array {
@@ -232,26 +253,25 @@ final class OpenPlayRepository
         $targetDate = \Picklers\Domain\Schedule::getMatchTargetDate($session);
 
         $stmt = $this->db->executeQuery(
-            "SELECT b.id, b.user_id, b.status, b.booking_date, b.payment_method, b.price, b.created_at, b.court_name, b.date,
+            "SELECT b.id, b.user_id, b.match_id, b.status, b.booking_date, b.payment_method, b.price, b.created_at, b.court_name, b.date,
                     u.name, u.email, u.level, u.avatar_url
                FROM bookings b
           LEFT JOIN users u ON b.user_id = u.id
               WHERE b.facility_id = ? AND b.status IN ('pending', 'confirmed', 'completed')
                 AND (
                      (b.match_id IS NOT NULL AND b.match_id != '' AND b.match_id = ?)
-                  OR (b.id LIKE 'PKL-OP-%' AND (b.court_name = ? OR b.court_name = ? OR b.court_name = ?))
+                  OR ((b.match_id IS NULL OR b.match_id = '') AND b.id LIKE 'PKL-OP-%' AND b.time = ? AND (b.court_name = ? OR b.court_name = ? OR b.court_name = ?))
                 )
            ORDER BY b.created_at DESC",
-            [$facilityId, $sessionId, $sessionCourt, $courtName, $sessionTitle]
+            [$facilityId, $sessionId, $session['time'], $sessionCourt, $courtName, $sessionTitle]
         );
         $rows = $stmt->fetchAllAssociative();
 
         $roster = [];
         $seenPlayers = [];
         foreach ($rows as $r) {
-            // A recurring session is never recreated day to day: only the
-            // current occurrence's players belong on today's roster.
-            if ($isRecurring) {
+            // Legacy court-name matches and recurring sessions must belong to this occurrence.
+            if ($isRecurring || empty($r['match_id'])) {
                 $rawDate = (string)($r['booking_date'] ?? $r['date'] ?? '');
                 $day = '';
                 if ($rawDate !== '') {
@@ -259,7 +279,7 @@ final class OpenPlayRepository
                 } elseif (!empty($r['created_at'])) {
                     $day = date('Y-m-d', strtotime((string)$r['created_at']));
                 }
-                if ($day !== '' && $day !== $targetDate) continue;
+                if ($day !== $targetDate) continue;
             }
 
             $playerKey = (string)($r['user_id'] ?? '') !== '' ? (string)$r['user_id'] : strtolower((string)($r['email'] ?? $r['name'] ?? ''));
@@ -274,7 +294,7 @@ final class OpenPlayRepository
                 'level' => !empty($r['level']) ? $r['level'] : 'Player',
                 'avatar_url' => !empty($r['avatar_url']) ? $r['avatar_url'] : ($r['avatar'] ?? null),
                 'status' => (string)($r['status'] ?? 'pending'),
-                'payment_status' => strcasecmp($method, 'Pay at Venue') === 0 ? 'Pay at Venue' : 'Paid via ' . ($method !== '' ? $method : 'GCash'),
+                'payment_status' => \Picklers\Domain\Payments::methodLabel($method),
                 'fee' => (float)($r['price'] ?? 0),
                 'time_ago' => !empty($r['created_at']) ? date('M j, g:i A', strtotime((string)$r['created_at'])) : 'Recent',
             ];
@@ -286,6 +306,12 @@ final class OpenPlayRepository
             $hostKey = strtolower($hostName);
             if (!isset($seenPlayers[$hostKey])) {
                 $hostAvatar = !empty($session['host_avatar']) ? $session['host_avatar'] : ($session['user_avatar'] ?? ($session['avatar_url'] ?? ($session['avatar'] ?? null)));
+                if (empty($hostAvatar)) {
+                    $fac = $this->facilities->getFacility($facilityId);
+                    if ($fac && !empty($fac['image'])) {
+                        $hostAvatar = $fac['image'];
+                    }
+                }
                 $hostLevel = !empty($session['level']) ? $session['level'] : 'Host / Organizer';
                 $roster[] = [
                     'id' => 'host_' . $sessionId,
@@ -373,11 +399,21 @@ final class OpenPlayRepository
 
     public function joinMatch($matchId, $userId, $paymentMethod = 'GCash', $promoCode = null) {
         $match = null;
-        $pricing = new \Picklers\Services\PricingService($this);
+        $pricing = new \Picklers\Services\PricingService($this->facilities, $this->promos);
 
         try {
+            // Court discovery must not establish a snapshot before the transaction's lock wait.
+            $candidate = $this->matches->getMatchById((string)$matchId);
             $this->db->beginTransaction();
 
+            $walletRow = $this->db->fetchAssociative('SELECT wallet_balance, role FROM users WHERE id = ? FOR UPDATE', [$userId]);
+            if (!$walletRow || in_array($walletRow['role'], ['deleted', 'deactivated'], true)) {
+                $this->db->rollBack();
+                return ['success' => false, 'message' => 'This account is no longer active.'];
+            }
+            if ($candidate) {
+                $this->facilities->lockCourtByName($candidate['facility_id'] ?? 0, (string)($candidate['type'] ?? ''));
+            }
             $stmt = $this->db->executeQuery("SELECT * FROM matches WHERE id = ? FOR UPDATE", [$matchId]);
             $match = $stmt->fetchAssociative();
             if (!$match) {
@@ -391,7 +427,7 @@ final class OpenPlayRepository
                 return ['success' => false, 'message' => 'This Open Play session has already ended.'];
             }
             // matches.type carries the court name the session is hosted on.
-            if (($blocked = $this->bookings->bookingBlockReason($match['facility_id'] ?? 0, null, (string)($match['type'] ?? ''))) !== null) {
+            if (($blocked = $this->bookings->bookingBlockReason($match['facility_id'] ?? 0, null, (string)($match['type'] ?? ''), (string)$match['time'])) !== null) {
                 $this->db->rollBack();
                 return ['success' => false, 'message' => $blocked];
             }
@@ -420,8 +456,6 @@ final class OpenPlayRepository
 
             // Charge the wallet atomically when paying with Pickle Credits.
             if ($paymentMethod === 'Pickle Credits' && $finalPrice > 0) {
-                $walletStmt = $this->db->executeQuery("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE", [$userId]);
-                $walletRow = $walletStmt->fetchAssociative();
                 if (!$walletRow || (float)($walletRow['wallet_balance'] ?? 0) < $finalPrice) {
                     $this->db->rollBack();
                     return ['success' => false, 'message' => 'Insufficient Pickle Credits. Please top up your wallet!'];
@@ -435,6 +469,8 @@ final class OpenPlayRepository
             $bookingId = 'PKL-OP-' . strtoupper(bin2hex(random_bytes(3)));
             $isEveryday = strcasecmp($match['date'] ?? '', 'everyday') === 0 || strcasecmp($match['date'] ?? '', 'daily') === 0;
             $bookingDateDisplay = $isEveryday ? date('D, M j, Y', strtotime($targetDate)) : $match['date'];
+            $window = \Picklers\Domain\Schedule::parseTimeRange((string)$match['time']);
+            $duration = $window !== null ? ($window[1] - $window[0]) / 60 : 2;
             $booking = [
                 'id' => $bookingId,
                 'user_id' => $userId,
@@ -443,8 +479,10 @@ final class OpenPlayRepository
                 'court_name' => $match['type'] ?? 'Open Play Session',
                 'date' => $bookingDateDisplay,
                 'booking_date' => $targetDate,
+                'start_min' => $window[0] ?? null,
+                'end_min' => $window[1] ?? null,
                 'time' => $match['time'],
-                'duration' => '2 Hours',
+                'duration' => $duration . ($duration == 1 ? ' Hour' : ' Hours'),
                 'price' => $finalPrice,
                 'payment_method' => $paymentMethod ?? 'GCash',
                 'status' => 'pending',
@@ -476,7 +514,36 @@ final class OpenPlayRepository
                     'debit',
                     $finalPrice,
                         "Open Play #$bookingId at " . ($match['facility_name'] ?? 'Pickleball Facility'),
-                    ['entry_kind' => 'booking_payment', 'booking_id' => $bookingId]
+                    ['entry_kind' => 'booking_payment', 'booking_id' => $bookingId, 'balance_after' => (string)$this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = ?', [$userId])]
+                );
+            }
+
+            // Notify user — this is a REQUEST, not a confirmed seat, until the
+            // facility owner approves it (see 'approve_booking' in ApiController,
+            // which sends the actual "Booking Confirmed!" notification).
+            $this->notifications->addNotification(
+                $userId,
+                'Open Play Request Sent 🔥',
+                'Your request to join ' . ($match['type'] ?? 'Open Play') . ' at ' . ($match['facility_name'] ?? 'Facility') . ' is awaiting the facility\'s confirmation. We\'ll notify you once it\'s approved.',
+                'community'
+            );
+
+            // createBooking() tells the owner about a new court request; an Open
+            // Play join request needs the same owner approval but never did.
+            $ownerId = $this->facilities->getFacilityOwnerId($match['facility_id'] ?? 0);
+            if ($ownerId !== null && $ownerId !== (string)$userId) {
+                $joinerName = $this->users->getUserById((string)$userId)['name'] ?? 'A player';
+                $this->notifications->addNotification(
+                    $ownerId,
+                    'New Open Play request 🔥',
+                    sprintf(
+                        '%s requested to join %s at %s (%s). Review it in your Requests queue.',
+                        $joinerName,
+                        $match['type'] ?? 'Open Play',
+                        $match['facility_name'] ?? 'your facility',
+                        $match['time'] ?? ''
+                    ),
+                    'booking'
                 );
             }
 
@@ -490,35 +557,6 @@ final class OpenPlayRepository
             }
             error_log('[DB Error] joinMatch transaction failed: ' . $e->getMessage());
             return ['success' => false, 'message' => 'System transaction error. Please try again.'];
-        }
-
-        // Notify user — this is a REQUEST, not a confirmed seat, until the
-        // facility owner approves it (see 'approve_booking' in ApiController,
-        // which sends the actual "Booking Confirmed!" notification).
-        $this->notifications->addNotification(
-            $userId,
-            'Open Play Request Sent 🔥',
-            'Your request to join ' . ($match['type'] ?? 'Open Play') . ' at ' . ($match['facility_name'] ?? 'Facility') . ' is awaiting the facility\'s confirmation. We\'ll notify you once it\'s approved.',
-            'community'
-        );
-
-        // createBooking() tells the owner about a new court request; an Open
-        // Play join request needs the same owner approval but never did.
-        $ownerId = $this->facilities->getFacilityOwnerId($match['facility_id'] ?? 0);
-        if ($ownerId !== null && $ownerId !== (string)$userId) {
-            $joinerName = $this->users->getUserById((string)$userId)['name'] ?? 'A player';
-            $this->notifications->addNotification(
-                $ownerId,
-                'New Open Play request 🔥',
-                sprintf(
-                    '%s requested to join %s at %s (%s). Review it in your Requests queue.',
-                    $joinerName,
-                    $match['type'] ?? 'Open Play',
-                    $match['facility_name'] ?? 'your facility',
-                    $match['time'] ?? ''
-                ),
-                'booking'
-            );
         }
 
         return [

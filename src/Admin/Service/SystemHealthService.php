@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Picklers\Admin\Service;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\Migrations\DependencyFactory;
 use Picklers\Admin\Repository\AuditRepository;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpKernel\Kernel;
@@ -23,6 +24,7 @@ final class SystemHealthService
         #[Autowire('%kernel.debug%')] private readonly bool $debug,
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         #[Autowire('%kernel.cache_dir%')] private readonly string $cacheDir,
+        #[Autowire(service: 'doctrine.migrations.dependency_factory')] private readonly DependencyFactory $migrations,
     ) {
     }
 
@@ -52,7 +54,7 @@ final class SystemHealthService
         $facts[] = ['label' => 'Cache directory', 'value' => is_writable($this->cacheDir) ? 'Writable' : 'Not writable', 'state' => is_writable($this->cacheDir) ? 'ok' : 'error'];
         $sessionPath = (string)ini_get('session.save_path');
         $facts[] = ['label' => 'Session storage', 'value' => ($sessionPath === '' || is_writable($sessionPath)) ? 'Writable' : 'Not writable', 'state' => ($sessionPath === '' || is_writable($sessionPath)) ? 'ok' : 'error'];
-        $simulated = filter_var($_ENV['PAYMENTS_SIMULATED'] ?? false, FILTER_VALIDATE_BOOLEAN) && $this->environment !== 'prod';
+        $simulated = filter_var($_ENV['PAYMENTS_SIMULATED'] ?? false, FILTER_VALIDATE_BOOLEAN) && in_array($this->environment, ['dev', 'test'], true);
         $facts[] = ['label' => 'Payment gateway', 'value' => $simulated ? 'None — simulated top-ups enabled (development only)' : 'None integrated — external payments are unverified', 'state' => 'warn'];
 
         return $facts;
@@ -61,10 +63,7 @@ final class SystemHealthService
     private function pendingMigrations(): ?int
     {
         try {
-            $available = count(glob($this->projectDir . '/src/Migrations/Version*.php') ?: []);
-            $executed = (int)$this->db->fetchOne('SELECT COUNT(*) FROM doctrine_migration_versions');
-
-            return max(0, $available - $executed);
+            return count($this->migrations->getMigrationStatusCalculator()->getNewMigrations());
         } catch (\Throwable) {
             return null;
         }

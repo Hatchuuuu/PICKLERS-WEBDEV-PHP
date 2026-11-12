@@ -12,6 +12,20 @@ final class ApplicationsTest extends AdminWebTestCase
         $this->signIn('usr_fx_admin');
     }
 
+    public function testLegacyOversizedApplicationIsRefusedWithoutChangingItsState(): void
+    {
+        foreach (['address' => 200, 'operating_hours' => 50] as $field => $limit) {
+            $this->db()->update('owner_applications', [$field => str_repeat('x', $limit + 1)], ['id' => 'fx_app_pending1']);
+            $before = $this->scalar('SELECT COUNT(*) FROM facilities');
+            $r = $this->action('admin_approve_owner_application', ['user_id' => 'usr_fx_p4', 'application_id' => 'fx_app_pending1']);
+            self::assertSame(422, $r['status']);
+            self::assertStringContainsString((string)$limit, $r['json']['message']);
+            self::assertSame($before, $this->scalar('SELECT COUNT(*) FROM facilities'));
+            self::assertSame('pending_review', $this->scalar("SELECT status FROM owner_applications WHERE id = 'fx_app_pending1'"));
+            $this->db()->update('owner_applications', [$field => $field === 'address' ? 'Dumaguete' : '6am - 10pm'], ['id' => 'fx_app_pending1']);
+        }
+    }
+
     public function testApproveProvisionsExactlyOneFacilityAtomically(): void
     {
         $before = (int)$this->scalar('SELECT COUNT(*) FROM facilities');
@@ -66,6 +80,31 @@ final class ApplicationsTest extends AdminWebTestCase
         self::assertStringContainsString('Permit file is missing', (string)$this->scalar("SELECT body FROM notifications WHERE user_id = 'usr_fx_p5' ORDER BY created_at DESC LIMIT 1"));
     }
 
+    public static function rejectedApplicantStates(): array
+    {
+        return [
+            'modern pending' => ['player', 0, 'pending_owner_review', 'unverified'],
+            'legacy pending' => ['player', 0, 'pending', 'unverified'],
+            'owner flag retained' => ['player', 1, 'pending_owner_review', 'pending_owner_review'],
+            'owner role retained' => ['owner', 0, 'pending', 'pending'],
+            'verified retained' => ['player', 0, 'verified', 'verified'],
+            'deactivated retained' => ['deleted', 0, 'pending_owner_review', 'pending_owner_review'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('rejectedApplicantStates')]
+    public function testRejectClearsOnlyPendingApplicantVerification(string $role, int $isOwner, string $verification, string $expected): void
+    {
+        $this->db()->update('users', ['role' => $role, 'is_owner' => $isOwner, 'verification_status' => $verification], ['id' => 'usr_fx_p5']);
+        $r = $this->action('admin_reject_owner_application', ['application_id' => 'fx_app_pending2', 'reason' => 'Permit needs correction']);
+        self::assertSame(200, $r['status'], json_encode($r['json']));
+        self::assertSame('rejected', $this->scalar("SELECT status FROM owner_applications WHERE id = 'fx_app_pending2'"));
+        $user = $this->db()->fetchAssociative("SELECT role, is_owner, verification_status FROM users WHERE id = 'usr_fx_p5'");
+        self::assertSame($expected, $user['verification_status']);
+        self::assertSame($role, $user['role']);
+        self::assertSame($isOwner, (int)$user['is_owner']);
+    }
+
     public function testMismatchedApplicantIsRefused(): void
     {
         $r = $this->action('admin_approve_owner_application', ['user_id' => 'usr_fx_p1', 'application_id' => 'fx_app_pending1']);
@@ -75,9 +114,13 @@ final class ApplicationsTest extends AdminWebTestCase
 
     public function testProvisioningFailureRollsEverythingBack(): void
     {
-        self::pdo()->exec("UPDATE owner_applications SET facility_name = '' WHERE id = 'fx_app_pending1'");
+        $this->db()->executeStatement("CREATE TRIGGER test_provision_fail BEFORE INSERT ON facilities FOR EACH ROW BEGIN IF NEW.owner_id = 'usr_fx_p4' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Injected provisioning failure'; END IF; END");
         $before = (int)$this->scalar('SELECT COUNT(*) FROM facilities');
-        $r = $this->action('admin_approve_owner_application', ['application_id' => 'fx_app_pending1']);
+        try {
+            $r = $this->action('admin_approve_owner_application', ['application_id' => 'fx_app_pending1']);
+        } finally {
+            $this->db()->executeStatement('DROP TRIGGER test_provision_fail');
+        }
         self::assertSame(500, $r['status']);
         self::assertStringContainsString('nothing was changed', $r['json']['message']);
         self::assertSame('pending_review', $this->scalar("SELECT status FROM owner_applications WHERE id = 'fx_app_pending1'"));

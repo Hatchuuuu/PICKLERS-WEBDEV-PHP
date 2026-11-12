@@ -66,12 +66,16 @@ abstract class AdminWebTestCase extends WebTestCase
         $db->exec("DELETE FROM admin_activity_seen WHERE user_id LIKE 'usr_fx_%'");
         $db->exec("DELETE FROM admin_privileges WHERE user_id LIKE 'usr_fx_%' AND user_id <> 'usr_fx_root'");
         $db->exec("INSERT IGNORE INTO admin_privileges (user_id, level, granted_by, granted_at, note) VALUES ('usr_fx_root', 'privileged', NULL, NOW(), 'fixture')");
-        \Picklers\Core\Database::get()->invalidateReadCache();
     }
 
     protected static function pdo(): \PDO
     {
-        return \Picklers\Core\Database::get()->pdo();
+        static $pdo;
+        return $pdo ??= new \PDO(
+            sprintf('mysql:host=%s;port=%d;dbname=picklers_admin_test;charset=utf8mb4', $_ENV['DB_HOST'] ?? '127.0.0.1', (int)($_ENV['DB_PORT'] ?? 3306)),
+            $_ENV['DB_USERNAME'] ?? 'root', $_ENV['DB_PASSWORD'] ?? '',
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
+        );
     }
 
     protected function db(): Connection

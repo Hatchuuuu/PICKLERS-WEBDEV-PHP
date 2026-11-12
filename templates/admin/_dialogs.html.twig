@@ -33,6 +33,19 @@
     <p>This change is applied immediately and recorded in the audit trail.</p>
 </template>
 
+<template id="form-edit-user" data-title="Edit account" data-submit="Save changes">
+    <label class="pk-field"><span>Name</span><input name="name" required maxlength="120"></label>
+    <label class="pk-field"><span>Email</span><input name="email" type="email" required maxlength="120"></label>
+</template>
+
+<template id="form-edit-post" data-title="Edit community post" data-submit="Save changes">
+    <label class="pk-field"><span>Post text</span><textarea name="content" rows="5" required maxlength="2000"></textarea></label>
+</template>
+<template id="form-delete-post" data-title="Delete community post" data-submit="Delete post" data-tone="danger">
+    <p>Permanently delete this post, its comments and likes? Moderation history is retained.</p>
+    <label class="pk-field"><span>Type DELETE to confirm</span><input name="confirm_text" required pattern="DELETE" autocomplete="off"></label>
+</template>
+
 <template id="form-confirm-booking" data-title="Confirm booking request" data-submit="Confirm booking">
     <p>Confirms the request exactly as the venue would: an Open Play seat is checked against this session's capacity and taken, and the player is notified.</p>
     <label class="pk-field"><span>Note <span class="pk-muted">(optional)</span></span><textarea name="reason" rows="2" maxlength="500"></textarea></label>

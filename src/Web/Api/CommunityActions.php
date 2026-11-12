@@ -3,83 +3,21 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Api;
 
-use Picklers\Core\Database;
 use Picklers\Repositories\CommunityRepository;
 use Picklers\Services\AuthService;
 use Picklers\Web\Http\LegacyInput;
 use Picklers\Web\Http\LegacyResponses;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
-/** Community API: feed posts, likes, comments and direct messages. */
+/** Messaging API for support and facility conversations. */
 final class CommunityActions
 {
     use LegacyResponses;
 
-    /** Ceiling for an inline post image (a 256px re-encode lands well under this). */
-    public const MAX_INLINE_IMAGE_BYTES = 200000;
-
     public function __construct(
-        private readonly Database $db,
         private readonly AuthService $auth,
         private readonly CommunityRepository $community,
     ) {
-    }
-
-    public function feedPosts(LegacyInput $in, ?array $user): JsonResponse
-    {
-        return $this->json(['success' => true, 'posts' => $this->community->getFeedPosts($user ? $user['id'] : null)]);
-    }
-
-    public function createPost(LegacyInput $in, ?array $user): JsonResponse
-    {
-        if (!$user) {
-            return $this->jsonError('Please log in to post', 401);
-        }
-        $content = trim((string)$in->input('content', ''));
-        $imageUrl = trim((string)$in->input('image_url', '')) ?: null;
-        $type = (string)$in->input('post_type', 'text');
-        if ($content === '') {
-            return $this->jsonError('Post cannot be empty', 400);
-        }
-        if (mb_strlen($content) > 2000) {
-            return $this->jsonError('Posts are limited to 2,000 characters.', 400);
-        }
-        if (!preg_match('/^[a-z_]{1,30}$/', $type)) {
-            $type = 'text';
-        }
-        // Only a real web image or a small inline image — never a javascript: or
-        // data:text URL rendered into other people's feeds.
-        if ($imageUrl !== null && (strlen($imageUrl) > self::MAX_INLINE_IMAGE_BYTES
-            || !preg_match('#^(https?://|data:image/(png|jpe?g|webp|gif);base64,)#i', $imageUrl))) {
-            return $this->jsonError('Unsupported image. Please attach a PNG, JPG, WEBP or GIF.', 400);
-        }
-
-        return $this->json($this->community->createFeedPost($user['id'], $content, $imageUrl, $type));
-    }
-
-    public function likePost(LegacyInput $in, ?array $user): JsonResponse
-    {
-        if (!$user) {
-            return $this->jsonError('Please log in to like', 401);
-        }
-
-        return $this->json($this->community->toggleLikePost((string)$in->input('post_id', ''), $user['id']));
-    }
-
-    public function addComment(LegacyInput $in, ?array $user): JsonResponse
-    {
-        if (!$user) {
-            return $this->jsonError('Please log in to comment', 401);
-        }
-        $comment = trim((string)$in->input('comment', ''));
-        if ($comment === '') {
-            return $this->jsonError('Comment cannot be empty', 400);
-        }
-        if (mb_strlen($comment) > 1000) {
-            return $this->jsonError('Comments are limited to 1,000 characters.', 400);
-        }
-
-        return $this->json($this->community->addComment((string)$in->input('post_id', ''), $user['id'], $comment));
     }
 
     public function messages(LegacyInput $in, ?array $user): JsonResponse
@@ -88,7 +26,7 @@ final class CommunityActions
             return $this->json(['success' => false, 'messages' => []]);
         }
         $partnerId = $this->partnerId((string)$in->query('partner_id', 'usr_admin'));
-        $this->db->markConversationRead((string)$user['id'], $partnerId);
+        $this->community->markConversationRead((string)$user['id'], $partnerId);
         $partner = $this->auth->getUserById($partnerId);
 
         return $this->json([

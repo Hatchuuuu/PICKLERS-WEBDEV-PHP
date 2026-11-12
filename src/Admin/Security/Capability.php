@@ -25,6 +25,8 @@ final class Capability
     public const VERIFY_USERS        = 'admin.users.verify';
     public const NOTIFY_USER         = 'admin.users.notify';
     public const RESET_PASSWORD      = 'admin.users.reset_password';
+    public const CREATE_USER         = 'admin.users.create';
+    public const UPDATE_USER         = 'admin.users.update';
     public const DEACTIVATE_USER     = 'admin.users.deactivate';
     public const SET_BASIC_ROLE      = 'admin.users.role_basic';
     public const MODERATE_CONTENT    = 'admin.moderation.manage';
@@ -54,6 +56,8 @@ final class Capability
         self::VERIFY_USERS => 'ROLE_ADMIN',
         self::NOTIFY_USER => 'ROLE_ADMIN',
         self::RESET_PASSWORD => 'ROLE_ADMIN',
+        self::CREATE_USER => 'ROLE_ADMIN',
+        self::UPDATE_USER => 'ROLE_ADMIN',
         self::DEACTIVATE_USER => 'ROLE_ADMIN',
         self::SET_BASIC_ROLE => 'ROLE_ADMIN',
         self::MODERATE_CONTENT => 'ROLE_ADMIN',
@@ -81,6 +85,8 @@ final class Capability
         self::VERIFY_USERS => 'Verify / revoke verification',
         self::NOTIFY_USER => 'Send an individual notice',
         self::RESET_PASSWORD => 'Reset a non-admin password',
+        self::CREATE_USER => 'Create player and facility staff accounts',
+        self::UPDATE_USER => 'Edit account names and email addresses',
         self::DEACTIVATE_USER => 'Deactivate / reactivate non-admin accounts',
         self::SET_BASIC_ROLE => 'Switch accounts between player and owner',
         self::MODERATE_CONTENT => 'Flag, hide, restore, resolve, dismiss content',

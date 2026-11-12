@@ -32,6 +32,11 @@ final class FacilityProvisioner
         if ($existing !== false) {
             return (int)$existing;
         }
+        foreach (['address' => ['Street Address', 200], 'operating_hours' => ['Operating Hours', 50]] as $field => [$label, $max]) {
+            if (mb_strlen((string)($app[$field] ?? '')) > $max) {
+                throw new \InvalidArgumentException("{$label} exceeds {$max} characters. Correct the application before approval.");
+            }
+        }
 
         $courtCount = max(1, (int)($app['courts_count'] ?? 1));
         $owns = $this->beginOwnTransaction();

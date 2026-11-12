@@ -4,7 +4,7 @@
     <!-- Header -->
     <div style="margin-bottom: 24px;">
       <h1 style="font-family: 'Montserrat', var(--font-heading), sans-serif; font-size: 26px; font-weight: 800; color: #FFFFFF; margin: 0 0 6px;">Wallet &amp; Credits</h1>
-      <p style="font-size: 13px; color: #94A3B8; margin: 0;">Manage your Pickle Credits, instant top-ups, and transaction history.</p>
+      <p style="font-size: 13px; color:var(--pk-text-muted); margin: 0;">Manage your Pickle Credits and transaction history. Real-money top-ups are currently unavailable.</p>
     </div>
 
     <!-- Balance Card (Clean & Minimalist Hero) -->
@@ -52,7 +52,7 @@
       <div id="walletTxnListContainer">
         {% if (not (allTransactions ?? null)) %}
           <div style="padding: 48px 20px; text-align: center;">
-            <div style="width: 52px; height: 52px; border-radius: 16px; background: rgba(0, 217, 139, 0.08); border: 1px solid rgba(0, 217, 139, 0.15); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 14px; color: #00D98B;">
+            <div style="width: 52px; height: 52px; border-radius: 16px; background: rgba(0, 217, 139, 0.08); border: 1px solid rgba(0, 217, 139, 0.15); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 14px; color:var(--pk-accent-emerald-text);">
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
             </div>
             <h4 style="font-family: 'Montserrat', var(--font-heading), sans-serif; font-size: 15px; font-weight: 700; color: #FFFFFF; margin: 0 0 4px; letter-spacing: -0.01em;">No Transactions Yet</h4>

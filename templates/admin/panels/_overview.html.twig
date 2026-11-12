@@ -10,6 +10,8 @@
     <h2 id="kpi-heading" class="pk-sr">Key figures</h2>
     <div class="pk-kpis" id="kpiGrid">
         {% set cards = [
+            {key: 'staff_total', label: 'Total staff', icon: 'users', value: k.staff_total|number_format, tab: 'users', q: {role: 'staff'}, desc: 'Active accounts assigned to venues'},
+            {key: 'records_total', label: 'Total records (posts)', icon: 'file-text', value: k.records_total|number_format, tab: 'moderation', q: {view: 'content', ctype: 'post'}, desc: 'All community posts'},
             {key: 'active_accounts', label: 'Active accounts', icon: 'users', value: k.active_accounts|number_format, tab: 'users', q: {}, desc: 'Players, owners and admins'},
             {key: 'pending_applications', label: 'Pending applications', icon: 'file-text', value: k.pending_applications|number_format, tab: 'applications', q: {status: 'pending_review'}, desc: 'Needs review'},
             {key: 'facility_owners', label: 'Facility owners', icon: 'building', value: k.facility_owners|number_format, tab: 'users', q: {role: 'owner'}, desc: 'Active owner accounts'},

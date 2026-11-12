@@ -9,8 +9,8 @@ use Picklers\Repositories\UserRepository;
 final class PasswordChangeTest extends TestCase {
 
     public function run(): void {
-        $userRepo = new UserRepository();
-        $authService = new AuthService($userRepo);
+        $userRepo = $this->service(UserRepository::class);
+        $authService = $this->service(AuthService::class);
 
         // 1. Create a test user
         $testEmail = 'pass_test_' . bin2hex(random_bytes(4)) . '@picklers.ph';

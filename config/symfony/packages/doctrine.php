@@ -10,7 +10,8 @@ return static function (ContainerConfigurator $container): void {
         ->set('env(DB_PORT)', '3306')
         ->set('env(DB_DATABASE)', 'picklers_db')
         ->set('env(DB_USERNAME)', 'root')
-        ->set('env(DB_PASSWORD)', '');
+        ->set('env(DB_PASSWORD)', '')
+        ->set('env(DB_SERVER_VERSION)', '10.4.32-MariaDB');
 
     $container->extension('doctrine', [
         'dbal' => [
@@ -21,7 +22,7 @@ return static function (ContainerConfigurator $container): void {
             'user' => '%env(DB_USERNAME)%',
             'password' => '%env(DB_PASSWORD)%',
             'charset' => 'utf8mb4',
-            'server_version' => '10.4.32-MariaDB',
+            'server_version' => '%env(DB_SERVER_VERSION)%',
             'options' => [
                 PDO::ATTR_TIMEOUT => 2,
                 // Strict mode, as the legacy connection sets it: an out-of-type value
@@ -33,6 +34,9 @@ return static function (ContainerConfigurator $container): void {
     ]);
 
     $container->extension('doctrine_migrations', [
+        'factories' => [
+            \Doctrine\Migrations\EventDispatcher::class => \Picklers\Persistence\TournamentMigrationListener::class,
+        ],
         'migrations_paths' => [
             'Picklers\Migrations' => '%kernel.project_dir%/src/Migrations',
         ],

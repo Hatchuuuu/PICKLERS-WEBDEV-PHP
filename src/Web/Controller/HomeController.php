@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Picklers\Web\Controller;
 
 use Picklers\Repositories\FacilityRepository;
-use Picklers\Repositories\MatchRepository;
+use Picklers\Repositories\OpenPlayRepository;
 use Symfony\Component\Asset\Packages;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -35,7 +35,7 @@ final class HomeController extends AbstractWebController
 
     public function __construct(
         private readonly FacilityRepository $facilities,
-        private readonly MatchRepository $matches,
+        private readonly OpenPlayRepository $matches,
         private readonly Packages $assets,
     ) {
     }
@@ -44,10 +44,18 @@ final class HomeController extends AbstractWebController
     #[Route('/index.php', name: 'home_php', methods: ['GET'])]
     public function index(): Response
     {
+        $facilitiesList = $this->facilities->getFacilities('', 'All', 'recommended');
+        $cities = array_unique(array_filter(array_map(
+            static fn(array $f) => trim(explode(',', $f['city'] ?? $f['location'] ?? '')[0]),
+            $facilitiesList
+        )));
+        $matchesList = $this->matches->getMatches();
+
         return $this->render('web/home.html.twig', [
-            'currentUser' => $this->sessionUser()?->row(),
-            'facilities' => $this->facilities->getFacilities('', 'All', 'recommended'),
-            'matches' => $this->matches->getMatches(),
+            'currentUser'  => $this->sessionUser()?->row(),
+            'facilities'   => $facilitiesList,
+            'matches'      => $matchesList,
+            'city_count'   => count($cities),
             'brands' => array_map(
                 fn(string $file, string $label) => ['logo' => $this->assets->getUrl('assets/brand-logos/' . $file), 'label' => $label],
                 array_keys(self::BRANDS),

@@ -5,6 +5,7 @@ namespace Picklers\Services;
 
 use Doctrine\DBAL\Connection;
 use Picklers\Domain\Notifier;
+use Picklers\Exceptions\TournamentBusyException;
 
 /**
  * PICKLERS — Tournament Service
@@ -49,11 +50,11 @@ final class TournamentService
     private readonly Connection $db;
 
     public function __construct(
-        mixed $notifier = null,
-        ?Connection $db = null,
+        Notifier $notifier,
+        Connection $db,
     ) {
-        $this->notifier = $notifier instanceof Notifier ? $notifier : \Picklers\Core\Database::get()->notifier();
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
+        $this->notifier = $notifier;
+        $this->db = $db;
     }
 
     /** Every record, in the order they were created. */
@@ -77,9 +78,10 @@ final class TournamentService
      */
     private function writeRows(callable $fn): void
     {
-        // ponytail: one lock for all tournaments, as the JSON file's flock was; per-id locks if owners contend.
-        if ((int)$this->db->fetchOne('SELECT GET_LOCK(?, 10)', [self::LOCK]) !== 1) {
-            return;
+        // shortcut: one lock per database serializes tournament writes; use per-id locks if owners contend.
+        $lock = hash('sha256', self::LOCK . ':' . $this->db->getDatabase());
+        if ((int)$this->db->fetchOne('SELECT GET_LOCK(?, 10)', [$lock]) !== 1) {
+            throw new TournamentBusyException('Tournament storage is busy. Please try again.');
         }
         try {
             $before = $this->rows();
@@ -119,7 +121,7 @@ final class TournamentService
                 }
             });
         } finally {
-            $this->db->executeQuery('SELECT RELEASE_LOCK(?)', [self::LOCK]);
+            $this->db->executeQuery('SELECT RELEASE_LOCK(?)', [$lock]);
         }
     }
 
@@ -310,6 +312,8 @@ final class TournamentService
             }
 
             $bracketLive = !empty($t['matches']);
+            $originalCategory = (string)$t['category'];
+            $originalMode = (string)$t['pairing_mode'];
 
             if (array_key_exists('category', $data)) {
                 $t['category'] = $this->normalizeCategory((string)$data['category']);
@@ -329,16 +333,31 @@ final class TournamentService
 
             if (array_key_exists('pairing_mode', $data)) {
                 $newMode = $this->resolvePairingMode((string)$data['pairing_mode'], (string)($t['category'] ?? ''));
-                if ($bracketLive && $newMode !== ($t['pairing_mode'] ?? '')) {
+                if ($bracketLive && $newMode !== $originalMode) {
                     return ['record' => $t, 'error' => 'Reset the bracket before changing the pairing mode.'];
                 }
                 $t['pairing_mode'] = $newMode;
+            }
+
+            if ($bracketLive && ($this->isSingles($originalCategory) !== $this->isSingles((string)$t['category'])
+                || $originalMode !== $t['pairing_mode'])) {
+                return ['record' => $t, 'error' => 'Reset the bracket before changing the category or pairing mode.'];
+            }
+
+            if (array_key_exists('category', $data) || array_key_exists('pairing_mode', $data)) {
+                $rosterError = $this->rosterCategoryError($t);
+                if ($rosterError !== null) {
+                    return ['record' => $t, 'error' => $rosterError];
+                }
             }
 
             if (array_key_exists('max_teams', $data)) {
                 $newMax = $this->clampMaxTeams($data['max_teams']);
                 if ($newMax < count($t['teams'] ?? [])) {
                     return ['record' => $t, 'error' => 'Max teams cannot be lower than the ' . count($t['teams']) . ' teams already registered.'];
+                }
+                if ($newMax * 2 < count($t['players_pool'] ?? [])) {
+                    return ['record' => $t, 'error' => 'Max teams cannot be lower than the capacity required by the registered draw pool.'];
                 }
                 $t['max_teams'] = $newMax;
             }
@@ -431,20 +450,9 @@ final class TournamentService
                 ];
             }
 
-            foreach ($t['teams'] as $existing) {
-                if (strcasecmp((string)$existing['name'], (string)$team['name']) === 0) {
-                    return ['record' => $t, 'error' => 'A team called "' . $team['name'] . '" is already registered.'];
-                }
-                foreach ([$team['player1'], $team['player2']] as $p) {
-                    if ($p === '') {
-                        continue;
-                    }
-                    if (strcasecmp((string)$existing['player1'], $p) === 0
-                        || strcasecmp((string)$existing['player2'], $p) === 0
-                    ) {
-                        return ['record' => $t, 'error' => $p . ' is already registered with "' . $existing['name'] . '".'];
-                    }
-                }
+            $error = $this->teamConflict($team, $t['teams']);
+            if ($error !== null) {
+                return ['record' => $t, 'error' => $error];
             }
 
             $t['teams'][] = $team;
@@ -519,11 +527,6 @@ final class TournamentService
                     if ($name === '') {
                         return ['record' => $t, 'error' => 'Team name cannot be empty.'];
                     }
-                    foreach ($t['teams'] as $j => $other) {
-                        if ($i !== $j && strcasecmp((string)$other['name'], $name) === 0) {
-                            return ['record' => $t, 'error' => 'Another team already uses that name.'];
-                        }
-                    }
                     $t['teams'][$i]['name'] = mb_substr($name, 0, 60);
                 }
 
@@ -531,6 +534,19 @@ final class TournamentService
                     if (array_key_exists($slot, $data)) {
                         $t['teams'][$i][$slot] = mb_substr(trim((string)$data[$slot]), 0, 60);
                     }
+                }
+
+                if (array_key_exists('player1', $data) || array_key_exists('player2', $data)) {
+                    $normalized = $this->buildTeam($t['teams'][$i], $t);
+                    if ($normalized === null) {
+                        return ['record' => $t, 'error' => $this->isSingles((string)$t['category'])
+                            ? 'Player name is required.' : 'Both distinct player names are required for a fixed team.'];
+                    }
+                    $t['teams'][$i]['player2'] = $normalized['player2'];
+                }
+                $error = $this->teamConflict($t['teams'][$i], $t['teams']);
+                if ($error !== null) {
+                    return ['record' => $t, 'error' => $error];
                 }
 
                 if (array_key_exists('seed', $data)) {
@@ -642,6 +658,11 @@ final class TournamentService
             }
             if (count($teams) > self::MAX_TEAMS) {
                 return ['record' => $t, 'error' => 'A bracket supports at most ' . self::MAX_TEAMS . ' teams.'];
+            }
+
+            $rosterError = $this->rosterCategoryError($t);
+            if ($rosterError !== null) {
+                return ['record' => $t, 'error' => $rosterError];
             }
 
             if ($randomizeSeeds) {
@@ -984,6 +1005,29 @@ final class TournamentService
     }
 
     /**
+     * @param array<string,mixed> $team
+     * @param array<int,array<string,mixed>> $teams
+     */
+    private function teamConflict(array $team, array $teams): ?string
+    {
+        foreach ($teams as $existing) {
+            if ((string)$existing['id'] === (string)$team['id']) {
+                continue;
+            }
+            if (strcasecmp((string)$existing['name'], (string)$team['name']) === 0) {
+                return 'A team called "' . $team['name'] . '" is already registered.';
+            }
+            foreach ([$team['player1'], $team['player2']] as $player) {
+                if ($player !== '' && (strcasecmp((string)$existing['player1'], $player) === 0
+                    || strcasecmp((string)$existing['player2'], $player) === 0)) {
+                    return $player . ' is already registered with "' . $existing['name'] . '".';
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * @param array<string,mixed> $data
      * @param array<string,mixed> $tournament
      * @return array<string,mixed>|null
@@ -1069,6 +1113,24 @@ final class TournamentService
             $teams[$i]['seed'] = $i + 1;
         }
         return $teams;
+    }
+
+    private function rosterCategoryError(array $t): ?string
+    {
+        $singles = $this->isSingles((string)$t['category']);
+        if ($singles && !empty($t['players_pool'])) {
+            return 'The registered draw pool is incompatible with Singles. Update the roster before changing the category or drawing a bracket.';
+        }
+        foreach ($t['teams'] as $team) {
+            $p1 = trim((string)($team['player1'] ?? ''));
+            $p2 = trim((string)($team['player2'] ?? ''));
+            if ($p1 === '' || ($singles ? $p2 !== '' : $p2 === '')) {
+                return $singles
+                    ? 'Singles requires exactly one player per team. Update the roster before changing the category or drawing a bracket.'
+                    : 'Doubles and Mixed require two players per team. Update the roster before changing the category or drawing a bracket.';
+            }
+        }
+        return null;
     }
 
     private function normalizeCategory(string $raw): string

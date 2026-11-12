@@ -3,7 +3,12 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Api;
 
-use Picklers\Core\Database;
+use Picklers\Domain\Schedule;
+
+use Picklers\Repositories\BookingRepository;
+use Picklers\Repositories\UserRepository;
+use Picklers\Repositories\FacilityRepository;
+use Picklers\Repositories\OpenPlayRepository;
 use Picklers\Web\Http\LegacyInput;
 use Picklers\Web\Http\LegacyResponses;
 use Picklers\Web\Service\OwnerScope;
@@ -15,23 +20,29 @@ final class OwnerActions
     use LegacyResponses;
 
     public function __construct(
-        private readonly Database $db,
+        private readonly BookingRepository $bookings,
+        private readonly UserRepository $users,
+        private readonly FacilityRepository $facilities,
+        private readonly OpenPlayRepository $openPlay,
         private readonly OwnerScope $scope,
     ) {
     }
 
     public function openPlayRoster(LegacyInput $in, ?array $user): JsonResponse
     {
-        if (!OwnerScope::isOwnerAccount($user)) {
+        if ($user === null) {
             return $this->jsonError('Owner access required.', 403);
         }
         $courtName = trim((string)($in->query('court_name') ?? $in->input('court_name', '')));
         $courtId = trim((string)($in->query('court_id') ?? $in->input('court_id', '')));
-        $facility = $this->scope->ownedFacility($user, trim((string)($in->query('facility_id') ?? $in->input('facility_id', ''))));
+        $facility = $this->scope->portalFacility($user, trim((string)($in->query('facility_id') ?? $in->input('facility_id', ''))));
         if ($facility === null) {
             return $this->jsonError('No facility context found.', 403);
         }
-        $roster = $this->db->getOpenPlayRoster($facility['id'], $courtName, $courtId);
+        if ($courtId !== '' && (string)($this->facilities->getCourtById($courtId)['facility_id'] ?? '') !== (string)$facility['id']) {
+            return $this->jsonError('Court not found at this facility.', 403);
+        }
+        $roster = $this->openPlay->getOpenPlayRoster($facility['id'], $courtName, $courtId);
 
         return $this->json(['success' => true, 'roster' => $roster, 'court_name' => $courtName, 'data' => ['roster' => $roster]]);
     }
@@ -47,7 +58,7 @@ final class OwnerActions
             return $this->jsonError('No facility context found.', 403);
         }
 
-        return $this->json(['success' => true, 'requests' => $this->db->getPendingBookingRequests($facility['id'])]);
+        return $this->json(['success' => true, 'requests' => $this->bookings->getPendingBookingRequests($facility['id'])]);
     }
 
     /**
@@ -68,14 +79,14 @@ final class OwnerActions
         if ($bookingId === '') {
             return $this->jsonError('Unrecognized code format.', 400);
         }
-        $booking = $this->db->getBookingById($bookingId);
+        $booking = $this->bookings->getBookingById($bookingId);
         if (!$booking) {
             return $this->jsonError('No booking found for this code.', 404);
         }
-        if (empty($user['is_admin']) && !$this->db->verifyBookingOwner($bookingId, $user['id'])) {
+        if (empty($user['is_admin']) && !$this->bookings->verifyBookingOwner($bookingId, $user['id'])) {
             return $this->jsonError('This pass is not for a booking at your facility.', 403);
         }
-        $player = $this->db->getUserById((string)($booking['user_id'] ?? ''));
+        $player = $this->users->getUserById((string)($booking['user_id'] ?? ''));
         $details = [
             'booking_id' => $bookingId,
             'player_name' => $player['name'] ?? ($booking['author_name'] ?? 'Registered Player'),
@@ -92,7 +103,7 @@ final class OwnerActions
 
             return $this->json(['success' => false, 'message' => $reason, 'booking' => $details], 409);
         }
-        if ($this->db->isBookingPast($booking)) {
+        if (Schedule::isBookingPast($booking)) {
             return $this->json(['success' => false, 'message' => 'This pass has expired — the session has already ended.', 'booking' => $details], 409);
         }
         $day = (string)($booking['booking_date'] ?? '');
@@ -106,7 +117,7 @@ final class OwnerActions
     /** update_court_status and owner_update_court. */
     public function updateCourtStatus(LegacyInput $in, ?array $user): JsonResponse
     {
-        if (!$user || (empty($user['is_owner']) && empty($user['is_admin']))) {
+        if (!$user) {
             return $this->jsonError('Unauthorized: Owner access required', 403);
         }
         $courtId = trim((string)$in->input('court_id', ''));
@@ -114,13 +125,13 @@ final class OwnerActions
         if (!in_array($status, ['available', 'occupied', 'maintenance'], true)) {
             return $this->jsonError('Invalid status value', 400);
         }
-        if ($courtId === '' || !$this->db->getCourtById($courtId)) {
+        if ($courtId === '' || !$this->facilities->getCourtById($courtId)) {
             return $this->jsonError('Court not found', 404);
         }
-        if (empty($user['is_admin']) && !$this->db->verifyCourtOwner($courtId, (string)$user['id'])) {
+        if (!$this->scope->canManageCourt($user, $courtId)) {
             return $this->jsonError('Unauthorized: You do not own this court', 403);
         }
-        $this->db->updateCourtStatus($courtId, $status);
+        $this->facilities->updateCourtStatus($courtId, $status);
 
         return $this->jsonSuccess([], "Court status updated to $status");
     }
@@ -135,13 +146,10 @@ final class OwnerActions
         if ($bookingId === '') {
             return $this->jsonError('Missing booking ID', 400);
         }
-        if (empty($user['is_admin']) && !$this->db->verifyBookingOwner($bookingId, $user['id'])) {
+        if (empty($user['is_admin']) && !$this->bookings->verifyBookingOwner($bookingId, $user['id'])) {
             return $this->jsonError('Unauthorized: You do not own the facility for this booking', 403);
         }
-        if (!$this->db->isUsingMySQL()) {
-            return $this->jsonError('Booking approvals need the primary database, which is unavailable right now.', 503);
-        }
-        $confirmed = $this->db->confirmBookingRequest($bookingId, ['actor_id' => (string)$user['id']]);
+        $confirmed = $this->bookings->confirmBookingRequest($bookingId, ['actor_id' => (string)$user['id']]);
         if ($confirmed['already']) {
             return $this->jsonSuccess(['booking_id' => $bookingId, 'status' => 'confirmed'], $confirmed['message']);
         }
@@ -161,29 +169,47 @@ final class OwnerActions
         if ($bookingId === '') {
             return $this->jsonError('Missing booking ID', 400);
         }
-        if (empty($user['is_admin']) && !$this->db->verifyBookingOwner($bookingId, $user['id'])) {
+        if (empty($user['is_admin']) && !$this->bookings->verifyBookingOwner($bookingId, $user['id'])) {
             return $this->jsonError('Unauthorized: You do not own the facility for this booking', 403);
         }
-        $booking = $this->db->getBookingById($bookingId);
+        $booking = $this->bookings->getBookingById($bookingId);
         if (!$booking) {
             return $this->jsonError('Booking record not found', 404);
         }
         if (($booking['status'] ?? '') === 'cancelled') {
             return $this->jsonError('Booking is already cancelled', 400);
         }
+        $reason = trim((string)$in->input('reason', ''));
+        if (mb_strlen($reason) > 500) {
+            return $this->jsonError('Keep the decline reason under 500 characters.', 400);
+        }
         try {
-            $refunded = $this->db->declineBookingAtomically(
-                $bookingId,
-                (string)$booking['user_id'],
-                (float)($booking['price'] ?? 0),
-                (string)($booking['payment_method'] ?? ''),
-                (string)($booking['facility_name'] ?? 'Pickleball Facility')
-            );
+            $outcome = $this->bookings->cancelBookingAsStaff($bookingId, [
+                'allowed_from' => ['pending', 'upcoming', 'confirmed'],
+                'can_cancel' => fn(array $booking): bool => in_array($booking['status'], ['pending', 'upcoming'], true)
+                    || !$this->bookings->hasBookingStarted($booking),
+                'actor_id' => (string)$user['id'],
+                'reason' => $reason !== '' ? $reason : null,
+            ]);
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to process decline. Please try again.', 500);
         }
+        if (!$outcome['ok']) {
+            return $this->jsonError($outcome['message'], $outcome['code']);
+        }
+        $message = 'Reservation declined.';
+        if ($outcome['refunded']) {
+            $message .= ' ₱' . number_format((float)$outcome['refund_amount'], 2) . ' refunded to Pickle Credits.';
+        } elseif ($outcome['external_payment']) {
+            $message .= ' No refund was issued in-app; follow up with the facility about ' . ($booking['payment_method'] ?? 'this payment') . '.';
+        } elseif (($booking['payment_method'] ?? '') === 'Pay at Venue') {
+            $message .= ' Nothing was charged for this Pay at Venue booking.';
+        }
 
-        return $this->jsonSuccess(['booking_id' => $bookingId, 'status' => 'cancelled', 'refunded' => $refunded], 'Booking declined and player refunded successfully');
+        return $this->jsonSuccess([
+            'booking_id' => $bookingId, 'status' => 'cancelled', 'refunded' => $outcome['refunded'],
+            'refund_amount' => $outcome['refund_amount'], 'external_payment' => $outcome['external_payment'],
+        ], $message);
     }
 
     /**
@@ -197,9 +223,10 @@ final class OwnerActions
             return $this->jsonError('Unauthorized', 401);
         }
         $q = strtolower(trim((string)($in->query('q') ?? $in->input('q', ''))));
+        $staffOnly = $in->input('context', '') === 'staff';
         $matched = [];
-        foreach ($this->db->getAllUsers() as $u) {
-            if (($u['role'] ?? '') === 'deleted') {
+        foreach ($this->users->getAllUsers() as $u) {
+            if (($u['role'] ?? '') === 'deleted' || ($staffOnly && ($u['role'] ?? '') !== 'player')) {
                 continue;
             }
             $name = (string)($u['name'] ?? '');

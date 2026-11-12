@@ -1,0 +1,116 @@
+name: picklers
+
+x-application: &application
+  image: picklers-app:production
+  build:
+    context: .
+    target: production
+  environment: &environment
+    APP_ENV: prod
+    APP_DEBUG: "0"
+    APP_URL: http://localhost:${DOCKER_HTTP_PORT:-8080}
+    APP_SECRET: ${DOCKER_APP_SECRET:-}
+    DB_HOST: database
+    DB_PORT: "3306"
+    DB_DATABASE: picklers_db
+    DB_USERNAME: picklers
+    DB_PASSWORD: ${DOCKER_DB_PASSWORD:?Set DOCKER_DB_PASSWORD in .env.docker}
+    DB_SERVER_VERSION: 8.4.0
+    PAYMENTS_SIMULATED: "false"
+    SIGNUP_BONUS_CREDITS: "0"
+    PRIVATE_DOCUMENT_DIR: /var/www/html/storage/permits
+  volumes:
+    - runtime:/var/www/html/var
+    - documents:/var/www/html/storage
+    - uploads:/var/www/html/public/uploads
+    - state:/var/www/html/database
+    - sessions:/var/lib/php/sessions
+
+services:
+  database:
+    image: mysql:8.4
+    # Allow the schema-scoped application user to install audit-protection triggers.
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --log-bin-trust-function-creators=1]
+    environment:
+      MYSQL_DATABASE: picklers_db
+      MYSQL_USER: picklers
+      MYSQL_PASSWORD: ${DOCKER_DB_PASSWORD:?Set DOCKER_DB_PASSWORD in .env.docker}
+      MYSQL_ROOT_PASSWORD: ${DOCKER_DB_ROOT_PASSWORD:?Set DOCKER_DB_ROOT_PASSWORD in .env.docker}
+      TZ: Asia/Manila
+    volumes:
+      - mysql_database:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=TCP --host=127.0.0.1 --user=root --execute="SELECT 1" >/dev/null 2>&1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  setup:
+    <<: *application
+    command: [sh, -ec, "php bin/console picklers:schema:install --no-interaction && php bin/console doctrine:migrations:migrate --no-interaction && php bin/console cache:clear --no-interaction"]
+    healthcheck:
+      disable: true
+    depends_on:
+      database:
+        condition: service_healthy
+
+  app:
+    <<: *application
+    ports:
+      - 127.0.0.1:${DOCKER_HTTP_PORT:-8080}:8080
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+
+  test-database:
+    image: mysql:8.4
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --log-bin-trust-function-creators=1]
+    profiles: [test]
+    environment:
+      MYSQL_ROOT_PASSWORD: isolated-test-only
+      MYSQL_ROOT_HOST: "%"
+      TZ: Asia/Manila
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=TCP --host=127.0.0.1 --user=root --execute="SELECT 1" >/dev/null 2>&1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  test:
+    image: picklers-app:test
+    build:
+      context: .
+      target: development
+    profiles: [test]
+    environment:
+      APP_ENV: test
+      APP_DEBUG: "0"
+      APP_SECRET: isolated-test-secret
+      DB_HOST: test-database
+      DB_PORT: "3306"
+      DB_DATABASE: picklers_test
+      DB_USERNAME: root
+      DB_PASSWORD: isolated-test-only
+      DB_SERVER_VERSION: 8.4.0
+    command: [php, scripts/verify.php]
+    healthcheck:
+      disable: true
+    depends_on:
+      test-database:
+        condition: service_healthy
+
+volumes:
+  mysql_database:
+  runtime:
+  documents:
+  uploads:
+  state:
+  sessions:

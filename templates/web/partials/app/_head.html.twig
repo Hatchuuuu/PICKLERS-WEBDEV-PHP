@@ -1,7 +1,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Picklers — The premier pickleball community platform. Book courts, join open play matches, top up wallet credits, and connect with players.">
+  {% include 'web/partials/_theme.html.twig' %}
+  <meta name="description" content="Picklers — Find pickleball courts, request bookings, join open play sessions, and manage your court passes.">
   <meta name="color-scheme" content="dark light">
   <meta name="csrf-token" content="{{ csrfToken }}">
   <title>PICKLERS App — Find Courts, Open Play, Bookings</title>
@@ -12,16 +13,4 @@
   <link rel="stylesheet" href="{{ asset('assets/css/theme.css') }}">
   <link rel="stylesheet" href="{{ asset('assets/css/app.css') }}">
   <link rel="stylesheet" href="{{ asset('assets/css/ux-core.css') }}">
-  <script>
-    (function() {
-      const savedTheme = localStorage.getItem('picklers_theme') || 'dark';
-      if (savedTheme === 'light') {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.classList.add('light');
-      } else {
-        document.documentElement.classList.remove('light');
-        document.documentElement.classList.add('dark');
-      }
-    })();
-  </script>
 </head>

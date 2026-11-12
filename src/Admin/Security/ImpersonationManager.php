@@ -51,11 +51,12 @@ final class ImpersonationManager
             $this->context->set($actorId ?: null, $actor['name'] ?? null, (string)($state['target_id'] ?? '') ?: null, $this->requests->getCurrentRequest()?->getClientIp());
         }
 
-        if ($actor === null || !RoleMapper::isAdmin($actor) || !$actor['is_privileged']) {
+        if ($actor === null || !RoleMapper::isAdmin($actor) || !$actor['is_privileged']
+            || $this->session->passwordChanged($actorId, $actor['password_changed_at'] ?? null)) {
             // The administrator lost the right to impersonate mid-session: end it
             // and sign the browser out rather than leave it acting as the target.
             $this->audit->recordAttempt('impersonation.revoked', 'user', (string)($state['target_id'] ?? ''), AuditLog::DENIED,
-                'Impersonation ended: the original administrator is no longer an active privileged admin.');
+                'Impersonation ended: the original administrator is no longer authorised by this session.');
             $this->session->destroy();
 
             return null;

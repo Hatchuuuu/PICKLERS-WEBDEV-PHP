@@ -128,20 +128,25 @@
    * Load a panel in place. opts.push: add a history entry; opts.focus: move
    * focus to the panel heading (navigation) rather than keep it (refresh).
    */
+  var panelGeneration = 0;
   function loadPanel(href, opts) {
     opts = opts || {};
+    var generation = ++panelGeneration;
     var target = panelFetchUrl(href);
     panel.classList.add('is-loading');
     panel.setAttribute('aria-busy', 'true');
     return fetch(target.fetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
       .then(function (res) {
+        if (generation !== panelGeneration) return;
         if (handleAuthLoss(res.status)) throw new Error('auth');
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        updateBadges(res.headers.get('X-Admin-Badges'));
         var scope = res.headers.get('X-Search-Scope') || '';
-        return res.text().then(function (html) { return { html: html, scope: scope }; });
+        var badges = res.headers.get('X-Admin-Badges');
+        return res.text().then(function (html) { return { html: html, scope: scope, badges: badges }; });
       })
       .then(function (r) {
+        if (generation !== panelGeneration) return;
+        updateBadges(r.badges);
         panel.innerHTML = r.html;
         panel.dataset.tab = target.tab;
         setActiveNav(target.tab);
@@ -159,11 +164,13 @@
         }
       })
       .catch(function (err) {
+        if (generation !== panelGeneration) return;
         if (err && err.message === 'auth') return;
         toast('Could not load that view. Check your connection and try again.', 'error');
         if (opts.push) window.location.href = href; // fall back to a normal page load
       })
       .finally(function () {
+        if (generation !== panelGeneration) return;
         panel.classList.remove('is-loading');
         panel.removeAttribute('aria-busy');
       });
@@ -229,6 +236,7 @@
 
   /* ---------------------------------------------------------- details */
   var detailState = null;
+  var detailGeneration = 0;
 
   function openDetail(type, id) {
     var box = document.getElementById('detailBody');
@@ -240,14 +248,19 @@
 
   function loadDetail() {
     if (!detailState) return Promise.resolve();
+    var generation = ++detailGeneration;
+    var dialog = document.getElementById('detailDialog');
+    function current() { return generation === detailGeneration && dialog.classList.contains('ux-open'); }
     var box = document.getElementById('detailBody');
     var url = cfg.detailUrl.replace('__TYPE__', encodeURIComponent(detailState.type)).replace('__ID__', encodeURIComponent(detailState.id));
     return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
       .then(function (res) {
+        if (!current()) return;
         if (handleAuthLoss(res.status)) throw new Error('auth');
         return res.text().then(function (html) { return { ok: res.ok, status: res.status, html: html }; });
       })
       .then(function (r) {
+        if (!current()) return;
         if (!r.ok) {
           var msg = r.status === 404 ? 'This record no longer exists.' : (r.status === 403 ? 'You do not have permission to view this record.' : 'Could not load this record.');
           box.innerHTML = '';
@@ -263,6 +276,7 @@
         if (title) { title.setAttribute('tabindex', '-1'); title.focus({ preventScroll: true }); }
       })
       .catch(function (err) {
+        if (!current()) return;
         if (err && err.message === 'auth') return;
         box.innerHTML = '<p class="pk-notice pk-notice--danger" id="detailTitle">Network problem while loading this record.</p>';
       });
@@ -363,7 +377,7 @@
 
   function collectFields() {
     var out = {};
-    new FormData(actionForm).forEach(function (v, k) { out[k] = typeof v === 'string' ? v.trim() : v; });
+    new FormData(actionForm).forEach(function (v, k) { out[k] = typeof v === 'string' && !/password/.test(k) ? v.trim() : v; });
     return out;
   }
 
@@ -503,19 +517,31 @@
       else if (e.key === 'Tab') { closeMenus(); }
       return;
     }
+    if (e.key === 'Tab' && window.innerWidth <= 1024 && sidebar.classList.contains('is-open')) {
+      var links = Array.prototype.slice.call(sidebar.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      var first = links[0], last = links[links.length - 1];
+      if (first && (!sidebar.contains(document.activeElement) || (!e.shiftKey && document.activeElement === last))) {
+        e.preventDefault(); first.focus();
+      } else if (last && e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      }
+      return;
+    }
     if (e.key === 'Escape' && activityOpen) { closeActivity(true); }
-    if (e.key === 'Escape' && document.getElementById('adminSidebar').classList.contains('is-open')) { closeNav(true); }
+    if (e.key === 'Escape' && sidebar.classList.contains('is-open')) { e.preventDefault(); closeNav(true); }
   });
-  window.addEventListener('resize', function () { closeMenus(); closeActivity(); });
+  window.addEventListener('resize', function () { closeMenus(); closeActivity(); if (window.innerWidth > 1024) closeNav(); });
   document.addEventListener('scroll', function () { closeMenus(); }, true);
 
   /* ---------------------------------------------------------- activity */
   var activityBtn = document.getElementById('activityBtn');
   var activityPanel = document.getElementById('activityPanel');
   var activityOpen = false;
+  var activityGeneration = 0;
 
   function closeActivity(returnFocus) {
     if (!activityOpen) return;
+    activityGeneration++;
     activityPanel.hidden = true;
     activityOpen = false;
     activityBtn.setAttribute('aria-expanded', 'false');
@@ -528,11 +554,13 @@
       if (activityOpen) { closeActivity(); return; }
       positionFloating(activityPanel, activityBtn);
       activityOpen = true;
+      var generation = ++activityGeneration;
       activityBtn.setAttribute('aria-expanded', 'true');
       var list = document.getElementById('activityList');
       var stateEl = document.getElementById('activityState');
       stateEl.textContent = 'Loading…';
       apiGet('admin_get_activity').then(function (r) {
+        if (!activityOpen || generation !== activityGeneration) return;
         if (!r.ok) { stateEl.textContent = 'Could not load activity.'; return; }
         list.innerHTML = '';
         var unseen = r.data.unseen || 0;
@@ -562,7 +590,7 @@
             }
           });
         }
-      }).catch(function () { stateEl.textContent = 'Network problem — try again.'; });
+      }).catch(function () { if (activityOpen && generation === activityGeneration) stateEl.textContent = 'Network problem — try again.'; });
     });
     document.addEventListener('click', function (e) {
       if (activityOpen && !activityPanel.contains(e.target) && e.target !== activityBtn) closeActivity();
@@ -576,7 +604,9 @@
   var navOpener = document.querySelector('[data-open-nav]');
 
   function openNav() {
+    if (window.innerWidth > 1024 || sidebar.classList.contains('is-open')) return;
     sidebar.classList.add('is-open');
+    if (window.UX) window.UX.lockScroll();
     overlay.hidden = false;
     navOpener.setAttribute('aria-expanded', 'true');
     var current = sidebar.querySelector('.pk-nav-item.is-active') || sidebar.querySelector('.pk-nav-item');
@@ -585,6 +615,7 @@
   function closeNav(returnFocus) {
     if (!sidebar.classList.contains('is-open')) return;
     sidebar.classList.remove('is-open');
+    if (window.UX) window.UX.unlockScroll();
     overlay.hidden = true;
     navOpener.setAttribute('aria-expanded', 'false');
     if (returnFocus) navOpener.focus();

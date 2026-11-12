@@ -42,7 +42,7 @@
 
 .ux-closing {
   opacity: 0;
-  animation: uxOverlayOut var(--motion-short) var(--ease-in) forwards;
+  animation: uxOverlayOut var(--motion-micro) var(--ease-out) forwards;
   pointer-events: none;
 }
 
@@ -64,7 +64,7 @@
 }
 
 .ux-closing > * {
-  animation: uxPanelOut var(--motion-short) var(--ease-in) forwards;
+  animation: uxPanelOut var(--motion-micro) var(--ease-out) forwards;
 }
 
 @keyframes uxPanelIn {
@@ -151,4 +151,18 @@ button[disabled],
   .how-line-pulse {
     animation: none !important;
   }
+}
+
+/* Keep confirmation actions balanced, including native POST forms. */
+.confirm-modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.confirm-modal-actions > button {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
 }

@@ -19,46 +19,17 @@ if (PHP_SAPI !== 'cli') {
     exit("This script is CLI-only.\n");
 }
 
-$root = dirname(__DIR__);
-define('ROOT_PATH', $root);
-define('APP_PATH', $root . '/src');
-define('CONFIG_PATH', $root . '/config');
-// Stored DATETIMEs are Asia/Manila wall-clock time, as in config/bootstrap.php.
-date_default_timezone_set('Asia/Manila');
-define('DATA_PATH', $root . '/database');
-
-// Load .env exactly the way public/index.php does
-$envFile = $root . '/.env';
-if (is_file($envFile)) {
-    foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
-        [$k, $v] = explode('=', $line, 2);
-        $k = trim($k);
-        $v = trim($v);
-        if (strlen($v) >= 2 && (($v[0] === '"' && $v[-1] === '"') || ($v[0] === "'" && $v[-1] === "'"))) {
-            $v = substr($v, 1, -1);
-        }
-        $_ENV[$k] = $v;
-    }
+$cmd = $argv[1] ?? 'report';
+if (!in_array($cmd, ['report', 'sweep-orphans', 'reset-trust', 'add-constraints', 'all'], true)) {
+    fwrite(STDERR, "Unknown command '{$cmd}'. Run without arguments for the report.\n");
+    exit(2);
 }
 
-require_once ROOT_PATH . '/vendor/autoload.php';
-
-$db = \Picklers\Core\Database::get();
-if (!$db->isUsingMySQL()) {
-    exit("MySQL is not connected — this tool only operates on the relational store.\n");
-}
-
-$config = is_file(CONFIG_PATH . '/database.php') ? require CONFIG_PATH . '/database.php' : [];
-$my     = $config['connections']['mysql'] ?? [];
-$pdo    = new PDO(
-    sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-        $my['host'] ?? '127.0.0.1', $my['port'] ?? '3306', $my['database'] ?? 'picklers_db'),
-    $my['username'] ?? 'root',
-    $my['password'] ?? '',
-    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
-);
+require dirname(__DIR__) . '/config/bootstrap.php';
+$kernel = new \Picklers\Kernel(picklers_kernel_environment(), picklers_kernel_debug());
+$kernel->boot();
+$pdo = $kernel->getContainer()->get('doctrine')->getConnection()->getNativeConnection();
+$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
 /** Orphan definitions: child table -> the parent it must reference. */
 const ORPHAN_RULES = [
@@ -134,7 +105,7 @@ function cmdReport(PDO $pdo): int {
         printf("  %-38s %s\n", $fk['name'], in_array($fk['name'], $existing, true) ? 'present' : 'MISSING');
     }
     echo "\n";
-    return $totalOrphans;
+    return $totalOrphans + count($mismatch) + count(array_diff(array_column(FK_RULES, 'name'), $existing));
 }
 
 function existingConstraints(PDO $pdo): array {
@@ -175,10 +146,11 @@ function cmdResetTrust(PDO $pdo): void {
     echo "  admins and facility owners left untouched\n\n";
 }
 
-function cmdAddConstraints(PDO $pdo): void {
+function cmdAddConstraints(PDO $pdo): int {
     echo "── Applying foreign keys ──────────────────────────────\n";
     $existing = existingConstraints($pdo);
     $added = 0;
+    $failed = 0;
     foreach (FK_RULES as $fk) {
         if (in_array($fk['name'], $existing, true)) {
             printf("  %-38s already present\n", $fk['name']);
@@ -189,17 +161,19 @@ function cmdAddConstraints(PDO $pdo): void {
             printf("  %-38s added\n", $fk['name']);
             $added++;
         } catch (\Throwable $e) {
+            $failed++;
             printf("  %-38s FAILED: %s\n", $fk['name'], $e->getMessage());
         }
     }
     echo "  constraints added: {$added}\n\n";
+    return $failed > 0 || array_diff(array_column(FK_RULES, 'name'), existingConstraints($pdo)) !== [] ? 1 : 0;
 }
 
-$cmd = $argv[1] ?? 'report';
+$exitCode = 0;
 
 switch ($cmd) {
     case 'report':
-        cmdReport($pdo);
+        $exitCode = cmdReport($pdo) > 0 ? 1 : 0;
         break;
     case 'sweep-orphans':
         cmdSweepOrphans($pdo);
@@ -208,16 +182,15 @@ switch ($cmd) {
         cmdResetTrust($pdo);
         break;
     case 'add-constraints':
-        cmdAddConstraints($pdo);
+        $exitCode = cmdAddConstraints($pdo);
         break;
     case 'all':
         cmdReport($pdo);
         cmdSweepOrphans($pdo);
         cmdResetTrust($pdo);
-        cmdAddConstraints($pdo);
+        $exitCode = cmdAddConstraints($pdo);
         echo "── Post-run verification ──────────────────────────────\n";
-        cmdReport($pdo);
+        $exitCode = cmdReport($pdo) > 0 ? 1 : $exitCode;
         break;
-    default:
-        exit("Unknown command '{$cmd}'. Run without arguments for the report.\n");
 }
+exit($exitCode);

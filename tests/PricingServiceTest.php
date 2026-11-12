@@ -15,7 +15,9 @@ use Picklers\Services\PricingService;
 final class PricingServiceTest extends TestCase {
 
     public function run(): void {
-        $p = new PricingService();
+        $userRepository = $this->service(\Picklers\Repositories\UserRepository::class);
+        $promoRepository = $this->service(\Picklers\Repositories\PromoRepository::class);
+        $p = $this->service(PricingService::class);
 
         // ── Court rate resolution ──────────────────────────────────────────
         $this->assertSame(300.0, $p->resolveCourtRate(1, 'Court 3'),
@@ -112,9 +114,8 @@ final class PricingServiceTest extends TestCase {
         // assemble() called evaluatePromo() without the user id, so the
         // user_limit branch — already written — was unreachable from every
         // real booking path; a one-per-customer code was unlimited) ─────────
-        $db = \Picklers\Core\Database::get();
         $freshUserId = 'usr_test_promo_cap_' . bin2hex(random_bytes(4));
-        $db->createUser([
+        $userRepository->createUser([
             'id' => $freshUserId, 'name' => 'Promo Cap Tester',
             'email' => $freshUserId . '@example.test', 'password_hash' => password_hash('x', PASSWORD_DEFAULT),
         ]);
@@ -124,14 +125,14 @@ final class PricingServiceTest extends TestCase {
             'WELCOME100 (user_limit 1) applies the first time this user quotes it');
 
         // Unique per run: a promo is redeemable once per booking (uniq_redemption_booking).
-        $db->recordPromoRedemption('WELCOME100', $freshUserId, 'PKL-TEST-CAP-' . bin2hex(random_bytes(4)), (float)$firstUse['discount']);
+        $promoRepository->recordPromoRedemption('WELCOME100', $freshUserId, 'PKL-TEST-CAP-' . bin2hex(random_bytes(4)), (float)$firstUse['discount']);
 
         $secondUse = $p->quoteCourtBooking(1, '', 2, 'WELCOME100', $freshUserId, 'crt_1_1');
         $this->assertSame(0.0, $secondUse['discount'] ?? null,
             'REGRESSION: the same user redeeming WELCOME100 a second time gets no discount — the cap is enforced');
 
         $otherUserId = 'usr_test_promo_cap_' . bin2hex(random_bytes(4));
-        $db->createUser([
+        $userRepository->createUser([
             'id' => $otherUserId, 'name' => 'Promo Cap Tester 2',
             'email' => $otherUserId . '@example.test', 'password_hash' => password_hash('x', PASSWORD_DEFAULT),
         ]);

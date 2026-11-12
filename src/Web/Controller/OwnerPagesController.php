@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Controller;
 
-use Picklers\Core\Database;
+use Doctrine\DBAL\Connection;
+use Picklers\Admin\Security\RoleMapper;
+use Picklers\Repositories\OwnerRepository;
+use Picklers\Repositories\UserRepository;
 use Picklers\Services\TournamentService;
 use Picklers\Web\Http\LegacyInput;
 use Picklers\Web\Service\OwnerPortalView;
@@ -22,10 +25,12 @@ final class OwnerPagesController extends AbstractWebController
     private const DOCUMENT_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
     public function __construct(
-        private readonly Database $db,
+        private readonly OwnerRepository $owners,
+        private readonly UserRepository $users,
         private readonly OwnerScope $scope,
         private readonly OwnerPortalView $portal,
         private readonly TournamentService $tournaments,
+        private readonly Connection $db,
         #[Autowire('%picklers.document_dir%')] private readonly string $documentDir,
     ) {
     }
@@ -43,7 +48,7 @@ final class OwnerPagesController extends AbstractWebController
         if ($facilities === []) {
             return $this->render('web/owner-onboarding.html.twig', [
                 'currentUser' => $user,
-                'application' => $this->db->getLatestApplicationForUser((string)$user['id']),
+                'application' => $this->owners->getLatestApplicationForUser((string)$user['id']),
                 'csrfToken' => $this->csrfToken(),
             ]);
         }
@@ -102,7 +107,7 @@ final class OwnerPagesController extends AbstractWebController
         if ($user === null) {
             return $this->redirectToPath($request, 'auth.php');
         }
-        $latest = $this->db->getLatestApplicationForUser((string)$user['id']);
+        $latest = $this->owners->getLatestApplicationForUser((string)$user['id']);
 
         return $this->render('web/owner-application.html.twig', [
             'currentUser' => $user,
@@ -137,13 +142,12 @@ final class OwnerPagesController extends AbstractWebController
         if ($user === null) {
             return $this->redirectToPath($request, 'auth.php');
         }
-        // One application in the review queue at a time.
-        foreach ($this->db->getOwnerApplications('pending_review') as $existing) {
-            if ((string)($existing['user_id'] ?? '') === (string)$user['id']) {
-                return $ajax
-                    ? $this->legacyJson(['success' => false, 'message' => 'You already have an application under review. We will notify you once it has been assessed.', 'redirect_url' => 'app.php?tab=settings&notice=application_pending'], 409)
-                    : $this->redirectToPath($request, 'app.php?tab=settings&notice=application_pending');
-            }
+        $pendingResponse = fn() => $ajax
+            ? $this->legacyJson(['success' => false, 'message' => 'You already have an application under review. We will notify you once it has been assessed.', 'redirect_url' => 'app.php?tab=settings&notice=application_pending'], 409)
+            : $this->redirectToPath($request, 'app.php?tab=settings&notice=application_pending');
+        // Reject ordinary duplicates before moving their documents.
+        if ($this->db->fetchOne("SELECT id FROM owner_applications WHERE user_id = ? AND status IN ('pending_review', 'pending') LIMIT 1", [$user['id']])) {
+            return $pendingResponse();
         }
 
         $field = static fn(string $key, string $default = '') => trim((string)$in->input($key, $default));
@@ -172,9 +176,9 @@ final class OwnerPagesController extends AbstractWebController
         }
         // Column limits are hard SQL errors under strict mode.
         $limits = [
-            'facility_name' => ['Facility Brand Name', 150], 'address' => ['Street Address', 500], 'owner_name' => ['Owner Full Name', 120],
+            'facility_name' => ['Facility Brand Name', 150], 'address' => ['Street Address', 200], 'owner_name' => ['Owner Full Name', 120],
             'business_email' => ['Business Email', 120], 'phone' => ['Mobile Number', 50], 'entity_name' => ['Registered Legal Trade Name', 150],
-            'reg_number' => ['DTI / SEC Registration Number', 100], 'court_surface' => ['Court Surface', 60], 'operating_hours' => ['Operating Hours', 100],
+            'reg_number' => ['DTI / SEC Registration Number', 100], 'court_surface' => ['Court Surface', 60], 'operating_hours' => ['Operating Hours', 50],
         ];
         $tooLong = [];
         foreach ($limits as $key => [$label, $max]) {
@@ -204,19 +208,45 @@ final class OwnerPagesController extends AbstractWebController
         // No invented coordinates: a missing GPS fix is stored as unknown.
         $lat = $field('latitude');
         $lng = $field('longitude');
-        $this->db->createOwnerApplication($data + [
-            'id' => 'app_' . bin2hex(random_bytes(6)),
-            'user_id' => $user['id'],
-            'latitude' => is_numeric($lat) && abs((float)$lat) <= 90 ? (float)$lat : null,
-            'longitude' => is_numeric($lng) && abs((float)$lng) <= 180 ? (float)$lng : null,
-            // Scaffolded into real court rows on approval, so it is bounded.
-            'courts_count' => min(50, max(1, (int)$in->input('courts_count', 1))),
-            'permit_file' => $permit,
-            'gov_id_file' => $govId,
-            'status' => 'pending_review',
-            'created_at' => date('Y-m-d H:i:s'),
-        ]);
-        $this->db->updateUser((string)$user['id'], ['verification_status' => 'pending_owner_review']);
+        try {
+            $this->db->beginTransaction();
+            // A stable account row serializes separate sessions even before an application exists.
+            $applicant = $this->db->fetchAssociative('SELECT verification_status, role, is_owner FROM users WHERE id = ? FOR UPDATE', [$user['id']]);
+            if ($applicant === false) {
+                throw new \RuntimeException('Applicant no longer exists');
+            }
+            if ($this->db->fetchOne("SELECT id FROM owner_applications WHERE user_id = ? AND status IN ('pending_review', 'pending') LIMIT 1 FOR UPDATE", [$user['id']])) {
+                $this->db->rollBack();
+                foreach ([$permit, $govId] as $stored) {
+                    @unlink($this->documentDir . '/' . $stored);
+                }
+                return $pendingResponse();
+            }
+            $this->owners->createOwnerApplication($data + [
+                'id' => 'app_' . bin2hex(random_bytes(6)),
+                'user_id' => $user['id'],
+                'latitude' => is_numeric($lat) && abs((float)$lat) <= 90 ? (float)$lat : null,
+                'longitude' => is_numeric($lng) && abs((float)$lng) <= 180 ? (float)$lng : null,
+                // Scaffolded into real court rows on approval, so it is bounded.
+                'courts_count' => min(50, max(1, (int)$in->input('courts_count', 1))),
+                'permit_file' => $permit,
+                'gov_id_file' => $govId,
+                'status' => 'pending_review',
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            if ($applicant['verification_status'] !== 'verified' && !RoleMapper::isOwner($applicant)) {
+                $this->users->updateUser((string)$user['id'], ['verification_status' => 'pending_owner_review']);
+            }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->isTransactionActive()) {
+                $this->db->rollBack();
+            }
+            foreach ([$permit, $govId] as $stored) {
+                @unlink($this->documentDir . '/' . $stored);
+            }
+            return $fail('Could not submit your application. Please try again.', 500, 'owner-application.php?notice=submission_error');
+        }
 
         return $ajax
             ? $this->legacyJson(['success' => true, 'message' => 'Your facility owner application has been submitted and is pending verification by Picklers Admin.', 'redirect_url' => 'app.php?tab=settings&notice=application_pending'])

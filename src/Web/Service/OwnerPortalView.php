@@ -3,7 +3,13 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Service;
 
-use Picklers\Core\Database;
+use Picklers\Domain\Schedule;
+use Picklers\Repositories\BookingRepository;
+use Picklers\Repositories\CommunityRepository;
+use Picklers\Repositories\FacilityRepository;
+use Picklers\Repositories\MatchRepository;
+use Picklers\Repositories\NotificationRepository;
+use Picklers\Repositories\OwnerRepository;
 use Picklers\Services\TournamentService;
 
 /**
@@ -16,7 +22,12 @@ final class OwnerPortalView
     public const TABS = ['dashboard', 'courts', 'tournaments', 'messages', 'staff', 'earnings', 'settings'];
 
     public function __construct(
-        private readonly Database $db,
+        private readonly OwnerRepository $owners,
+        private readonly FacilityRepository $facilities,
+        private readonly MatchRepository $matches,
+        private readonly NotificationRepository $notifications,
+        private readonly BookingRepository $bookings,
+        private readonly CommunityRepository $community,
         private readonly TournamentService $tournaments,
     ) {
     }
@@ -35,35 +46,42 @@ final class OwnerPortalView
             }
         }
         $fid = $facility['id'] ?? 0;
-        $fin = $this->db->getOwnerFinancials($fid);
-        $matches = $this->db->getMatchesByFacility((int)($facility['id'] ?? 1));
-        $courts = $this->courts($this->db->getCourtsWithAttributes($facility['id'] ?? 1), $matches);
-        $notifications = $this->db->getNotifications((string)$user['id']);
+        $canManageFacility = !empty($user['is_admin']) || (string)($facility['owner_id'] ?? '') === (string)$user['id'];
+        if (!$canManageFacility && in_array($tab, ['staff', 'settings'], true)) {
+            $tab = 'courts';
+        }
+        $fin = $this->owners->getOwnerFinancials($fid);
+        $matches = $this->matches->getMatchesByFacility((int)($facility['id'] ?? 1));
+        $courts = $this->courts($this->facilities->getCourtsWithAttributes($facility['id'] ?? 1), $matches);
+        $notifications = $this->notifications->getNotifications((string)$user['id']);
 
         return [
             'activeTab' => in_array($tab, self::TABS, true) ? $tab : 'dashboard',
             'currentFacility' => $facility,
+            'canManageFacility' => $canManageFacility,
             'facilities' => $facilities,
             'metrics' => $this->metrics($fin),
             'financials' => $fin,
             'liveCourts' => array_map($this->liveCourt(...), $courts),
             'courts' => $courts,
             // Shared with api?action=get_pending_requests, so the first render and every live refresh agree.
-            'pendingRequests' => $this->db->getPendingBookingRequests($facility['id'] ?? ''),
+            'pendingRequests' => $this->bookings->getPendingBookingRequests($facility['id'] ?? ''),
             'openPlayMatches' => $this->openPlay($matches),
             'tournaments' => $this->tournaments->grouped((string)($facility['id'] ?? '')),
             'tournamentCategories' => TournamentService::CATEGORIES,
             'earnings' => array_intersect_key($fin, array_flip(['gross', 'fee_pct', 'fee_amount', 'net', 'available', 'ledger'])),
-            'conversations' => $this->db->getConversationPartners((string)($user['id'] ?? '')),
+            'conversations' => $this->community->getConversationPartners((string)($user['id'] ?? '')),
             'staffMembers' => array_map(static fn($s) => [
                 'id' => $s['id'] ?? '',
+                'user_id' => $s['user_id'] ?? '',
+                'facility_id' => $s['facility_id'] ?? '',
                 'name' => $s['name'] ?? 'Staff Member',
                 'email' => $s['email'] ?? 'staff@facility.com',
                 'date' => $s['date_joined'] ?? date('M Y'),
                 'role' => $s['role'] ?? 'Front Desk',
                 'status' => $s['status'] ?? 'Active',
                 'avatar_url' => $s['avatar_url'] ?? ($s['avatar'] ?? ''),
-            ], $this->db->getStaffByFacility((int)($facility['id'] ?? 1))),
+            ], $this->owners->getStaffByFacility((int)($facility['id'] ?? 1))),
             'amenities' => [
                 'showers' => ['label' => 'Showers & Changing Rooms', 'enabled' => true, 'icon' => 'droplets'],
                 'ac' => ['label' => 'Air Conditioning / High-Velocity Fans', 'enabled' => true, 'icon' => 'wind'],
@@ -73,7 +91,7 @@ final class OwnerPortalView
             ],
             'userNotifications' => $notifications,
             'unreadNotifsCount' => count(array_filter($notifications, static fn($n) => empty($n['is_read']))),
-            'courtAttributeCatalog' => $this->db->getCourtAttributeCatalog(),
+            'courtAttributeCatalog' => $this->facilities->getCourtAttributeCatalog(),
             'currentUser' => $user,
         ];
     }
@@ -111,11 +129,14 @@ final class OwnerPortalView
             $id = trim((string)($c['id'] ?? ''));
             $openPlay = null;
             foreach ($matches as $m) {
-                if (Database::isMatchExpired($m)) {
+                if (Schedule::isMatchExpired($m)) {
                     continue;
                 }
                 $mCourtId = trim((string)($m['court_id'] ?? ''));
                 $mCourtName = trim((string)($m['court_name'] ?? ''));
+                if ($mCourtId !== '' && $mCourtId !== $id) {
+                    continue;
+                }
                 if (($id !== '' && $mCourtId !== '' && $mCourtId === $id)
                     || ($name !== '' && $mCourtName !== '' && strcasecmp($mCourtName, $name) === 0)
                     || ($name !== '' && strcasecmp(trim((string)($m['type'] ?? '')), $name) === 0)
@@ -127,7 +148,7 @@ final class OwnerPortalView
 
             return [
                 'id' => $c['id'] ?? '',
-                'name' => Database::normalizeCourtName((string)($c['name'] ?? 'Court')),
+                'name' => Schedule::normalizeCourtName((string)($c['name'] ?? 'Court')),
                 'type' => $c['type'] ?? 'Indoor',
                 'surface' => $c['surface'] ?? 'Hard Court',
                 'rate' => $c['price'] ?? 0,
@@ -220,7 +241,7 @@ final class OwnerPortalView
             }
             $seen[$id] = true;
             $level = (string)($m['level'] ?? 'All Levels');
-            $expired = Database::isMatchExpired($m);
+            $expired = Schedule::isMatchExpired($m);
             $out[$expired ? 'completed' : 'active'][] = [
                 'id' => $m['id'] ?? '',
                 'court_name' => $m['type'] ?? 'Court',
@@ -249,7 +270,7 @@ final class OwnerPortalView
         if ($id === '') {
             return 0;
         }
-        $active = $this->db->countConfirmedMatchBookings($id, Database::getMatchTargetDate($match));
+        $active = $this->matches->countConfirmedMatchBookings($id, Schedule::getMatchTargetDate($match));
         $date = strtolower((string)($match['date'] ?? ''));
         if (str_contains($date, 'everyday') || str_contains($date, 'daily')) {
             return $active;

@@ -68,6 +68,11 @@
                             <td class="pk-nowrap">{{ c.created_at|when }}</td>
                             <td>{{ ui.status(c.hidden_at ? 'suspended' : 'active', c.hidden_at ? 'Hidden' : 'Visible') }}</td>
                             <td class="pk-actions">
+                                {% if c.content_type == 'post' and is_granted('admin.moderation.manage') %}
+                                    {{ ui.action_button('Edit', 'admin_update_post', {post_id: c.id}, {form: 'edit-post', subject: c.author_name}) }}
+                                    <template data-prefill>{{ {content: c.body}|json_encode }}</template>
+                                    {{ ui.action_button('Delete', 'admin_delete_post', {post_id: c.id}, {form: 'delete-post', subject: c.body|slice(0, 80)}) }}
+                                {% endif %}
                                 {% if c.open_case_id %}
                                     {{ ui.detail_button('Open case', 'moderation', c.open_case_id) }}
                                 {% else %}

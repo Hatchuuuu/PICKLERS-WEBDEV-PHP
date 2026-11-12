@@ -13,14 +13,21 @@ if (!defined('CONFIG_PATH')) define('CONFIG_PATH', ROOT_PATH . '/config');
 if (!defined('DATA_PATH')) define('DATA_PATH', ROOT_PATH . '/database');
 if (!defined('PUBLIC_PATH')) define('PUBLIC_PATH', ROOT_PATH . '/public');
 
+// Resolve per-process state paths at runtime, never from a reused compiled container.
+$_ENV['PICKLERS_DATA_DIR'] = DATA_PATH;
+putenv('PICKLERS_DATA_DIR=' . DATA_PATH);
+
 // Storage convention: every DATETIME the platform writes is Asia/Manila wall-clock
 // time (MariaDB's SYSTEM zone on the host is Manila too). This used to be set only
 // inside the fallback autoloader, so the moment vendor/autoload.php existed PHP
 // silently fell back to php.ini's zone and shifted every new timestamp.
 date_default_timezone_set('Asia/Manila');
 
-// .env loader — values already present in $_ENV (CLI overrides, the test runner,
-// the e2e router) win, exactly like the original front controller.
+// Explicit overrides win, then the inherited process environment, then .env.
+// PHP's variables_order may exclude E, leaving inherited values out of $_ENV.
+$_ENV += getenv();
+
+// .env loader — CLI/test overrides and inherited deployment values win.
 (static function (): void {
     $envFile = ROOT_PATH . '/.env';
     if (!is_file($envFile)) {

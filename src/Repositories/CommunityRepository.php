@@ -13,13 +13,13 @@ final class CommunityRepository
     private readonly \Picklers\Repositories\UserRepository $users;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Persistence\SchemaInstaller $schema = null,
-        ?\Picklers\Repositories\UserRepository $users = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Persistence\SchemaInstaller $schema,
+        \Picklers\Repositories\UserRepository $users,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->schema = $schema ?? new \Picklers\Persistence\SchemaInstaller($this->db);
-        $this->users = $users ?? new \Picklers\Repositories\UserRepository($this->db, $this->schema);
+        $this->db = $db;
+        $this->schema = $schema;
+        $this->users = $users;
     }
 
     public function getFeedPosts($userId = null) {
@@ -92,33 +92,33 @@ final class CommunityRepository
         }
         // A post hidden by moderation cannot be liked or commented on.
         $visible = $this->schema->hasColumn('feed_posts', 'hidden_at') ? ' AND hidden_at IS NULL' : '';
-        $s = $this->db->executeQuery("SELECT 1 FROM feed_posts WHERE id = ?{$visible} LIMIT 1", [$postId]);
+        $s = $this->db->executeQuery("SELECT 1 FROM feed_posts WHERE id = ?{$visible} LIMIT 1" . ($this->db->isTransactionActive() ? ' FOR UPDATE' : ''), [$postId]);
         return (bool)$s->fetchOne();
     }
 
     public function toggleLikePost($postId, $userId) {
-        // Likes/comments for a post id that doesn't exist were stored as
-        // orphan rows and reported back as a success.
-        if (!$this->feedPostExists((string)$postId)) {
-            return ['success' => false, 'message' => 'This post is no longer available.'];
-        }
-        $stmt = $this->db->executeQuery("SELECT COUNT(*) as c FROM feed_likes WHERE post_id = ? AND user_id = ?", [$postId, $userId]);
-        $hasLiked = $stmt->fetchAssociative()['c'] > 0;
-        if ($hasLiked) {
-            $this->db->executeStatement("DELETE FROM feed_likes WHERE post_id = ? AND user_id = ?", [$postId, $userId]);
-            $this->db->executeStatement("UPDATE feed_posts SET like_count = GREATEST(0, like_count - 1) WHERE id = ?", [$postId]);
-            $liked = false;
-        } else {
-            $this->db->executeStatement("INSERT INTO feed_likes (post_id, user_id) VALUES (?,?)", [$postId, $userId]);
-            $this->db->executeStatement("UPDATE feed_posts SET like_count = like_count + 1 WHERE id = ?", [$postId]);
-            $liked = true;
-        }
-        $cntStmt = $this->db->executeQuery("SELECT like_count FROM feed_posts WHERE id = ?", [$postId]);
-        $cnt = $cntStmt->fetchAssociative()['like_count'] ?? 0;
-        return ['success' => true, 'i_liked' => $liked, 'like_count' => (int)$cnt];
+        $visible = $this->schema->hasColumn('feed_posts', 'hidden_at') ? ' AND hidden_at IS NULL' : '';
+        return $this->db->transactional(function () use ($postId, $userId, $visible): array {
+            if (!$this->db->fetchOne("SELECT id FROM feed_posts WHERE id = ?{$visible} FOR UPDATE", [$postId])) {
+                return ['success' => false, 'message' => 'This post is no longer available.'];
+            }
+            $hasLiked = (int)$this->db->fetchOne('SELECT COUNT(*) FROM feed_likes WHERE post_id = ? AND user_id = ?', [$postId, $userId]) > 0;
+            if ($hasLiked) {
+                $this->db->executeStatement('DELETE FROM feed_likes WHERE post_id = ? AND user_id = ?', [$postId, $userId]);
+            } else {
+                $this->db->executeStatement('INSERT INTO feed_likes (post_id, user_id) VALUES (?,?)', [$postId, $userId]);
+            }
+            $count = (int)$this->db->fetchOne('SELECT COUNT(*) FROM feed_likes WHERE post_id = ?', [$postId]);
+            $this->db->executeStatement('UPDATE feed_posts SET like_count = ? WHERE id = ?', [$count, $postId]);
+            return ['success' => true, 'i_liked' => !$hasLiked, 'like_count' => $count];
+        });
     }
 
     public function addComment($postId, $userId, $comment) {
+        return $this->db->transactional(fn() => $this->insertComment($postId, $userId, $comment));
+    }
+
+    private function insertComment($postId, $userId, $comment) {
         $user = $this->users->getUserById($userId);
         if (!$user) return ['success' => false, 'message' => 'User not found'];
         if (!$this->feedPostExists((string)$postId)) {
@@ -141,6 +141,34 @@ final class CommunityRepository
         $this->db->executeStatement("UPDATE feed_posts SET comment_count = comment_count + 1 WHERE id = ?", [$postId]);
 
         return ['success' => true, 'comment' => $entry];
+    }
+
+    /** Must run inside the mutation transaction; hides foreign/hidden IDs from non-admins. */
+    private function lockWritablePost(string $postId, string $userId, bool $admin): ?array
+    {
+        $post = $this->db->fetchAssociative('SELECT * FROM feed_posts WHERE id = ? FOR UPDATE', [$postId]);
+        return $post !== false && ($admin || ((string)$post['author_id'] === $userId && empty($post['hidden_at']))) ? $post : null;
+    }
+
+    public function updateFeedPost(string $postId, string $userId, string $content, bool $admin = false): bool
+    {
+        return $this->db->transactional(function () use ($postId, $userId, $content, $admin): bool {
+            if ($this->lockWritablePost($postId, $userId, $admin) === null) return false;
+            $this->db->update('feed_posts', ['content' => $content], ['id' => $postId]);
+            return true;
+        });
+    }
+
+    public function deleteFeedPost(string $postId, string $userId, bool $admin = false): bool
+    {
+        return $this->db->transactional(function () use ($postId, $userId, $admin): bool {
+            if ($this->lockWritablePost($postId, $userId, $admin) === null) return false;
+            $this->db->delete('feed_likes', ['post_id' => $postId]);
+            $this->db->delete('feed_comments', ['post_id' => $postId]);
+            $this->db->delete('feed_posts', ['id' => $postId]);
+            // Moderation cases retain their immutable content snapshots after deletion.
+            return true;
+        });
     }
 
     public function getMessages($userId, $partnerId) {

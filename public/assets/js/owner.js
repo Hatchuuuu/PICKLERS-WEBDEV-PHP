@@ -157,7 +157,7 @@ function executeEndCourtSession() {
   // end_court_session flags the active booking itself (see
   // Database::endCourtSessionEarly()). Dashboard occupancy is computed from
   // bookings, so changing courts.status alone would not free the court.
-  fetch('owner.php?action=end_court_session', {
+  fetch(ownerUrl('end_court_session'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -207,6 +207,7 @@ function confirmWalkIn() {
 
 // Booking Requests Actions
 let activeDeclineId = null;
+let activeAcceptRequest = null;
 let acceptBookingInFlight = false;
 let declineBookingInFlight = false;
 
@@ -254,7 +255,7 @@ function renderRequestCard(req) {
   const name = escapeHtmlAttr(req.name);
   const isOP = Boolean(req.is_open_play) || (req.booking_type === 'open_play') || (req.type_label && req.type_label.toLowerCase().includes('open play')) || (req.id && (String(req.id).startsWith('PKL-OP-') || String(req.id).startsWith('op_')));
   const typeText = isOP ? 'Open Play' : 'Court Reservation';
-  const typeColor = isOP ? '#38BDF8' : '#00D98B';
+  const typeColor = isOP ? 'var(--pk-accent-sky)' : 'var(--pk-accent-emerald-text)';
   const avatarUrl = req.player_avatar || req.avatar_url || req.avatar || '';
   const hasCustomAvatar = avatarUrl && !avatarUrl.includes('unsplash.com');
   const initials = req.name ? req.name.trim().substr(0, 1).toUpperCase() : 'P';
@@ -279,7 +280,7 @@ function renderRequestCard(req) {
     </div>
     <div class="req-price-cyan">${escapeHtmlAttr(req.fee)}</div>
     <div class="req-actions-row">
-      <button type="button" class="btn-req-accept-v2" onclick="acceptBooking(${jsAttr(req.id)}, ${jsAttr(req.name)})">
+      <button type="button" class="btn-req-accept-v2" onclick="openAcceptModal(${jsAttr(req.id)}, ${jsAttr(req.name)})">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         <span>Accept</span>
       </button>
@@ -305,12 +306,13 @@ const REQUESTS_EMPTY_STATE_HTML = `<div style="text-align:center; padding:36px 2
 // already update that request's own card immediately.
 let requestsQueueRefreshInFlight = false;
 function refreshRequestsQueue(onNewRequests) {
+  if (window.PICKLERS_CAN_REVIEW_REQUESTS === false) return;
   if (requestsQueueRefreshInFlight) return;
   requestsQueueRefreshInFlight = true;
   const knownIds = new Set(Array.from(document.querySelectorAll('#requestsList .request-card-v2'))
     .map(card => card.id.replace(/^req_card_/, '')));
 
-  fetch('api.php?action=get_pending_requests', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+  fetch(apiUrl('get_pending_requests'), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(r => r.json())
     .then(res => {
       requestsQueueRefreshInFlight = false;
@@ -338,6 +340,33 @@ function refreshRequestsQueue(onNewRequests) {
     });
 }
 
+function setRequestReviewBusy(id, busy) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  modal.setAttribute('aria-busy', String(busy));
+  modal.querySelectorAll('button, select').forEach(control => { control.disabled = busy; });
+  const status = modal.querySelector('[role="status"]');
+  if (status) status.textContent = busy ? 'Submitting decision. Please wait…' : '';
+}
+
+function requestReviewSummary(reqId, playerName) {
+  const card = document.getElementById('req_card_' + reqId);
+  const details = ['.req-court-title', '.req-schedule-subtitle', '.req-price-cyan', '.req-payment-method-badge']
+    .map(selector => card?.querySelector(selector)?.textContent.trim()).filter(Boolean);
+  return ['#' + reqId + ' · ' + playerName, ...details].join('\n');
+}
+
+function openAcceptModal(reqId, playerName) {
+  if (acceptBookingInFlight || declineBookingInFlight) return;
+  activeAcceptRequest = { id: reqId, name: playerName };
+  document.getElementById('acceptRequestSummary').textContent = requestReviewSummary(reqId, playerName);
+  openModal('acceptModal');
+}
+
+function confirmAccept() {
+  if (activeAcceptRequest) acceptBooking(activeAcceptRequest.id, activeAcceptRequest.name);
+}
+
 function acceptBooking(reqId, playerName) {
   if (acceptBookingInFlight) return;
   acceptBookingInFlight = true;
@@ -345,10 +374,13 @@ function acceptBooking(reqId, playerName) {
   const card = document.getElementById('req_card_' + reqId);
   const acceptBtn = card ? card.querySelector('.btn-req-accept-v2') : null;
   const declineBtn = card ? card.querySelector('.btn-req-decline-v2') : null;
+  const confirmBtn = document.getElementById('confirmAcceptButton');
+  if (confirmBtn) confirmBtn.disabled = true;
   if (acceptBtn) acceptBtn.disabled = true;
   if (declineBtn) declineBtn.disabled = true;
+  setRequestReviewBusy('acceptModal', true);
 
-  fetch('api.php?action=approve_booking', {
+  fetch(apiUrl('approve_booking'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -363,7 +395,11 @@ function acceptBooking(reqId, playerName) {
     .then(r => r.json())
     .then(res => {
       acceptBookingInFlight = false;
+      setRequestReviewBusy('acceptModal', false);
+      if (confirmBtn) confirmBtn.disabled = false;
       if (res.success) {
+        activeAcceptRequest = null;
+        closeModal('acceptModal');
         removeRequestCard(reqId);
         showToast('Booking accepted! Confirmed notification sent to ' + playerName + '.');
         setTimeout(() => window.location.reload(), 450);
@@ -375,6 +411,8 @@ function acceptBooking(reqId, playerName) {
     })
     .catch(err => {
       acceptBookingInFlight = false;
+      setRequestReviewBusy('acceptModal', false);
+      if (confirmBtn) confirmBtn.disabled = false;
       if (acceptBtn) acceptBtn.disabled = false;
       if (declineBtn) declineBtn.disabled = false;
       showToast('Network error occurred while accepting booking. Please try again.');
@@ -382,19 +420,23 @@ function acceptBooking(reqId, playerName) {
 }
 
 function openDeclineModal(reqId, playerName) {
+  if (acceptBookingInFlight || declineBookingInFlight) return;
   activeDeclineId = reqId;
+  document.getElementById('declineRequestSummary').textContent = requestReviewSummary(reqId, playerName);
+  document.getElementById('declineReason').selectedIndex = 0;
   openModal('declineModal');
 }
 
 function confirmDecline() {
   if (!activeDeclineId || declineBookingInFlight) return;
   declineBookingInFlight = true;
+  setRequestReviewBusy('declineModal', true);
 
   const declineId = activeDeclineId;
   const confirmBtn = document.querySelector('#declineModal .btn-req-decline');
   if (confirmBtn) confirmBtn.disabled = true;
 
-  fetch('api.php?action=decline_booking', {
+  fetch(apiUrl('decline_booking'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -403,18 +445,20 @@ function confirmDecline() {
     body: JSON.stringify({
       action: 'decline_booking',
       csrf_token: getCsrfToken(),
-      booking_id: declineId
+      booking_id: declineId,
+      reason: document.getElementById('declineReason')?.value || ''
     })
   })
     .then(r => r.json())
     .then(res => {
       declineBookingInFlight = false;
+      setRequestReviewBusy('declineModal', false);
       if (confirmBtn) confirmBtn.disabled = false;
       if (res.success) {
         removeRequestCard(declineId);
         activeDeclineId = null;
         closeModal('declineModal');
-        showToast('Reservation declined. Player hold refunded to wallet.');
+        showToast(res.message || 'Reservation declined.');
         setTimeout(() => window.location.reload(), 450);
       } else {
         showToast(res.message || 'Failed to decline booking. Please try again.');
@@ -422,6 +466,7 @@ function confirmDecline() {
     })
     .catch(err => {
       declineBookingInFlight = false;
+      setRequestReviewBusy('declineModal', false);
       if (confirmBtn) confirmBtn.disabled = false;
       showToast('Network error occurred while declining booking. Please try again.');
     });
@@ -704,7 +749,7 @@ function onQrCodeDetected(qrData) {
     if (successOverlay) successOverlay.style.display = 'flex';
   };
 
-  fetch('api.php?action=verify_checkin', {
+  fetch(apiUrl('verify_checkin'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
     body: JSON.stringify({ action: 'verify_checkin', csrf_token: getCsrfToken(), code: qrData })
@@ -745,7 +790,17 @@ function processManualQrInput() {
   if (input) input.value = '';
 }
 
+let ownerSoundEnabled = true;
+try { ownerSoundEnabled = localStorage.getItem('picklers_owner_sound') !== 'false'; } catch (_) {}
+
+function setOwnerSoundEnabled(enabled) {
+  ownerSoundEnabled = Boolean(enabled);
+  try { localStorage.setItem('picklers_owner_sound', String(ownerSoundEnabled)); } catch (_) {}
+  showToast('Scanner sound ' + (ownerSoundEnabled ? 'enabled' : 'disabled') + ' on this browser.', 'info');
+}
+
 function playSuccessChime() {
+  if (!ownerSoundEnabled) return;
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
@@ -794,7 +849,7 @@ function dispatchPayout() {
 
   // request_payout (OwnerController) validates the amount against the
   // available balance and records the request.
-  fetch('owner.php?action=request_payout', {
+  fetch(ownerUrl('request_payout'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -838,10 +893,14 @@ function dispatchPayout() {
 let activeChatPartnerId = window.__initialChatPartnerId || null;
 let chatThreadPollInterval = null;
 let chatSendInFlight = false;
+let chatThreadRequestVersion = 0;
+const chatDrafts = new Map();
 
-function renderChatThread(messages) {
+function renderChatThread(messages, followLatest = false) {
   const thread = document.getElementById('chatThreadContainer');
   if (!thread) return;
+  const scrollTop = thread.scrollTop || 0;
+  const nearBottom = thread.scrollHeight - (thread.clientHeight || 0) - scrollTop <= 48;
   // Every message here is strictly between the owner and activeChatPartnerId
   // (see getMessages()'s WHERE clause) — anything not sent BY the partner
   // was sent by the owner, no need to know the owner's own id client-side.
@@ -853,20 +912,29 @@ function renderChatThread(messages) {
     const when = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
     return `<div class="chat-bubble ${mine ? 'from-owner' : 'from-user'}">${safeText}<div style="font-size:10px; opacity:0.7; margin-top:4px; text-align:right;">${when}</div></div>`;
   }).join('');
-  thread.scrollTop = thread.scrollHeight;
+  thread.scrollTop = followLatest || nearBottom ? thread.scrollHeight : scrollTop;
 }
 
-function loadChatThread(partnerId) {
-  fetch(`api.php?action=messages&partner_id=${encodeURIComponent(partnerId)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+function loadChatThread(partnerId, followLatest = false) {
+  if (partnerId !== activeChatPartnerId) return;
+  const requestVersion = ++chatThreadRequestVersion;
+  fetch(apiUrl('messages') + '&partner_id=' + encodeURIComponent(partnerId), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(r => r.json())
     .then(res => {
-      if (res.success) renderChatThread(res.messages);
+      if (partnerId !== activeChatPartnerId || requestVersion !== chatThreadRequestVersion) return;
+      if (res.success) renderChatThread(res.messages, followLatest);
     })
     .catch(() => { });
 }
 
 function selectConversation(partnerId, name, avatarUrl, itemEl) {
+  const input = document.getElementById('chatMessageInput');
+  if (input && partnerId !== activeChatPartnerId) {
+    if (activeChatPartnerId) chatDrafts.set(activeChatPartnerId, input.value);
+    input.value = chatDrafts.get(partnerId) || '';
+  }
   activeChatPartnerId = partnerId;
+  renderChatThread([], true);
   const nameEl = document.getElementById('chatActiveUser');
   if (nameEl) nameEl.innerText = name;
   const avatarEl = document.getElementById('chatActiveAvatar');
@@ -875,7 +943,7 @@ function selectConversation(partnerId, name, avatarUrl, itemEl) {
   document.querySelectorAll('.inbox-item').forEach(el => el.classList.remove('active'));
   if (itemEl) itemEl.classList.add('active');
 
-  loadChatThread(partnerId);
+  loadChatThread(partnerId, true);
 
   // Live-ish updates while this thread is open — matches the ~4-12s cadence
   // already used elsewhere in the app (Open Play spot counts, PickSync).
@@ -889,9 +957,11 @@ function sendChatMessage() {
   const input = document.getElementById('chatMessageInput');
   const text = input ? input.value.trim() : '';
   if (!text || !activeChatPartnerId || chatSendInFlight) return;
+  const partnerId = activeChatPartnerId;
+  const draft = input.value;
   chatSendInFlight = true;
 
-  fetch('api.php?action=send_message', {
+  fetch(apiUrl('send_message'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -900,7 +970,7 @@ function sendChatMessage() {
     body: JSON.stringify({
       action: 'send_message',
       csrf_token: getCsrfToken(),
-      partner_id: activeChatPartnerId,
+      partner_id: partnerId,
       content: text
     })
   })
@@ -908,8 +978,11 @@ function sendChatMessage() {
     .then(res => {
       chatSendInFlight = false;
       if (res.success) {
-        input.value = '';
-        loadChatThread(activeChatPartnerId);
+        if (chatDrafts.get(partnerId) === draft) chatDrafts.delete(partnerId);
+        if (activeChatPartnerId === partnerId) {
+          if (input.value === draft) input.value = '';
+          loadChatThread(partnerId, true);
+        }
       } else {
         showToast(res.message || 'Failed to send message. Please try again.');
       }
@@ -995,7 +1068,7 @@ function submitEditCourtForm(e) {
   if (submitBtn) { submitBtn.disabled = true; submitBtn.innerText = 'Saving...'; }
   const restoreSubmitBtn = () => { if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = 'Save'; } };
 
-  fetch('owner.php?action=edit_court', {
+  fetch(ownerUrl('edit_court'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1104,7 +1177,7 @@ function toggleCourtActive(courtId, courtName, btnEl) {
   const isCurrentlyDisabled = btn.classList.contains('btn-enable-green') || card.classList.contains('court-card-disabled');
   const newActive = isCurrentlyDisabled; // toggling FROM disabled means the new state is active
 
-  fetch('owner.php?action=toggle_court_status', {
+  fetch(ownerUrl('toggle_court_status'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1244,7 +1317,7 @@ function executeDeleteCourt() {
 
   closeModal('deleteCourtModal');
 
-  fetch('owner.php?action=delete_court', {
+  fetch(ownerUrl('delete_court'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1319,7 +1392,7 @@ function executeCancelOpenPlay() {
   closeModal('cancelOpenPlayModal');
 
   // The toast reports what the server actually cancelled and refunded.
-  fetch('owner.php?action=cancel_open_play', {
+  fetch(ownerUrl('cancel_open_play'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1362,7 +1435,7 @@ function switchOpenPlayTab(tab) {
     if (completedGrid) completedGrid.style.display = 'none';
     if (btnActive) {
       btnActive.style.background = '#00D98B';
-      btnActive.style.color = '#08101F';
+      btnActive.style.color = 'var(--on-accent)';
       btnActive.style.fontWeight = '800';
     }
     if (btnCompleted) {
@@ -1380,7 +1453,7 @@ function switchOpenPlayTab(tab) {
     }
     if (btnCompleted) {
       btnCompleted.style.background = '#00D98B';
-      btnCompleted.style.color = '#08101F';
+      btnCompleted.style.color = 'var(--on-accent)';
       btnCompleted.style.fontWeight = '800';
     }
   }
@@ -1406,7 +1479,7 @@ function submitAddCourtForm(e) {
   const btn = e.target.querySelector('button[type="submit"]');
   if (btn) { btn.disabled = true; btn.innerText = 'Saving...'; }
 
-  fetch('owner.php?action=add_court', {
+  fetch(ownerUrl('add_court'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1481,11 +1554,11 @@ function toggleOpenPlayDateMode(mode) {
   const btnEvery = document.getElementById('btnDateEveryday');
   const dateInputWrap = document.getElementById('openPlayDatePickerWrap');
   if (mode === 'specific') {
-    if (btnSpec) { btnSpec.style.background = '#FFB800'; btnSpec.style.color = '#08101F'; btnSpec.style.fontWeight = '800'; }
+    if (btnSpec) { btnSpec.style.background = '#FFB800'; btnSpec.style.color = 'var(--on-accent)'; btnSpec.style.fontWeight = '800'; }
     if (btnEvery) { btnEvery.style.background = 'transparent'; btnEvery.style.color = '#94A3B8'; btnEvery.style.fontWeight = '600'; }
     if (dateInputWrap) dateInputWrap.style.display = 'block';
   } else {
-    if (btnEvery) { btnEvery.style.background = '#FFB800'; btnEvery.style.color = '#08101F'; btnEvery.style.fontWeight = '800'; }
+    if (btnEvery) { btnEvery.style.background = '#FFB800'; btnEvery.style.color = 'var(--on-accent)'; btnEvery.style.fontWeight = '800'; }
     if (btnSpec) { btnSpec.style.background = 'transparent'; btnSpec.style.color = '#94A3B8'; btnSpec.style.fontWeight = '600'; }
     if (dateInputWrap) dateInputWrap.style.display = 'none';
   }
@@ -1496,11 +1569,11 @@ function toggleOpenPlayCapMode(mode) {
   const btnUnlim = document.getElementById('btnCapUnlimited');
   const capWrap = document.getElementById('openPlayCapWrap');
   if (mode === 'capped') {
-    if (btnCap) { btnCap.style.background = '#FFB800'; btnCap.style.color = '#08101F'; btnCap.style.fontWeight = '800'; }
+    if (btnCap) { btnCap.style.background = '#FFB800'; btnCap.style.color = 'var(--on-accent)'; btnCap.style.fontWeight = '800'; }
     if (btnUnlim) { btnUnlim.style.background = 'transparent'; btnUnlim.style.color = '#94A3B8'; btnUnlim.style.fontWeight = '600'; }
     if (capWrap) capWrap.style.display = 'block';
   } else {
-    if (btnUnlim) { btnUnlim.style.background = '#FFB800'; btnUnlim.style.color = '#08101F'; btnUnlim.style.fontWeight = '800'; }
+    if (btnUnlim) { btnUnlim.style.background = '#FFB800'; btnUnlim.style.color = 'var(--on-accent)'; btnUnlim.style.fontWeight = '800'; }
     if (btnCap) { btnCap.style.background = 'transparent'; btnCap.style.color = '#94A3B8'; btnCap.style.fontWeight = '600'; }
     if (capWrap) capWrap.style.display = 'none';
   }
@@ -1546,7 +1619,7 @@ function executePublishHostOpenPlay() {
   const btn = document.getElementById('btnConfirmPublishHostOpenPlay');
   if (btn) { btn.disabled = true; btn.innerText = 'Publishing...'; }
 
-  fetch('owner.php?action=host_open_play', {
+  fetch(ownerUrl('host_open_play'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1599,11 +1672,17 @@ function submitAddStaffForm(e) {
   const name = document.getElementById('staffNameInput')?.value || 'Staff Member';
   const email = document.getElementById('staffEmailInput')?.value || '';
   const role = document.getElementById('staffRoleInput')?.value || 'Front Desk';
+  const selection = document.getElementById('staffNameInput')?.dataset;
+  if (!selection?.userId || selection.userName !== name || selection.userEmail !== email) {
+    addStaffInFlight = false;
+    showToast('Please select a registered player from the search results.', 'error');
+    return;
+  }
   const btn = e.target.querySelector('button[type="submit"]');
   if (btn) { btn.disabled = true; btn.innerText = 'Granting Access...'; }
   const restoreSubmitBtn = () => { if (btn) { btn.disabled = false; btn.innerText = 'Grant Staff Access'; } };
 
-  fetch('owner.php?action=add_staff', {
+  fetch(ownerUrl('add_staff'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1614,6 +1693,7 @@ function submitAddStaffForm(e) {
       csrf_token: getCsrfToken(),
       name: name,
       email: email,
+      user_id: selection.userId,
       role: role
     })
   })
@@ -1706,7 +1786,7 @@ function executeRevokeStaff() {
   const confirmBtn = document.getElementById('btnExecuteRevoke') || document.querySelector('#revokeStaffModal .btn-modal-danger');
   if (confirmBtn) confirmBtn.disabled = true;
 
-  fetch('owner.php?action=revoke_staff', {
+  fetch(ownerUrl('revoke_staff'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1728,10 +1808,16 @@ function executeRevokeStaff() {
         if (staffBtn) {
           const row = staffBtn.closest('.staff-member-card');
           if (row) {
-            row.style.opacity = '0';
-            row.style.transform = 'scale(0.95)';
-            row.style.transition = 'all 0.2s ease';
-            setTimeout(() => row.remove(), 200);
+            const rows = row.dataset.userId && row.dataset.facilityId
+              ? Array.from(document.querySelectorAll('.staff-member-card')).filter(card =>
+                card.dataset.userId === row.dataset.userId && card.dataset.facilityId === row.dataset.facilityId)
+              : [row];
+            rows.forEach(card => {
+              card.style.opacity = '0';
+              card.style.transform = 'scale(0.95)';
+              card.style.transition = 'all 0.2s ease';
+              setTimeout(() => card.remove(), 200);
+            });
           }
         }
         showToast('✓ ' + (res.message || staffName + ' access has been permanently revoked.'), 'success');
@@ -1805,8 +1891,23 @@ function filterCourtsList(query) {
 }
 
 // Notification Handlers (Synced with Player App)
-function dismissNotification(rowElement, notifId) {
+async function dismissNotification(rowElement, notifId) {
   if (!rowElement || rowElement.classList.contains('removing')) return;
+  const fd = new FormData();
+  fd.append('action', 'delete_notification');
+  fd.append('id', notifId);
+  fd.append('csrf_token', getCsrfToken());
+  try {
+    const response = await fetch(apiUrl(), { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd });
+    const res = await response.json();
+    if (!response.ok || !res?.success) throw new Error(res?.message || 'Could not remove that notification');
+  } catch (err) {
+    const card = rowElement.querySelector('.notif-card-item');
+    if (card) card.style.transform = 'translateX(0px)';
+    rowElement.classList.remove('is-swiped');
+    showToast(err.message || 'Network error - notification not removed', 'error');
+    return;
+  }
   const card = rowElement.querySelector('.notif-card-item');
   if (card) {
     card.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease';
@@ -1832,17 +1933,52 @@ function dismissNotification(rowElement, notifId) {
     }
     if (remainingRows.length === 0 && list) {
       list.innerHTML = `
-            <div style="text-align: center; padding: 48px 20px; color: #94A3B8;">
-              <div style="font-size: 36px; margin-bottom: 10px;">🔔</div>
-              <div style="font-size: 15px; font-weight: 700; color: #FFFFFF; margin-bottom: 4px;">No notifications yet</div>
-              <div style="font-size: 12px; color: rgba(255, 255, 255, 0.55);">When players book courts or scan QR passes, updates will show up here.</div>
+            <div class="notif-empty-state">
+              <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              <h4>No notifications yet</h4>
+              <p>Booking requests and facility updates will appear here.</p>
             </div>`;
     }
   }, 350);
 }
 
+async function openNotificationDetails(card) {
+  document.getElementById('notificationDetailTitle').textContent = card.querySelector('.notif-item-title').textContent;
+  document.getElementById('notificationDetailBody').textContent = card.querySelector('.notif-item-body').textContent;
+  document.getElementById('notificationDetailDate').textContent = card.dataset.date;
+  openModal('notificationDetailModal');
+  if (!card.classList.contains('unread') || card.dataset.readPending) return;
+  card.dataset.readPending = 'true';
+  try {
+    const fd = new FormData();
+    fd.append('action', 'mark_notifications_read');
+    fd.append('id', card.dataset.id);
+    fd.append('csrf_token', getCsrfToken());
+    const response = await fetch(apiUrl(), { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd });
+    const res = await response.json();
+    if (!response.ok || !res?.success) throw new Error(res?.message || 'Could not mark notification as read');
+    card.classList.remove('unread');
+    card.querySelector('.notif-card-unread-dot')?.remove();
+    const total = document.querySelectorAll('.notif-card-item').length;
+    const unread = document.querySelectorAll('.notif-card-item.unread').length;
+    const badge = document.getElementById('notifUnreadBadgeText');
+    if (badge) badge.textContent = unread ? `${unread} unread of ${total}` : `${total} total`;
+    if (!unread) document.querySelectorAll('.notif-unread-dot').forEach(el => el.remove());
+  } catch (err) {
+    showToast(err.message || 'Could not mark notification as read', 'error');
+  } finally {
+    delete card.dataset.readPending;
+  }
+}
+
 async function markAllNotificationsAsRead() {
   try {
+    const fd = new FormData();
+    fd.append('action', 'mark_notifications_read');
+    fd.append('csrf_token', getCsrfToken());
+    const response = await fetch(apiUrl(), { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd });
+    const res = await response.json();
+    if (!response.ok || !res?.success) throw new Error(res?.message || 'Could not update notifications');
     document.querySelectorAll('.notif-card-item.unread').forEach(el => el.classList.remove('unread'));
     document.querySelectorAll('.notif-card-unread-dot').forEach(el => el.remove());
     document.querySelectorAll('.notif-unread-dot').forEach(el => el.remove());
@@ -1853,7 +1989,7 @@ async function markAllNotificationsAsRead() {
     }
     showToast('All notifications marked as read', 'success');
   } catch (err) {
-    console.error('Failed to mark notifications as read', err);
+    showToast(err.message || 'Network error - notifications not updated', 'error');
   }
 }
 
@@ -1888,6 +2024,7 @@ function autoLocateGps() {
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        const coordinateAddress = lat.toFixed(5) + ', ' + lng.toFixed(5);
 
         const geocodeUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
         fetch(geocodeUrl, { headers: { 'Accept-Language': 'en' } })
@@ -1910,13 +2047,7 @@ function autoLocateGps() {
               }
             }
 
-            if (!formattedAddr) {
-              if (lat >= 9.0 && lat <= 10.5 && lng >= 122.5 && lng <= 124.0) {
-                formattedAddr = 'Bunao, Dumaguete City';
-              } else {
-                formattedAddr = `${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`;
-              }
-            }
+            if (!formattedAddr) formattedAddr = coordinateAddress;
 
             if (locInput) {
               locInput.value = formattedAddr;
@@ -1924,33 +2055,19 @@ function autoLocateGps() {
             showToast(`✓ Located: ${formattedAddr}`, 'success');
           })
           .catch(() => {
-            let fallbackAddr = '';
-            if (lat >= 9.0 && lat <= 10.5 && lng >= 122.5 && lng <= 124.0) {
-              fallbackAddr = 'Bunao, Dumaguete City';
-            } else {
-              fallbackAddr = `${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`;
-            }
             if (locInput) {
-              locInput.value = fallbackAddr;
+              locInput.value = coordinateAddress;
             }
-            showToast(`✓ Located: ${fallbackAddr}`, 'success');
+            showToast('Address lookup unavailable. GPS coordinates entered; review before saving.', 'info');
           });
       },
-      (err) => {
-        const defaultLocation = 'Bunao, Dumaguete City';
-        if (locInput) {
-          locInput.value = defaultLocation;
-        }
-        showToast(`✓ Location set: ${defaultLocation}`, 'success');
+      () => {
+        showToast('GPS unavailable or permission denied. Address unchanged; enter it manually.', 'error');
       },
       { timeout: 8000, enableHighAccuracy: true }
     );
   } else {
-    const defaultLocation = 'Bunao, Dumaguete City';
-    if (locInput) {
-      locInput.value = defaultLocation;
-    }
-    showToast(`✓ Location set: ${defaultLocation}`, 'success');
+    showToast('GPS is unavailable in this browser. Address unchanged; enter it manually.', 'error');
   }
 }
 
@@ -2034,6 +2151,11 @@ function savePayoutNumber(type) {
 }
 function saveFacilitySettings(event, isSilent = false) {
   if (event) event.preventDefault();
+  if (saveFacilitySettings.inFlight) {
+    const message = 'A settings update is already in progress. Please wait.';
+    if (!isSilent) showToast(message, 'info');
+    return Promise.resolve({ success: false, message });
+  }
 
   // Everything below is saved server-side by update_facility_settings; a
   // blank payout number stays blank.
@@ -2072,7 +2194,8 @@ function saveFacilitySettings(event, isSilent = false) {
   const csrfToken = getCsrfToken();
   if (csrfToken) formData.append('csrf_token', csrfToken);
 
-  return fetch('owner.php?action=update_facility_settings', {
+  saveFacilitySettings.inFlight = true;
+  return fetch(ownerUrl('update_facility_settings'), {
     method: 'POST',
     body: formData,
     headers: {
@@ -2083,13 +2206,17 @@ function saveFacilitySettings(event, isSilent = false) {
     .then(r => r.json())
     .then(data => {
       if (data && data.success) {
-        if (logoFile && logoInput) logoInput.value = '';
+        if (logoFile && logoInput?.files?.[0] === logoFile) logoInput.value = '';
         ['gcash', 'maya'].forEach(type => {
           const numberInput = document.getElementById(`${type}NumberInput`);
           if (!numberInput) return;
-          numberInput.defaultValue = numberInput.value;
-          setPayoutStatus(type, numberInput.value ? 'saved' : 'empty');
+          numberInput.defaultValue = type === 'gcash' ? gcashNum : mayaNum;
+          setPayoutStatus(type, numberInput.value === numberInput.defaultValue ? (numberInput.value ? 'saved' : 'empty') : 'modified');
         });
+        const sidebarFacName = document.querySelector('.owner-sidebar .user-name-line');
+        if (sidebarFacName && facName) {
+          sidebarFacName.textContent = facName;
+        }
         if (!isSilent) showToast('Facility settings & payout numbers updated successfully!', 'success');
       } else {
         if (!isSilent) showToast((data && data.message) || 'Failed to update settings', 'error');
@@ -2099,7 +2226,8 @@ function saveFacilitySettings(event, isSilent = false) {
     .catch(() => {
       if (!isSilent) showToast('Network error — settings may not have saved. Please try again.', 'error');
       return null;
-    });
+    })
+    .finally(() => { saveFacilitySettings.inFlight = false; });
 }
 
 // Daily Revenue Breakdown Filter & Search Helpers
@@ -2316,14 +2444,23 @@ function highlightMatchText(text, query) {
   return text.replace(regex, '<mark>$1</mark>');
 }
 
-function selectStaffPlayer(name, email) {
+function clearStaffSelection() {
+  const input = document.getElementById('staffNameInput');
+  if (input) delete input.dataset.userId;
+}
+
+function selectStaffPlayer(name, email, userId) {
   const nameInput = document.getElementById('staffNameInput');
   const emailInput = document.getElementById('staffEmailInput');
   const box = document.getElementById('staffNameAutocomplete') || document.getElementById('staffNameSuggestions');
 
-  if (nameInput) nameInput.value = name;
+  if (nameInput) {
+    nameInput.value = name;
+    Object.assign(nameInput.dataset, { userId: userId || '', userName: name, userEmail: email });
+  }
   if (emailInput && email) emailInput.value = email;
   if (box) box.style.display = 'none';
+  if (emailInput) emailInput.focus();
   showToast(`Selected ${name} (${email || 'No email'})`, 'info');
 }
 window.selectStaffPlayer = selectStaffPlayer;
@@ -2352,7 +2489,7 @@ function renderPlayerAutocomplete(box, users, query, type = 'staff') {
     const nameHighlighted = highlightMatchText(escapeHtmlAttr(u.name || ''), escapeHtmlAttr(query));
     const emailStr = u.email ? u.email : '';
     const clickHandler = type === 'staff'
-      ? `selectStaffPlayer(${jsAttr(u.name || '')}, ${jsAttr(emailStr)})`
+      ? `selectStaffPlayer(${jsAttr(u.name || '')}, ${jsAttr(emailStr)}, ${jsAttr(u.id || '')})`
       : `selectWalkinPlayer(${jsAttr(u.name || '')})`;
 
     const avatarInner = u.avatar_url && u.avatar_url.trim() && !u.avatar_url.includes('unsplash.com')
@@ -2360,24 +2497,24 @@ function renderPlayerAutocomplete(box, users, query, type = 'staff') {
       : `<span>${escapeHtmlAttr(initial)}</span>`;
 
     return `
-      <div class="autocomplete-item" onclick="${clickHandler}">
+      <button type="button" class="autocomplete-item" onclick="${clickHandler}">
         <div class="autocomplete-avatar">${avatarInner}</div>
         <div class="autocomplete-info">
           <div class="autocomplete-item-name">${nameHighlighted}</div>
           <div class="autocomplete-item-email">${escapeHtmlAttr(emailStr) || 'No email registered'}</div>
         </div>
-      </div>
+      </button>
     `;
   }).join('');
 
   box.style.display = 'block';
 }
 
-function searchPlayersLocalAndApi(query, callback) {
+function searchPlayersLocalAndApi(query, callback, context = '') {
   const q = (query || '').trim().toLowerCase();
 
   // Only real registered accounts are suggested.
-  fetch('api.php?action=search_players&q=' + encodeURIComponent(q))
+  fetch(apiUrl('search_players') + '&q=' + encodeURIComponent(q) + (context === 'staff' ? '&context=staff' : ''))
     .then(r => r.json())
     .then(data => {
       if (data && data.success && Array.isArray(data.users)) {
@@ -2390,11 +2527,14 @@ function searchPlayersLocalAndApi(query, callback) {
 }
 
 function onStaffNameInput(query) {
+  const input = document.getElementById('staffNameInput');
+  if (input && input.dataset.userName !== query) clearStaffSelection();
   const box = document.getElementById('staffNameAutocomplete') || document.getElementById('staffNameSuggestions');
   if (!box) return;
   searchPlayersLocalAndApi(query, (users) => {
+    if (input?.value !== query) return;
     renderPlayerAutocomplete(box, users, (query || '').trim(), 'staff');
-  });
+  }, 'staff');
 }
 window.onStaffNameInput = onStaffNameInput;
 
@@ -2402,6 +2542,7 @@ function onWalkinNameInput(query) {
   const box = document.getElementById('walkinNameAutocomplete');
   if (!box) return;
   searchPlayersLocalAndApi(query, (users) => {
+    if (document.getElementById('walkin_name')?.value !== query) return;
     renderPlayerAutocomplete(box, users, (query || '').trim(), 'walkin');
   });
 }
@@ -2425,6 +2566,8 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  const soundToggle = document.getElementById('soundAlertsToggle');
+  if (soundToggle) soundToggle.checked = ownerSoundEnabled;
   initThemeToggle();
   initLiveCourtTimers();
 });
@@ -2617,6 +2760,10 @@ function onTournEntrantSearch(slot) {
   const box = document.getElementById(slot === 2 ? 'tournEntrantSuggest2' : 'tournEntrantSuggest1');
   if (!input || !box) return;
 
+  const requestVersion = String((Number(input.dataset.searchVersion) || 0) + 1);
+  input.dataset.searchVersion = requestVersion;
+  box.classList.remove('is-open');
+  box.innerHTML = '';
   const query = input.value.trim();
 
   // If input value matches selected player, do NOT open suggestions dropdown
@@ -2652,6 +2799,7 @@ function onTournEntrantSearch(slot) {
     })
       .then((r) => r.json())
       .then((data) => {
+        if (input.dataset.searchVersion !== requestVersion || input.value.trim() !== currentQuery) return;
         const liveQuery = input.value.trim();
         if (input.dataset.selectedVal && input.dataset.selectedVal.toLowerCase() === liveQuery.toLowerCase()) {
           box.classList.remove('is-open');
@@ -2722,7 +2870,9 @@ function onTournEntrantSearch(slot) {
           btn.addEventListener('click', applySelection);
         });
       })
-      .catch(() => box.classList.remove('is-open'));
+      .catch(() => {
+        if (input.dataset.searchVersion === requestVersion && input.value.trim() === currentQuery) box.classList.remove('is-open');
+      });
   }, 160);
 }
 window.onTournEntrantSearch = onTournEntrantSearch;
@@ -2752,7 +2902,12 @@ function hideTournAlert() {
 /** api.php lives at the app root regardless of which subdirectory this is served from. */
 function apiUrl(action) {
   const base = window.PICKLERS_BASE_URL || '';
-  return base + '/api?action=' + encodeURIComponent(action);
+  return base + '/api?action=' + encodeURIComponent(action) + '&facility_id=' + encodeURIComponent(window.PICKLERS_FACILITY_ID || '');
+}
+
+function ownerUrl(action) {
+  const base = window.PICKLERS_BASE_URL || '';
+  return base + '/owner.php?action=' + encodeURIComponent(action) + '&facility_id=' + encodeURIComponent(window.PICKLERS_FACILITY_ID || '');
 }
 
 function submitCreateTournamentForm(event) {
@@ -2829,7 +2984,7 @@ function submitCreateTournamentForm(event) {
       setTimeout(() => {
         window.location.href = id
           ? base + '/app/owner/tournaments/' + encodeURIComponent(id)
-          : base + '/owner?tab=tournaments';
+          : base + '/owner?tab=tournaments&facility_id=' + encodeURIComponent(window.PICKLERS_FACILITY_ID || '');
       }, 700);
     })
     .catch((err) => {
@@ -2958,7 +3113,9 @@ function safeHtmlStr(str) {
 }
 
 // Open Play Roster Modal Fetcher & Renderer
+let openPlayRosterRequestVersion = 0;
 function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
+  const requestVersion = ++openPlayRosterRequestVersion;
   const titleEl = document.getElementById('openPlayRosterTitle');
   const subtitleEl = document.getElementById('openPlayRosterSubtitle');
   const listEl = document.getElementById('openPlayRosterList');
@@ -2966,10 +3123,11 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
 
   if (titleEl) titleEl.textContent = `${courtName || 'Court'} Roster`;
   if (subtitleEl) subtitleEl.textContent = `${sessionTitle || 'Open Play Session'} • Joined Players`;
+  if (countEl) countEl.textContent = 'Loading…';
 
   if (listEl) {
     listEl.innerHTML = `
-      <div style="text-align: center; padding: 40px 16px; color: #94A3B8;">
+      <div style="text-align: center; padding: 40px 16px; color:var(--pk-text-muted);">
         <div style="display: inline-block; width: 28px; height: 28px; border: 3px solid rgba(0, 217, 139, 0.2); border-top-color: #00D98B; border-radius: 50%; animation: spinRoster 0.8s linear infinite; margin-bottom: 12px;"></div>
         <div style="font-size: 13px; font-weight: 600; color: #E2E8F0;">Loading joined players...</div>
       </div>
@@ -2987,8 +3145,11 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
   })
     .then(r => r.json())
     .then(res => {
-      if (!listEl) return;
-      const roster = (res && res.success && (res.roster || (res.data && res.data.roster))) ? (res.roster || res.data.roster) : [];
+      if (requestVersion !== openPlayRosterRequestVersion || !listEl) return;
+      const roster = res && (res.roster || (res.data && res.data.roster));
+      if (!res || !res.success || !Array.isArray(roster)) {
+        throw new Error((res && res.message) || 'Failed to load player roster.');
+      }
 
       if (countEl) {
         countEl.textContent = `${roster.length} ${roster.length === 1 ? 'Player' : 'Players'} Joined`;
@@ -2997,11 +3158,11 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
       if (roster.length === 0) {
         listEl.innerHTML = `
           <div style="text-align: center; padding: 60px 24px; background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 18px; flex: 1; min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-            <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color: #FFB800; margin: 0 auto 14px;">
+            <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color:var(--accent-warning-text); margin: 0 auto 14px;">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
             </div>
             <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">No Players Joined Yet</div>
-            <div style="font-size: 12.5px; color: #94A3B8; max-width: 320px; margin: 0 auto; line-height: 1.5;">Players who book or register for this hosted Open Play session will appear here in real-time.</div>
+            <div style="font-size: 12.5px; color:var(--pk-text-muted); max-width: 320px; margin: 0 auto; line-height: 1.5;">Players who book or register for this hosted Open Play session will appear here in real-time.</div>
           </div>
         `;
         return;
@@ -3018,7 +3179,7 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
 
       listEl.innerHTML = roster.map((player, idx) => {
         const initials = player.name ? player.name.trim().substr(0, 1).toUpperCase() : 'P';
-        const isPaid = (player.payment_status || '').toLowerCase().includes('paid');
+        const isPaid = player.payment_status === 'Pickle Credits';
         const avatarUrl = player.avatar_url || player.avatar || player.player_avatar || '';
 
         return `
@@ -3028,7 +3189,7 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
             </div>
             <div style="flex: 1; min-width: 0;">
               <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;">${safeHtmlStr(player.name)}</div>
-              ${player.email ? `<div style="font-size: 11.5px; color: #94A3B8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeHtmlStr(player.email)}</div>` : ''}
+              ${player.email ? `<div style="font-size: 11.5px; color:var(--pk-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeHtmlStr(player.email)}</div>` : ''}
             </div>
             <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0;">
               <span style="display: inline-flex; align-items: center; gap: 4px; background: ${isPaid ? 'rgba(56, 189, 248, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; border: 1px solid ${isPaid ? 'rgba(56, 189, 248, 0.3)' : 'rgba(245, 158, 11, 0.3)'}; color: ${isPaid ? '#38BDF8' : '#F59E0B'}; font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 9999px;">
@@ -3042,11 +3203,13 @@ function openOpenPlayRosterModal(courtId, courtName, sessionTitle) {
       }).join('');
     })
     .catch(err => {
+      if (requestVersion !== openPlayRosterRequestVersion) return;
       console.error("Error loading roster:", err);
+      if (countEl) countEl.textContent = 'Unavailable';
       if (listEl) {
         listEl.innerHTML = `
-          <div style="text-align: center; padding: 30px; color: #EF4444; font-size: 13px; font-weight: 600;">
-            Failed to load player roster. Please try again.
+          <div style="text-align: center; padding: 30px; color:var(--pk-danger-text); font-size: 13px; font-weight: 600;">
+            ${safeHtmlStr(err.message || 'Failed to load player roster.')} Close and reopen this roster to retry.
           </div>
         `;
       }
@@ -3087,11 +3250,11 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
   if (totalCount === 0) {
     listEl.innerHTML = `
       <div style="text-align: center; padding: 60px 24px; background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 18px; flex: 1; min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-        <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color: #FFB800; margin: 0 auto 14px;">
+        <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.2); display: flex; align-items: center; justify-content: center; color:var(--accent-warning-text); margin: 0 auto 14px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
         </div>
         <div style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">No Bookings Scheduled Yet</div>
-        <div style="font-size: 12.5px; color: #94A3B8; max-width: 320px; margin: 0 auto; line-height: 1.5;">Confirmed court reservations and player schedules for this court will appear here in real-time.</div>
+        <div style="font-size: 12.5px; color:var(--pk-text-muted); max-width: 320px; margin: 0 auto; line-height: 1.5;">Confirmed court reservations and player schedules for this court will appear here in real-time.</div>
       </div>
     `;
     openModal('courtScheduleModal');
@@ -3101,7 +3264,7 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
   let html = '';
 
   if (upcoming.length > 0) {
-    html += `<div style="font-size: 11px; font-weight: 800; color: #00D98B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Upcoming Bookings</div>`;
+    html += `<div style="font-size: 11px; font-weight: 800; color:var(--pk-accent-emerald-text); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Upcoming Bookings</div>`;
     html += upcoming.map(b => {
       const name = b.user_name || b.author_name || 'Player';
       const initial = name.trim().substr(0, 1).toUpperCase();
@@ -3117,10 +3280,10 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
             ${avatarHtml}
             <div>
               <div style="font-size: 14px; font-weight: 800; color: #FFFFFF;">${safeHtmlStr(name)}</div>
-              <div style="font-size: 11.5px; color: #94A3B8;">🕒 ${safeHtmlStr(timeStr)}</div>
+              <div style="font-size: 11.5px; color:var(--pk-text-muted);">🕒 ${safeHtmlStr(timeStr)}</div>
             </div>
           </div>
-          <span style="font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; background: rgba(0, 217, 139, 0.14); border: 1px solid rgba(0, 217, 139, 0.3); color: #00D98B; text-transform: uppercase;">
+          <span style="font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; background: rgba(0, 217, 139, 0.14); border: 1px solid rgba(0, 217, 139, 0.3); color:var(--pk-accent-emerald-text); text-transform: uppercase;">
             Confirmed
           </span>
         </div>
@@ -3132,7 +3295,7 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
     if (upcoming.length > 0) {
       html += `<div style="height: 1px; background: rgba(255, 255, 255, 0.08); margin: 8px 0;"></div>`;
     }
-    html += `<div style="font-size: 11px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Completed Today</div>`;
+    html += `<div style="font-size: 11px; font-weight: 800; color:var(--pk-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Completed Today</div>`;
     html += completed.map(b => {
       const name = b.user_name || b.author_name || 'Player';
       const initial = name.trim().substr(0, 1).toUpperCase();
@@ -3151,7 +3314,7 @@ function openCourtScheduleModal(courtId, courtName, upcomingBookings, completedB
               <div style="font-size: 11.5px; color: #64748B;">🕒 ${safeHtmlStr(timeStr)}</div>
             </div>
           </div>
-          <span style="font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; background: rgba(148, 163, 184, 0.14); border: 1px solid rgba(148, 163, 184, 0.3); color: #94A3B8; text-transform: uppercase;">
+          <span style="font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; background: rgba(148, 163, 184, 0.14); border: 1px solid rgba(148, 163, 184, 0.3); color:var(--pk-text-muted); text-transform: uppercase;">
             Completed
           </span>
         </div>

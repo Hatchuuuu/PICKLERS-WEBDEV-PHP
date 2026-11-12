@@ -85,9 +85,83 @@ function openModal(modalId, options) {
 }
 function closeModal(modalId) {
   if (window.UX) return window.UX.closeDialog(modalId);
+  invalidateBookingAvailability(modalId);
   const el = document.getElementById(modalId);
   if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
 }
+function invalidateBookingAvailability(modalId) {
+  if (modalId === 'quickBookModal') {
+    invalidateQuickBookAvailability();
+    quickBookScheduleGeneration++;
+  }
+  if (modalId === 'confirmBookingModal') {
+    slotAvailabilityGeneration++;
+    slotAvailabilityReady = false;
+    pendingCourtBookingData = null;
+  }
+}
+
+// Switch to Owner View — Option 3: Facility HUD Splash Card Transition
+function switchFacilityPortal(event, targetHref) {
+  if (event) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button === 1) {
+      return;
+    }
+    event.preventDefault();
+  }
+
+  const overlay = document.getElementById('ownerSwitchHudOverlay');
+  const destination = targetHref || 'owner.php';
+
+  if (!overlay) {
+    window.location.href = destination;
+    return;
+  }
+
+  overlay.style.display = 'flex';
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  document.body.classList.add('hud-switching');
+
+  // Force style reflow for CSS transition
+  void overlay.offsetWidth;
+  overlay.classList.add('active');
+
+  const progressBar = document.getElementById('hudProgressBar');
+  const statusText = document.getElementById('hudStatusText');
+
+  if (progressBar) {
+    progressBar.style.width = '0%';
+    setTimeout(() => {
+      progressBar.style.transition = 'width 650ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+      progressBar.style.width = '100%';
+    }, 20);
+  }
+
+  if (statusText) {
+    setTimeout(() => {
+      statusText.style.opacity = '0';
+      setTimeout(() => {
+        statusText.textContent = 'Synchronizing court availability & ledger...';
+        statusText.style.opacity = '1';
+      }, 100);
+    }, 280);
+
+    setTimeout(() => {
+      statusText.style.opacity = '0';
+      setTimeout(() => {
+        statusText.textContent = 'Welcome back! Opening portal...';
+        statusText.style.opacity = '1';
+      }, 100);
+    }, 550);
+  }
+
+  setTimeout(() => {
+    overlay.classList.add('navigating');
+    window.location.href = destination;
+  }, 780);
+}
+window.switchFacilityPortal = switchFacilityPortal;
 
 // Toggle Notifications Dialog Modal
 function toggleNotificationsPanel() {
@@ -116,6 +190,7 @@ function initNotificationSwipeGestures() {
     let isLockedOpen = false;
 
     const onPointerDown = (e) => {
+      isLockedOpen = card.style.transform === 'translateX(-86px)';
       // Close any other open rows
       document.querySelectorAll('.notif-card-item').forEach(other => {
         if (other !== card && other.style.transform && other.style.transform !== 'translateX(0px)') {
@@ -219,12 +294,14 @@ function initNotificationSwipeGestures() {
 
 // Close overlays on outside click or ESC
 window.addEventListener('click', (e) => {
+  if (window.UX) return;
   if (e.target.classList.contains('app-modal-overlay')) {
     e.target.style.display = 'none';
     document.body.style.overflow = '';
   }
 });
 window.addEventListener('keydown', (e) => {
+  if (window.UX) return;
   if (e.key === 'Escape') {
     document.querySelectorAll('.app-modal-overlay').forEach(m => m.style.display = 'none');
     document.body.style.overflow = '';
@@ -571,15 +648,15 @@ function renderFacilitiesGrid(facilities) {
           <div style="margin-top: 2px; margin-bottom: 2px;">
             <span style="color:#FFFFFF; font-weight:800; font-size:12.5px;">${parseInt(f.courts_count ?? 0, 10)} Courts Listed</span>
           </div>
-          <div style="font-size:12px; color:#94A3B8; margin-bottom: 3px; display:inline-flex; align-items:center; gap:5px;">
+          <div style="font-size:12px; color:var(--pk-text-muted); margin-bottom: 3px; display:inline-flex; align-items:center; gap:5px;">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             <span>${escapeHtml(formattedHours)}</span>
           </div>
-          <div style="font-size:12px; color:#94A3B8; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-size:12px; color:var(--pk-text-muted); margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
             <span class="facility-transit-text">${escapeHtml(f.transit && f.transit.trim() !== '' ? f.transit : '🛵 10 min · 🚗 18 min')}</span>
             <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
               ${reviewCount > 0
-                ? `<span style="color:#F59E0B; font-weight:800;">★ ${ratingNum.toFixed(1)}</span>
+                ? `<span style="color:var(--accent-warning-text); font-weight:800;">★ ${ratingNum.toFixed(1)}</span>
               <span style="color:var(--pk-text-muted, #94A3B8);">(${reviewCount} reviews)</span>`
                 : `<span style="color:var(--pk-text-muted, #94A3B8); font-weight:700;">New venue</span>`}
             </div>
@@ -622,20 +699,36 @@ function refreshOwnBookingsView() {
 }
 
 function silentRefreshDiscover() {
-  if (document.getElementById('facilitiesGrid')) {
-    fetch('api.php?action=facilities')
+  const detailView = document.getElementById('facilityDetailView');
+  if (detailView && detailView.style.display !== 'none') {
+    if (!currentSelectedFacility) return;
+    const facilityId = currentSelectedFacility.id;
+    const generation = silentRefreshDiscover.generation = (silentRefreshDiscover.generation || 0) + 1;
+    fetch(`api.php?action=facility_detail&id=${encodeURIComponent(facilityId)}`)
       .then(r => r.json())
-      .then(data => { if (data && data.success) renderFacilitiesGrid(data.facilities); })
+      .then(data => {
+        if (generation !== silentRefreshDiscover.generation || !currentSelectedFacility || Number(currentSelectedFacility.id) !== Number(facilityId)) return;
+        if (data && data.success && data.facility) {
+          data.facility.is_favorited = currentSelectedFacility.is_favorited;
+          renderDetailCourtsList(data.courts, data.facility);
+        }
+      })
       .catch(() => {});
     return;
   }
-  const detailView = document.getElementById('facilityDetailView');
-  if (detailView && detailView.style.display !== 'none' && currentSelectedFacility) {
-    fetch(`api.php?action=facility_detail&id=${encodeURIComponent(currentSelectedFacility.id)}`)
+  if (document.getElementById('facilitiesGrid')) {
+    const favoriteGeneration = silentRefreshDiscover.favoriteGeneration || 0;
+    const generation = silentRefreshDiscover.generation = (silentRefreshDiscover.generation || 0) + 1;
+    fetch('api.php?action=facilities')
       .then(r => r.json())
       .then(data => {
-        if (data && data.success && data.facility) {
-          renderDetailCourtsList(data.courts, data.facility);
+        if (generation !== silentRefreshDiscover.generation
+          || favoriteGeneration !== (silentRefreshDiscover.favoriteGeneration || 0)
+          || (detailView && detailView.style.display !== 'none')
+          || document.getElementById('playTabContent')?.style.display === 'none') return;
+        if (data && data.success) {
+          renderFacilitiesGrid(data.facilities);
+          filterFacilitiesLive();
         }
       })
       .catch(() => {});
@@ -856,11 +949,12 @@ function detectLocation() {
 // actually confirms the change, and reverts if the request fails.
 const favoriteToggleInFlight = new Set();
 function toggleFavoriteFacility(btn, facilityId, name) {
+  facilityId = Number(facilityId);
   if (favoriteToggleInFlight.has(facilityId)) return;
   favoriteToggleInFlight.add(facilityId);
   btn.disabled = true;
 
-  fetch('api.php?action=toggle_favorite_facility', {
+  return fetch('api.php?action=toggle_favorite_facility', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -880,7 +974,21 @@ function toggleFavoriteFacility(btn, facilityId, name) {
         showToast(res.message || 'Could not update favorites. Please try again.', 'error');
         return;
       }
+      silentRefreshDiscover.favoriteGeneration = (silentRefreshDiscover.favoriteGeneration || 0) + 1;
       btn.classList.toggle('favorited', !!res.favorited);
+      document.querySelectorAll('.app-facility-card').forEach(card => {
+        if (Number(card.getAttribute('data-id')) !== facilityId) return;
+        const heart = card.querySelector('.card-heart-btn');
+        if (heart) {
+          heart.classList.toggle('favorited', !!res.favorited);
+          heart.title = res.favorited ? 'Remove from favorites' : 'Add to favorites';
+        }
+      });
+      if (currentSelectedFacility && Number(currentSelectedFacility.id) === facilityId) {
+        currentSelectedFacility.is_favorited = !!res.favorited;
+        const follow = document.getElementById('facilityFollowButton');
+        if (follow) renderFollowFacility(follow, !!res.favorited);
+      }
       showToast(res.favorited ? `Added ${name} to Favorites ♡` : `Removed ${name} from Favorites`, 'success');
     })
     .catch(() => {
@@ -891,10 +999,22 @@ function toggleFavoriteFacility(btn, facilityId, name) {
 }
 
 // Notifications Management (§12.10)
-function markAllNotificationsAsRead() {
+async function markAllNotificationsAsRead() {
   const unreadItems = document.querySelectorAll('.notif-card-item.unread');
   if (unreadItems.length === 0) {
     showToast('All notifications are already marked as read.', 'info');
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append('action', 'mark_notifications_read');
+  fd.append('csrf_token', getCsrfToken());
+  try {
+    const response = await fetch('api.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd });
+    const res = await response.json();
+    if (!response.ok || !res?.success) throw new Error(res?.message || 'Could not update notifications');
+  } catch (err) {
+    showToast(err.message || 'Network error - notifications not updated', 'error');
     return;
   }
 
@@ -913,23 +1033,26 @@ function markAllNotificationsAsRead() {
     unreadBadgeText.textContent = `${totalNotifs} total`;
   }
 
-  const fd = new FormData();
-  fd.append('action', 'mark_notifications_read');
-  fd.append('csrf_token', getCsrfToken());
-  fetch('api.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd })
-    .then(r => r.json())
-    .then(res => {
-      if (res && res.success) {
-        showToast('All notifications marked as read', 'success');
-      } else {
-        showToast((res && res.message) || 'Could not update notifications', 'error');
-      }
-    })
-    .catch(() => showToast('Network error - notifications not updated', 'error'));
+  showToast('All notifications marked as read', 'success');
 }
 
-function dismissNotification(rowElement, notifId) {
+async function dismissNotification(rowElement, notifId) {
   if (!rowElement) return;
+  const fd = new FormData();
+  fd.append('action', 'delete_notification');
+  fd.append('id', notifId);
+  fd.append('csrf_token', getCsrfToken());
+  try {
+    const response = await fetch('api.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd });
+    const res = await response.json();
+    if (!response.ok || !res?.success) throw new Error(res?.message || 'Could not remove that notification');
+  } catch (err) {
+    const card = rowElement.querySelector('.notif-card-item');
+    if (card) card.style.transform = 'translateX(0px)';
+    rowElement.classList.remove('is-swiped');
+    showToast(err.message || 'Network error - notification not removed', 'error');
+    return;
+  }
   rowElement.style.transition = 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
   rowElement.style.opacity = '0';
   rowElement.style.transform = 'scale(0.9) translateX(40px)';
@@ -964,38 +1087,26 @@ function dismissNotification(rowElement, notifId) {
     }, 200);
   }, 200);
 
-  // Was posting to api/notifications.php (404) while reporting success.
-  const fd = new FormData();
-  fd.append('action', 'delete_notification');
-  fd.append('id', notifId);
-  fd.append('csrf_token', getCsrfToken());
-  fetch('api.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': getCsrfToken() }, body: fd })
-    .then(r => r.json())
-    .then(res => {
-      if (!res || !res.success) {
-        showToast((res && res.message) || 'Could not remove that notification', 'error');
-      }
-    })
-    .catch(() => showToast('Network error - notification not removed', 'error'));
 }
 
 // Facility Follow Toggle
-function toggleFollowFacility(btn, facilityName) {
-  const isFollowing = btn.getAttribute('data-following') === 'true';
-  if (isFollowing) {
+function toggleFollowFacility(btn, facilityId, facilityName) {
+  return toggleFavoriteFacility(btn, facilityId, facilityName);
+}
+
+function renderFollowFacility(btn, isFollowing) {
+  if (!isFollowing) {
     btn.setAttribute('data-following', 'false');
     btn.style.background = 'rgba(255,255,255,0.06)';
     btn.style.borderColor = 'rgba(255,255,255,0.15)';
     btn.style.color = '#FFFFFF';
     btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg><span>Follow</span>';
-    showToast(`Unfollowed ${facilityName}`, 'error');
   } else {
     btn.setAttribute('data-following', 'true');
     btn.style.background = 'rgba(239, 68, 68, 0.15)';
     btn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
     btn.style.color = '#EF4444';
     btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="flex-shrink:0;"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg><span>Following</span>';
-    showToast(`Followed ${facilityName}`, 'success');
   }
 }
 
@@ -1028,8 +1139,10 @@ function isFacilityOpen(hoursStr) {
 
   if (openMin === null || closeMin === null) return true;
 
-  const now = new Date();
-  const currentMin = now.getHours() * 60 + now.getMinutes();
+  const now = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).map(part => [part.type, part.value]));
+  const currentMin = Number(now.hour) * 60 + Number(now.minute);
 
   if (closeMin > openMin) {
     return currentMin >= openMin && currentMin < closeMin;
@@ -1041,6 +1154,9 @@ function isFacilityOpen(hoursStr) {
 
 // Facility Detail View Transition (§8 Flowchart)
 function openFacilityDetail(facilityId) {
+  const generation = silentRefreshDiscover.generation = (silentRefreshDiscover.generation || 0) + 1;
+  currentSelectedFacility = null;
+  cachedFacilityCourts = [];
   const headerWrap = document.getElementById('facilityDetailHeaderWrap');
   const courtsList = document.getElementById('facilityCourtsList');
   const actionBtns = document.getElementById('facilityDetailActionBtns');
@@ -1080,7 +1196,7 @@ function openFacilityDetail(facilityId) {
   const detailView = document.getElementById('facilityDetailView');
   if (playContent) playContent.style.display = 'none';
   if (detailView) detailView.style.display = 'block';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: 0, behavior: window.UX?.prefersReducedMotion() ? 'instant' : 'smooth' });
 
   // Live timer for real-time operating hours check
   if (!window._facilityHoursCheckInterval) {
@@ -1095,6 +1211,7 @@ function openFacilityDetail(facilityId) {
   fetch(`api.php?action=facility_detail&id=${encodeURIComponent(facilityId)}`)
     .then(r => r.json())
     .then(data => {
+      if (generation !== silentRefreshDiscover.generation) return;
       let f = data?.facility;
       let courts = data?.courts || [];
       let images = data?.images || [];
@@ -1106,11 +1223,12 @@ function openFacilityDetail(facilityId) {
 
       if (actionBtns) {
         actionBtns.innerHTML = `
-              <button type="button" class="btn-filter-trigger" onclick="toggleFollowFacility(this, '${escapeHtml(f.name)}')" data-following="false" style="display:inline-flex; align-items:center; gap:7px;">
+              <button type="button" id="facilityFollowButton" class="btn-filter-trigger" onclick="toggleFollowFacility(this, ${Number(f.id)}, ${jsAttr(f.name)})" data-following="false" style="display:inline-flex; align-items:center; gap:7px;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
                 <span>Follow</span>
               </button>
             `;
+        renderFollowFacility(document.getElementById('facilityFollowButton'), !!f.is_favorited);
       }
 
       if (headerWrap) {
@@ -1125,7 +1243,7 @@ function openFacilityDetail(facilityId) {
           galleryStripHtml = `
             <div class="facility-gallery-strip" style="display:flex; gap:8px; overflow-x:auto; padding:10px 0; margin-top:-10px; margin-bottom:16px;">
               ${images.map((img, idx) => `
-                <img src="${escapeHtml(img.url)}" alt="${escapeHtml(img.alt_text || 'Court')}" class="gallery-thumb ${idx === 0 ? 'active' : ''}" onclick="setHeroImage(this, '${escapeHtml(img.url)}')" style="width:72px; height:52px; object-fit:cover; border-radius:10px; cursor:pointer; border:2px solid ${idx === 0 ? '#00D98B' : 'transparent'}; background:var(--pk-bg-card-hover, #162D4D); flex-shrink:0; transition:all 0.2s ease;" onerror="this.onerror=null; this.removeAttribute('src');">
+                <img src="${escapeHtml(img.url)}" alt="${escapeHtml(img.alt_text || 'Court')}" class="gallery-thumb ${idx === 0 ? 'active' : ''}" onclick="setHeroImage(this, ${jsAttr(img.url)})" style="width:72px; height:52px; object-fit:cover; border-radius:10px; cursor:pointer; border:2px solid ${idx === 0 ? '#00D98B' : 'transparent'}; background:var(--pk-bg-card-hover, #162D4D); flex-shrink:0; transition:all 0.2s ease;" onerror="this.onerror=null; this.removeAttribute('src');">
               `).join('')}
             </div>
           `;
@@ -1134,31 +1252,31 @@ function openFacilityDetail(facilityId) {
         const isOpen = isFacilityOpen(f.hours || '6am - 10pm');
         const hoursDisplay = escapeHtml(f.hours || '6am - 10pm');
         const hoursBadgeHtml = isOpen
-          ? `<span style="background:rgba(255,255,255,0.15); backdrop-filter:blur(6px); color:#FFFFFF; font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px;">🕒 ${hoursDisplay}</span>`
-          : `<span style="background:rgba(239, 68, 68, 0.22); backdrop-filter:blur(6px); color:#F87171; font-size:11px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid rgba(239, 68, 68, 0.4); display:inline-flex; align-items:center; gap:6px;">🕒 ${hoursDisplay} <strong style="color:#FCA5A5; text-transform:uppercase; letter-spacing:0.04em;">• CLOSED NOW</strong></span>`;
+          ? `<span class="facility-hero-hours-badge" style="background:rgba(255,255,255,0.18); backdrop-filter:blur(6px); color:#FFFFFF !important; font-size:11px; font-weight:700; padding:4px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); display:inline-flex; align-items:center; gap:6px;">🕒 ${hoursDisplay}</span>`
+          : `<span class="facility-hero-closed-badge" style="background:rgba(239, 68, 68, 0.35); backdrop-filter:blur(6px); color:#FCA5A5 !important; font-size:11px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid rgba(239, 68, 68, 0.5); display:inline-flex; align-items:center; gap:6px;">🕒 ${hoursDisplay} <strong style="color:#FFFFFF !important; text-transform:uppercase; letter-spacing:0.04em;">• CLOSED NOW</strong></span>`;
 
         headerWrap.innerHTML = `
-              <div style="position:relative; height:240px; border-radius:22px; overflow:hidden; margin-bottom:12px;">
+              <div class="facility-detail-hero" style="position:relative; height:240px; border-radius:22px; overflow:hidden; margin-bottom:12px;">
                 <img id="facilityDetailHeroImg" src="${escapeHtml(f.image)}" alt="${escapeHtml(f.name)}" style="width:100%; height:100%; object-fit:cover; background:var(--pk-bg-card-hover, #162D4D);" onerror="this.onerror=null; this.removeAttribute('src'); this.alt='Photo unavailable';">
-                <div style="position:absolute; inset:0; background:linear-gradient(to top, rgba(10,22,40,0.95) 10%, rgba(10,22,40,0.4) 60%, transparent);"></div>
-                <div style="position:absolute; bottom:20px; left:22px; right:22px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px;">
+                <div class="facility-hero-overlay" style="position:absolute; inset:0; background:linear-gradient(to top, rgba(10,22,40,0.95) 10%, rgba(10,22,40,0.4) 60%, transparent);"></div>
+                <div class="facility-hero-content" style="position:absolute; bottom:20px; left:22px; right:22px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px;">
                   <div>
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
                       ${hoursBadgeHtml}
                     </div>
-                    <h2 style="font-size:26px; font-weight:900; color:#FFFFFF; margin:0 0 4px;">${escapeHtml(f.name)}</h2>
-                    <div style="font-size:13px; color:rgba(255,255,255,0.8); display:flex; align-items:center; gap:8px;">
+                    <h2 class="facility-hero-name" style="font-size:26px; font-weight:900; color:#FFFFFF !important; margin:0 0 4px; text-shadow:0 2px 10px rgba(0,0,0,0.5);">${escapeHtml(f.name)}</h2>
+                    <div class="facility-hero-meta" style="font-size:13px; color:rgba(255,255,255,0.9); display:flex; align-items:center; gap:8px; text-shadow:0 1px 4px rgba(0,0,0,0.4);">
                       <span>📍 ${escapeHtml(f.location)}</span>
                       <span>•</span>
                       ${(parseInt(f.reviews, 10) || 0) > 0
-                        ? `<span style="color:#F59E0B; font-weight:800;">★ ${(parseFloat(f.rating) || 0).toFixed(1)}</span>
-                      <span style="color:rgba(255,255,255,0.5);">(${parseInt(f.reviews, 10)} reviews)</span>`
-                        : `<span style="color:rgba(255,255,255,0.6); font-weight:700;">New venue</span>`}
+                        ? `<span style="color:#FFD166; font-weight:800;">★ ${(parseFloat(f.rating) || 0).toFixed(1)}</span>
+                      <span style="color:rgba(255,255,255,0.7);">(${parseInt(f.reviews, 10)} reviews)</span>`
+                        : `<span style="color:rgba(255,255,255,0.7); font-weight:700;">New venue</span>`}
                     </div>
                   </div>
                   <div style="text-align:right;">
-                    <div style="font-size:10px; color:rgba(255,255,255,0.6); text-transform:uppercase; font-weight:700;">${rateLabel}</div>
-                    <div class="card-price-cyan" style="font-size:20px;">${priceText}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span></div>
+                    <div class="facility-hero-rate-label" style="font-size:10px; color:rgba(255,255,255,0.75); text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">${rateLabel}</div>
+                    <div class="card-price-cyan facility-hero-price" style="font-size:20px; color:#FFFFFF !important; text-shadow:0 2px 10px rgba(0,0,0,0.5);">${priceText}<span style="font-size:12px; color:rgba(255,255,255,0.7) !important;">/hr</span></div>
                   </div>
                 </div>
               </div>
@@ -1169,6 +1287,7 @@ function openFacilityDetail(facilityId) {
       renderDetailCourtsList(courts, f);
     })
     .catch(() => {
+      if (generation !== silentRefreshDiscover.generation) return;
       const courtsList = document.getElementById('facilityCourtsList');
       if (courtsList) {
         courtsList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--pk-text-muted);">Failed to load facility details. Please check your network connection.</div>`;
@@ -1203,18 +1322,12 @@ function renderDetailCourtsList(courts, facility) {
 
   const isClosed = facility && facility.hours ? !isFacilityOpen(facility.hours) : false;
 
-  // Handle Quick Book button state when facility is closed
+  // Booking dates are checked against server hours, not whether the venue is open now.
   const quickBookBtn = document.querySelector('.btn-quick-book-gradient');
   if (quickBookBtn) {
-    if (isClosed) {
-      quickBookBtn.style.opacity = '0.45';
-      quickBookBtn.style.cursor = 'not-allowed';
-      quickBookBtn.style.filter = 'grayscale(1)';
-    } else {
       quickBookBtn.style.opacity = '1';
       quickBookBtn.style.cursor = 'pointer';
       quickBookBtn.style.filter = 'none';
-    }
   }
 
   if (countEl) {
@@ -1224,14 +1337,14 @@ function renderDetailCourtsList(courts, facility) {
   if (!courts || courts.length === 0) {
     courtsList.innerHTML = `
           <div style="grid-column:1/-1; text-align:center; padding:40px; background:rgba(255,255,255,0.03); border-radius:18px;">
-            <p style="color:#94A3B8; margin:0;">No courts currently listed for this facility.</p>
+            <p style="color:var(--pk-text-muted); margin:0;">No courts currently listed for this facility.</p>
           </div>
         `;
     return;
   }
 
   courtsList.innerHTML = courts.map(c => {
-    const isAvail = !isClosed && (c.status === 'available');
+    const isAvail = c.status === 'available';
     const isOccupied = (c.status === 'occupied');
     const isHostedOP = !isClosed && (!!c.has_open_play || (c.occupied_by && (c.occupied_by.indexOf('Open Play') !== -1 || c.occupied_by.indexOf('Hosted') !== -1)));
     const priceNum = parseFloat(c.price) || 180;
@@ -1258,13 +1371,9 @@ function renderDetailCourtsList(courts, facility) {
       ` : ''
     ) : '';
 
-    const cardClass = `ref-court-card detail-court-card ${isClosed ? 'court-closed-card' : (isAvail ? 'has-glow' : '')}`;
-    const cardStyle = isClosed
-      ? 'background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); opacity: 0.55; cursor: not-allowed; filter: grayscale(0.5);'
-      : (isAvail ? 'cursor:pointer;' : '');
-    const cardOnClick = isClosed
-      ? `onclick="event.stopPropagation(); showToast('Facility is currently closed (${escapeHtml(facility.hours || '6am - 10pm')}). Bookings unavailable after operating hours.', 'warning')"`
-      : (isAvail ? `onclick="bookCourtDirectToPayment(${facility.id}, ${jsAttr(c.id || '')}, ${jsAttr(displayTitle)}, ${priceNum}, ${jsAttr(c.surface || 'Hard')}, ${jsAttr(c.type || 'Indoor')}, ${jsAttr(facility.name || '')})"` : '');
+    const cardClass = `ref-court-card detail-court-card ${isAvail ? 'has-glow' : ''}`;
+    const cardStyle = isAvail ? 'cursor:pointer;' : '';
+    const cardOnClick = isAvail ? `onclick="bookCourtDirectToPayment(${facility.id}, ${jsAttr(c.id || '')}, ${jsAttr(displayTitle)}, ${priceNum}, ${jsAttr(c.surface || 'Hard')}, ${jsAttr(c.type || 'Indoor')}, ${jsAttr(facility.name || '')})"` : '';
 
     return `
           <div class="${cardClass}" data-court-type="${escapeHtml(typeNormalized)}" style="${cardStyle}" ${cardOnClick}>
@@ -1272,27 +1381,21 @@ function renderDetailCourtsList(courts, facility) {
               <h4 class="court-card-title">${escapeHtml(displayTitle)}</h4>
               <div style="display:flex; align-items:center; gap:8px;">
                 ${isHostedOP ? `
-                  <span class="badge-hosted-openplay" style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800; font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-block; white-space: nowrap;">HOSTED OPEN PLAY</span>
+                  <span class="badge-hosted-openplay" style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color:var(--accent-warning-text); font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-block; white-space: nowrap;">HOSTED OPEN PLAY</span>
                 ` : dotHtml}
               </div>
             </div>
 
             <div class="court-card-bottom-row">
               <div class="court-card-price">₱${priceNum.toFixed(0)}<span>/hr</span></div>
-              ${isClosed ? `
-                <div class="court-action-col">
-                  <button type="button" class="btn-court-occupied" style="background:#334155; color:#94A3B8; border:1px solid #475569; cursor:not-allowed; opacity:0.85;" disabled onclick="event.stopPropagation(); showToast('Facility is currently closed.', 'warning');">
-                    Closed
-                  </button>
-                </div>
-              ` : (isAvail ? `
+              ${isAvail ? `
                 <button type="button" class="btn-court-book-now" onclick="event.stopPropagation(); bookCourtDirectToPayment(${facility.id}, ${jsAttr(c.id || '')}, ${jsAttr(displayTitle)}, ${priceNum}, ${jsAttr(c.surface || 'Hard')}, ${jsAttr(c.type || 'Indoor')}, ${jsAttr(facility.name || '')})">
                   Book Now
                 </button>
               ` : (isHostedOP ? `
                 <div class="court-action-col">
-                  ${(c.user_joined || (c.open_play_match && (c.open_play_match.is_joined || c.open_play_match.user_joined)) || (window.userJoinedMatchIds && c.open_play_match && window.userJoinedMatchIds[String(c.open_play_match.id)]) || (window.userJoinedFacilityIds && facility && window.userJoinedFacilityIds[String(facility.id)])) ? `
-                    <button type="button" class="btn-openplay-join" style="background: rgba(0, 217, 139, 0.15); color: #00D98B; border: 1px solid rgba(0, 217, 139, 0.3); cursor: default;" disabled onclick="event.stopPropagation();">
+                  ${(c.user_joined || (c.open_play_match && (c.open_play_match.is_joined || c.open_play_match.user_joined))) ? `
+                    <button type="button" class="btn-openplay-join" style="background: rgba(0, 217, 139, 0.15); color:var(--pk-accent-emerald-text); border: 1px solid rgba(0, 217, 139, 0.3); cursor: default;" disabled onclick="event.stopPropagation();">
                       Joined
                     </button>
                   ` : `
@@ -1312,7 +1415,7 @@ function renderDetailCourtsList(courts, facility) {
                     Occupied
                   </button>
                 </div>
-              `))}
+              `)}
             </div>
           </div>
         `;
@@ -1338,28 +1441,35 @@ const ALL_COURT_TIME_SLOTS = [
 ];
 
 let fetchedSlotAvailabilityMap = {};
+let slotAvailabilityKey = '';
+let slotAvailabilityGeneration = 0;
+let slotAvailabilityReady = false;
 
 function fetchAndApplySlotAvailability(facilityId, courtId, dateStr, onComplete) {
-  const params = new URLSearchParams({
-    action: 'slot_availability',
-    facility_id: facilityId,
-    court_id: courtId || '',
-    date: dateStr || ''
-  });
-  fetch(`api.php?${params.toString()}`)
-    .then(r => r.json())
-    .then(res => {
-      fetchedSlotAvailabilityMap = {};
-      if (res && res.success && Array.isArray(res.slots)) {
-        res.slots.forEach(s => {
-          fetchedSlotAvailabilityMap[s.label] = s;
-        });
-      }
-      if (typeof onComplete === 'function') onComplete(res?.slots || []);
+  const generation = ++slotAvailabilityGeneration;
+  slotAvailabilityKey = JSON.stringify([String(facilityId), String(courtId || ''), dateStr]);
+  slotAvailabilityReady = false;
+  fetchedSlotAvailabilityMap = {};
+  renderConfirmBookingTimes();
+  const params = new URLSearchParams({ action: 'slot_availability', facility_id: facilityId, court_id: courtId || '', date: dateStr || '' });
+  return fetch(`api.php?${params}`)
+    .then(async response => {
+      const res = await response.json();
+      if (!response.ok || !res?.success || !Array.isArray(res.slots)) throw new Error('Unavailable schedule');
+      if (generation !== slotAvailabilityGeneration) return;
+      const previousStart = QB_TIMES[cbStartIdx];
+      const previousEnd = QB_TIMES[cbEndIdx];
+      applyBookingSlotGrid(res.slots);
+      cbStartIdx = Math.max(0, QB_TIMES.indexOf(previousStart));
+      cbEndIdx = Math.max(cbStartIdx + 1, QB_TIMES.lastIndexOf(previousEnd));
+      cbEndIdx = Math.min(QB_TIMES.length - 1, cbEndIdx);
+      fetchedSlotAvailabilityMap = Object.fromEntries(res.slots.map(slot => [slot.label, slot]));
+      slotAvailabilityReady = true;
+      if (typeof onComplete === 'function') onComplete(res.slots);
       renderConfirmBookingTimes();
     })
     .catch(() => {
-      fetchedSlotAvailabilityMap = {};
+      if (generation !== slotAvailabilityGeneration) return;
       if (typeof onComplete === 'function') onComplete([]);
       renderConfirmBookingTimes();
     });
@@ -1380,55 +1490,48 @@ function parseStartTimeHour(slotStr) {
 }
 
 function getMinAllowedStartIdx(dateStr) {
-  const now = new Date();
-  const todayStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const isToday = !dateStr || dateStr.includes(todayStr) || dateStr.includes(now.getFullYear().toString());
-
-  if (!isToday) return 0;
-
-  const curH = now.getHours();
-  const curM = now.getMinutes();
-  let targetH = curM > 0 ? curH + 1 : curH;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).map(p => [p.type, p.value]));
+  const today = `${parts.year}-${parts.month}-${parts.day}`;
+  let selected = today;
+  if (dateStr) {
+    const iso = dateStr.match(/^\d{4}-\d{2}-\d{2}$/);
+    const date = new Date(/\b\d{4}\b/.test(dateStr) ? dateStr : `${dateStr}, ${parts.year}`);
+    if (!iso && Number.isNaN(date.getTime())) return QB_TIMES.length - 1;
+    selected = iso ? iso[0] : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+  if (selected > today) return 0;
+  if (selected < today) return QB_TIMES.length - 1;
+  const targetH = Number(parts.hour) + (Number(parts.minute) > 0 ? 1 : 0);
 
   for (let i = 0; i < QB_TIMES.length; i++) {
-    const h = parseStartTimeHour(QB_TIMES[i]);
-    if (h >= targetH) {
+    if (QB_TIME_MINUTES[i] >= targetH * 60) {
       return i;
     }
   }
-  return QB_TIMES.length - 2;
+  return QB_TIMES.length - 1;
 }
 
-function findNextFreeSlotForCourt(facilityId, courtName, dateStr) {
-  const now = new Date();
-  const todayStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const isToday = !dateStr || dateStr.includes(todayStr) || dateStr.includes(now.getFullYear().toString());
-
-  const currentH = now.getHours();
-  const currentM = now.getMinutes();
-  let targetH = currentM > 0 ? currentH + 1 : currentH;
-
-  for (const slot of ALL_COURT_TIME_SLOTS) {
+function findNextFreeSlotForCourt(facilityId, courtId, dateStr) {
+  if (!slotAvailabilityReady || slotAvailabilityKey !== JSON.stringify([String(facilityId), String(courtId || ''), dateStr])) return null;
+  const minIdx = getMinAllowedStartIdx(dateStr);
+  if (minIdx >= QB_TIMES.length - 1) return null;
+  for (const [index, slot] of ALL_COURT_TIME_SLOTS.entries()) {
     const slotInfo = fetchedSlotAvailabilityMap[slot];
-    if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') continue;
+    if (slotInfo?.available !== true) continue;
 
-    const slotH = parseStartTimeHour(slot);
-    if (isToday && slotH < targetH) continue;
+    if (index < minIdx) continue;
     return slot;
   }
 
-  for (const slot of ALL_COURT_TIME_SLOTS) {
-    const slotInfo = fetchedSlotAvailabilityMap[slot];
-    if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') continue;
-    return slot;
-  }
-
-  return '7:00 AM – 8:00 AM';
+  return null;
 }
 
 let pendingCourtBookingData = null;
-let cbStartIdx = 1; // Default 7:00 AM
-let cbEndIdx = 6;   // Default 12:00 PM
+let cbStartIdx = 0; // Default 7:00 AM
+let cbEndIdx = 5;   // Default 12:00 PM
 let cbSelectedDateStr = 'Thu Sep 10 2026';
 
 function openConfirmBookingModal(data) {
@@ -1473,7 +1576,7 @@ function openConfirmBookingModal(data) {
       const sStr = parts[0].trim();
       const eStr = parts[1].trim();
       const sIdx = QB_TIMES.indexOf(sStr);
-      const eIdx = QB_TIMES.indexOf(eStr);
+      const eIdx = QB_TIMES.lastIndexOf(eStr);
       if (sIdx !== -1) cbStartIdx = sIdx;
       if (eIdx !== -1) cbEndIdx = eIdx;
       else if (sIdx !== -1) cbEndIdx = Math.min(QB_TIMES.length - 1, sIdx + (data.duration || 1));
@@ -1499,19 +1602,22 @@ function openConfirmBookingModal(data) {
   const btnProceed = document.getElementById('btnConfirmProceedBooking');
   if (btnProceed) {
     btnProceed.onclick = function () {
+      renderConfirmBookingTimes();
+      if (btnProceed.disabled || !pendingCourtBookingData) return;
+      const checkedBooking = { ...pendingCourtBookingData };
       closeModal('confirmBookingModal');
-      if (pendingCourtBookingData) {
+      if (checkedBooking) {
         openPaymentReview(
-          pendingCourtBookingData.facilityId,
-          pendingCourtBookingData.courtId || '',
+          checkedBooking.facilityId,
+          checkedBooking.courtId || '',
           cleanCourt,
-          pendingCourtBookingData.price,
-          pendingCourtBookingData.surface,
-          pendingCourtBookingData.type,
-          pendingCourtBookingData.facilityName,
-          pendingCourtBookingData.dateStr,
-          pendingCourtBookingData.timeRange,
-          pendingCourtBookingData.duration
+          checkedBooking.price,
+          checkedBooking.surface,
+          checkedBooking.type,
+          checkedBooking.facilityName,
+          checkedBooking.dateStr,
+          checkedBooking.timeRange,
+          checkedBooking.duration
         );
       }
     };
@@ -1597,22 +1703,23 @@ function renderConfirmBookingTimes() {
   // Conflict Check against fetchedSlotAvailabilityMap
   const conflictNoticeEl = document.getElementById('cbConflictNotice');
   const btnProceed = document.getElementById('btnConfirmProceedBooking');
-  let isBookedClash = false;
+  let isBookedClash = !slotAvailabilityReady || !pendingCourtBookingData || slotAvailabilityKey !== JSON.stringify([String(pendingCourtBookingData.facilityId), String(pendingCourtBookingData.courtId || ''), cbSelectedDateStr]) || minIdx >= QB_TIMES.length - 1 || cbStartIdx < minIdx || cbEndIdx <= cbStartIdx;
 
-  if (fetchedSlotAvailabilityMap && Object.keys(fetchedSlotAvailabilityMap).length > 0) {
+  if (!isBookedClash) {
     for (let i = cbStartIdx; i < cbEndIdx; i++) {
       const slotLabel = `${QB_TIMES[i]} – ${QB_TIMES[i+1]}`;
       const slotInfo = fetchedSlotAvailabilityMap[slotLabel];
-      if (slotInfo && !slotInfo.available && slotInfo.reason === 'booked') {
+      if (slotInfo?.available !== true) {
         isBookedClash = true;
         break;
       }
     }
   }
 
+  if (btnProceed) btnProceed.disabled = isBookedClash;
   if (conflictNoticeEl) {
     if (isBookedClash) {
-      conflictNoticeEl.innerHTML = `<div style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#FCA5A5; font-size:12px; font-weight:700; padding:8px 12px; border-radius:10px; text-align:center;">⚠️ That court is already booked for the selected time slot. Please choose another time.</div>`;
+      conflictNoticeEl.innerHTML = `<div style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:var(--pk-danger-text); font-size:12px; font-weight:700; padding:8px 12px; border-radius:10px; text-align:center;">⚠️ That court is unavailable for the selected time slot. Please choose another time.</div>`;
       conflictNoticeEl.style.display = 'block';
       if (btnProceed) {
         btnProceed.disabled = true;
@@ -1688,7 +1795,7 @@ function selectConfirmBookingDate(btn, dateFull) {
   }
   if (btn) {
     btn.classList.add('active');
-    btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    btn.scrollIntoView({ behavior: window.UX?.prefersReducedMotion() ? 'instant' : 'smooth', inline: 'center', block: 'nearest' });
   }
   cbSelectedDateStr = dateFull;
 
@@ -1708,16 +1815,16 @@ function selectConfirmBookingDate(btn, dateFull) {
 }
 
 function bookCourtDirectToPayment(facilityId, courtId = '', courtName = 'Court 1', price = 180, surface = 'Hard', type = 'Indoor', facilityName = '') {
-  if (currentSelectedFacility && !isFacilityOpen(currentSelectedFacility.hours)) {
-    showToast(`Facility is currently closed (${currentSelectedFacility.hours || '6am - 10pm'}). Bookings are unavailable after operating hours.`, 'warning');
-    return;
-  }
   const resolvedFacilityName = facilityName || document.getElementById('facilityDetailTitle')?.textContent || 'Pickleball Facility';
   const d = new Date();
-  const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
+  fetchAndApplySlotAvailability(facilityId, courtId, dateStr, () => {
   // Automatically find the next unbooked/free slot instead of hardcoding 9:00 AM - 10:00 AM
-  const freeSlot = findNextFreeSlotForCourt(facilityId, courtName, dateStr);
+  const freeSlot = findNextFreeSlotForCourt(facilityId, courtId, dateStr);
+  if (!freeSlot) {
+    showToast('No available time slots remain for this date. Please choose another date.', 'info');
+  }
 
   openConfirmBookingModal({
     facilityId,
@@ -1733,6 +1840,7 @@ function bookCourtDirectToPayment(facilityId, courtId = '', courtName = 'Court 1
     dateStr,
     timeRange: freeSlot,
     duration: 1
+  });
   });
 }
 
@@ -1756,10 +1864,6 @@ function filterDetailCourts(surface, btn) {
 }
 
 function triggerQuickBookFirstAvailable() {
-  if (currentSelectedFacility && !isFacilityOpen(currentSelectedFacility.hours)) {
-    showToast(`Facility is currently closed (${currentSelectedFacility.hours || '6am - 10pm'}). Quick book is unavailable after operating hours.`, 'warning');
-    return;
-  }
   if (!cachedFacilityCourts || cachedFacilityCourts.length === 0) {
     showToast('No courts available for quick booking.', 'info');
     return;
@@ -1772,6 +1876,9 @@ function triggerQuickBookFirstAvailable() {
 }
 
 function closeFacilityDetail() {
+  slotAvailabilityGeneration++;
+  silentRefreshDiscover.generation = (silentRefreshDiscover.generation || 0) + 1;
+  cachedFacilityCourts = [];
   currentSelectedFacility = null;
   const detailView = document.getElementById('facilityDetailView');
   const playContent = document.getElementById('playTabContent');
@@ -1874,156 +1981,20 @@ function resetAllMatchFilters() {
 }
 
 function joinOpenPlay(matchId, facilityName = '', matchType = 'Open Play', date = '', time = '', price = 200, level = 'All Levels', location = '') {
+  const parsedPrice = parseFloat(price);
   const matchData = {
     matchId: String(matchId),
     facilityName: facilityName || 'Pickleball Facility',
     matchType: matchType || 'Open Play Session',
     date: date || 'Upcoming Match',
     time: time || 'Open Play Hours',
-    price: parseFloat(price) || 200,
+    price: Number.isFinite(parsedPrice) ? parsedPrice : 200,
     level: level || 'All Levels',
     location: location || ''
   };
 
   sessionStorage.setItem('picklers_openplay_checkout', JSON.stringify(matchData));
   window.location.href = 'app.php?tab=play&checkout=openplay';
-}
-
-// ========================================================================
-// Community Tab Controllers (§11 Flowchart)
-// ========================================================================
-// Set by selectChatPartner(); null until a conversation is chosen, so a
-// message is never sent to a default recipient.
-let currentChatPartnerId = null;
-
-function switchCommunitySubTab(subTab) {
-  // 1. Update sub-nav button active classes
-  ['feed', 'discover', 'messages', 'profile'].forEach(tab => {
-    const btn = document.getElementById(`commSubTab_${tab}`);
-    const panel = document.getElementById(`commPanel_${tab}`);
-    if (btn) {
-      if (tab === subTab) btn.classList.add('active');
-      else btn.classList.remove('active');
-    }
-    if (panel) {
-      panel.style.display = (tab === subTab) ? 'block' : 'none';
-    }
-  });
-
-  // 2. Tab-specific triggers
-  if (subTab === 'messages') {
-    const stream = document.getElementById('chatMessagesStream');
-    if (stream) stream.scrollTop = stream.scrollHeight;
-  }
-}
-
-// insertPostTag, submitCommunityPost and togglePostLike are defined once, in
-// the "Community Feed Post & Likes" section. Earlier copies were shadowed and
-// reported a post as shared even when the request failed.
-function filterPlayersDirectory(query) {
-  const q = (query || '').toLowerCase().trim();
-  const items = document.querySelectorAll('.player-directory-item');
-  items.forEach(item => {
-    const name = (item.getAttribute('data-name') || '').toLowerCase();
-    const level = (item.getAttribute('data-level') || '').toLowerCase();
-    if (!q || name.includes(q) || level.includes(q)) {
-      item.style.display = 'flex';
-    } else {
-      item.style.display = 'none';
-    }
-  });
-}
-
-function openDirectMessageWith(partnerId, partnerName) {
-  switchCommunitySubTab('messages');
-  selectChatPartner(partnerId, partnerName);
-}
-
-function selectChatPartner(partnerId, partnerName, partnerLevel) {
-  currentChatPartnerId = partnerId;
-
-  // Update sidebar items
-  document.querySelectorAll('.inbox-partner-item').forEach(item => {
-    item.classList.remove('active');
-    item.style.background = 'transparent';
-  });
-  const activeItem = document.getElementById(`inboxItem_${partnerId}`);
-  if (activeItem) {
-    activeItem.classList.add('active');
-    activeItem.style.background = 'rgba(0, 217, 139,0.08)';
-  }
-
-  // Update Chat Header
-  const nameEl = document.getElementById('chatActivePartnerName');
-  const avatarEl = document.getElementById('chatActiveAvatar');
-  const statusEl = document.getElementById('chatActivePartnerStatus');
-
-  if (nameEl && partnerName) nameEl.textContent = partnerName;
-  if (avatarEl && partnerName) avatarEl.textContent = partnerName.substring(0, 1).toUpperCase();
-  if (statusEl && partnerLevel) statusEl.textContent = `Online • ${partnerLevel}`;
-
-  // Fetch messages from backend
-  fetch(`api?action=messages&partner_id=${encodeURIComponent(partnerId)}`)
-    .then(r => r.json())
-    .then(data => {
-      if (data.success && data.messages && data.messages.length > 0) {
-        const stream = document.getElementById('chatMessagesStream');
-        if (stream) {
-          stream.innerHTML = data.messages.map(m => {
-            const isIncoming = (m.sender_id === partnerId);
-            return `
-                  <div class="${isIncoming ? 'chat-bubble-incoming' : 'chat-bubble-outgoing'}">
-                    ${escapeHtml(m.content)}
-                  </div>
-                `;
-          }).join('');
-          stream.scrollTop = stream.scrollHeight;
-        }
-      }
-    })
-    .catch(() => { });
-}
-
-function sendDirectChatMessage() {
-  const input = document.getElementById('chatMessageInput');
-  const content = (input?.value || '').trim();
-  if (!content) return;
-  if (!currentChatPartnerId) {
-    showToast('Choose who to message first.', 'error');
-    return;
-  }
-
-  const stream = document.getElementById('chatMessagesStream');
-  if (stream) {
-    const outBubble = document.createElement('div');
-    outBubble.className = 'chat-bubble-outgoing';
-    outBubble.textContent = content;
-    stream.appendChild(outBubble);
-    stream.scrollTop = stream.scrollHeight;
-  }
-  input.value = '';
-
-  const formData = new FormData();
-  formData.append('action', 'send_message');
-  formData.append('partner_id', currentChatPartnerId);
-  formData.append('content', content);
-  formData.append('csrf_token', getCsrfToken());
-
-  fetch('api', {
-    method: 'POST',
-    headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-    body: formData
-  })
-    .then(r => r.json())
-    .then(data => {
-      // The bubble above is optimistic; a failed send must say so.
-      if (!data || !data.success) {
-        showToast((data && data.message) || 'Message not sent. Please try again.', 'error');
-      }
-    })
-    .catch(() => {
-      showToast('Network error — message not sent.', 'error');
-    });
 }
 
 // ========================================================================
@@ -2111,7 +2082,7 @@ function openQrPassModal(bookingId, facilityName, courtName, date, time, booking
     detailsEl.innerHTML = `
           <div style="font-size:16px; font-weight:800; color:#FFFFFF; margin-bottom:3px;">${escapeHtml(courtName)}</div>
           <div style="font-size:13px; color:rgba(255,255,255,0.85); font-weight:700; margin-bottom:6px;">📍 ${escapeHtml(facilityName)}</div>
-          <div style="font-size:12px; color:#94A3B8;">${escapeHtml(date)} • ${escapeHtml(time)}</div>
+          <div style="font-size:12px; color:var(--pk-text-muted);">${escapeHtml(date)} • ${escapeHtml(time)}</div>
           <div style="margin-top:10px; font-size:11px; color:#64748B; font-style:italic;">Present this pass at reception for express venue admission.</div>
         `;
   }
@@ -2188,13 +2159,13 @@ function promptCancelBooking(bookingId, bookingDate, refundEligible, paymentMeth
   if (refundEligible === '1' || refundEligible === true) {
     eligible = true;
     title = 'Full refund to Pickle Credits';
-    details = 'You are cancelling at least 24 hours before play, so your Pickle Credits payment is refunded in full.';
+    details = 'This booking is eligible under the cancellation policy, so your Pickle Credits payment is refunded in full.';
   } else if (method === 'Pay at Venue') {
     title = 'Nothing to refund';
     details = 'This is a Pay at Venue booking, so nothing has been charged.';
   } else if (method && method !== 'Pickle Credits') {
     title = 'Refund handled by the facility';
-    details = `This booking was paid via ${method}. In-app refunds only apply to Pickle Credits, so please contact the facility about your payment.`;
+    details = `The selected payment method is ${method}. The app does not confirm external payment. In-app refunds only apply to Pickle Credits, so please contact the facility about your payment.`;
   }
   if (noticeTitle) noticeTitle.textContent = title;
   if (detailsText) detailsText.textContent = details;
@@ -2207,6 +2178,8 @@ function promptCancelBooking(bookingId, bookingDate, refundEligible, paymentMeth
 }
 
 function executeBookingCancellation() {
+  const modal = document.getElementById('cancelBookingModal');
+  if (modal?.getAttribute('aria-busy') === 'true') return;
   const bookingId = document.getElementById('cancelTargetBookingId')?.value;
   if (!bookingId) {
     closeModal('cancelBookingModal');
@@ -2214,6 +2187,12 @@ function executeBookingCancellation() {
   }
 
   const btn = document.getElementById('btnExecuteCancelBooking');
+  const setBusy = busy => {
+    if (!modal) return;
+    modal.setAttribute('aria-busy', String(busy));
+    modal.querySelectorAll('button').forEach(control => { control.disabled = busy; });
+  };
+  setBusy(true);
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Cancelling...';
@@ -2231,6 +2210,7 @@ function executeBookingCancellation() {
   })
     .then(r => r.json())
     .then(data => {
+      setBusy(false);
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Yes, Cancel';
@@ -2248,6 +2228,7 @@ function executeBookingCancellation() {
       }, 1200);
     })
     .catch(() => {
+      setBusy(false);
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Yes, Cancel';
@@ -2298,7 +2279,7 @@ function updateTopUpBreakdown(amount) {
 
   const btnText = document.getElementById('topUpPayBtnText');
   if (btnText) {
-    btnText.textContent = amt > 0 ? `Pay ₱${total.toLocaleString('en-US')}` : 'Pay Amount';
+    btnText.textContent = 'Request Top-Up';
   }
 }
 
@@ -2483,9 +2464,9 @@ function submitTopUp() {
 // promptChangePassword are defined once, further down. The copies that sat
 // here were shadowed (the later declaration wins) and faked success offline.
 async function submitPasswordChange() {
-  const currentP = document.getElementById('currentPassInput')?.value.trim();
-  const newP = document.getElementById('newPassInput')?.value.trim();
-  const confP = document.getElementById('confirmPassInput')?.value.trim();
+  const currentP = document.getElementById('currentPassInput')?.value;
+  const newP = document.getElementById('newPassInput')?.value;
+  const confP = document.getElementById('confirmPassInput')?.value;
 
   if (!currentP) {
     showToast('Please enter your current password.', 'error');
@@ -2608,15 +2589,67 @@ function formatPHPhoneInput(input) {
 // Quick Book & Payment Review Controllers
 // ========================================================================
 const QB_TIMES = [
-  '6:00 AM', '7:00 AM', '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
+  '7:00 AM', '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
   '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM',
   '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM'
 ];
-let qbStartIdx = 1; // 7:00 AM default
-let qbEndIdx = 6;   // 12:00 PM default (5 hours to match screenshot)
+const QB_TIME_MINUTES = Array.from({ length: 16 }, (_, index) => 420 + index * 60);
+function applyBookingSlotGrid(slots) {
+  if (!slots.length || !slots.every(slot => Number.isInteger(slot.start_min) && Number.isInteger(slot.end_min))) return;
+  const labels = slots.map(slot => slot.label);
+  const times = labels.map(label => label.split(/\s*[–-]\s*/)[0]);
+  times.push(labels[labels.length - 1].split(/\s*[–-]\s*/)[1]);
+  QB_TIMES.splice(0, QB_TIMES.length, ...times);
+  QB_TIME_MINUTES.splice(0, QB_TIME_MINUTES.length, ...slots.map(slot => slot.start_min), slots[slots.length - 1].end_min);
+  ALL_COURT_TIME_SLOTS.splice(0, ALL_COURT_TIME_SLOTS.length, ...labels);
+}
+let quickBookScheduleReady = true;
+let quickBookScheduleGeneration = 0;
+let quickBookScheduleSlots = null;
+function loadQuickBookSchedule(facilityId, dateStr) {
+  const generation = ++quickBookScheduleGeneration;
+  quickBookScheduleReady = false;
+  renderQuickBookTimes();
+  const court = cachedFacilityCourts.find(c => c.id);
+  if (!court) return;
+  const params = new URLSearchParams({ action: 'slot_availability', facility_id: facilityId, court_id: court.id, date: dateStr });
+  fetch(`api.php?${params}`).then(async response => {
+    const result = await response.json();
+    if (!response.ok || !result?.success || !Array.isArray(result.slots) || !result.slots.length) throw new Error('Unavailable schedule');
+    if (generation !== quickBookScheduleGeneration) return;
+    const previousStart = QB_TIMES[qbStartIdx];
+    const previousEnd = QB_TIMES[qbEndIdx];
+    applyBookingSlotGrid(result.slots);
+    quickBookScheduleSlots = result.slots;
+    qbStartIdx = Math.max(getMinAllowedStartIdx(dateStr), QB_TIMES.indexOf(previousStart));
+    qbEndIdx = Math.min(QB_TIMES.length - 1, Math.max(qbStartIdx + 1, QB_TIMES.lastIndexOf(previousEnd)));
+    quickBookScheduleReady = true;
+    renderQuickBookTimes();
+  }).catch(() => {
+    if (generation !== quickBookScheduleGeneration) return;
+    showToast('Could not load this venue schedule. Reopen Quick Book to retry.', 'error');
+  });
+}
+let quickBookGeneration = 0;
+let quickBookCheckedSelection = null;
+function quickBookSelectionKey() {
+  return JSON.stringify([document.getElementById('qbSelectedFacilityId')?.value || '1',
+    document.getElementById('qbSelectedDateFull')?.value || document.getElementById('qbSelectedDate')?.value || '', qbStartIdx, qbEndIdx]);
+}
+function invalidateQuickBookAvailability() {
+  quickBookGeneration++;
+  quickBookCheckedSelection = null;
+  const results = document.getElementById('qbAvailableCourtsList');
+  if (results) results.innerHTML = '';
+  const button = document.getElementById('btnQuickBookFindCourts');
+  if (button) { button.disabled = false; button.classList.remove('scanning'); }
+}
+let qbStartIdx = 0; // 7:00 AM default
+let qbEndIdx = 5;   // 12:00 PM default (5 hours to match screenshot)
 let selectedPaymentMethod = 'GCash';
 
 function renderQuickBookTimes() {
+  invalidateQuickBookAvailability();
   const startPrevEl = document.getElementById('qbStartPrev');
   const startActiveEl = document.getElementById('qbStartActive');
   const startNextEl = document.getElementById('qbStartNext');
@@ -2627,6 +2660,10 @@ function renderQuickBookTimes() {
 
   const dateVal = document.getElementById('qbSelectedDateFull')?.value || document.getElementById('qbSelectedDate')?.value || '';
   const minIdx = getMinAllowedStartIdx(dateVal);
+  if (qbStartIdx < minIdx || qbStartIdx >= QB_TIMES.length - 1 || qbEndIdx <= qbStartIdx) {
+    qbStartIdx = minIdx;
+    qbEndIdx = Math.min(QB_TIMES.length - 1, qbStartIdx + 1);
+  }
 
   // Start Time Column
   if (startPrevEl) {
@@ -2679,8 +2716,12 @@ function renderQuickBookTimes() {
   }
 
   // Duration Calculation
-  const dur = Math.max(1, qbEndIdx - qbStartIdx);
-  const durText = (dur === 1) ? '1 hour' : `${dur} hours`;
+  const dur = Math.max(0, qbEndIdx - qbStartIdx);
+  const findButton = document.getElementById('btnQuickBookFindCourts');
+  const outsideHours = quickBookScheduleSlots && QB_TIMES.slice(qbStartIdx, qbEndIdx).some((start, index) =>
+    quickBookScheduleSlots.find(slot => slot.label === `${start} – ${QB_TIMES[qbStartIdx + index + 1]}`)?.reason === 'outside_operating_hours');
+  if (findButton) findButton.disabled = !quickBookScheduleReady || dur === 0 || outsideHours;
+  const durText = ((dur === 1) ? '1 hour' : `${dur} hours`) + (outsideHours ? ' · Outside venue hours' : '');
   const durEl = document.getElementById('qbDurationText');
   if (durEl) durEl.textContent = durText;
 
@@ -2730,7 +2771,7 @@ function selectQuickBookDate(btn, dateFull, dateLabel) {
   document.querySelectorAll('.qb-date-pill').forEach(b => b.classList.remove('active'));
   if (btn) {
     btn.classList.add('active');
-    btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    btn.scrollIntoView({ behavior: window.UX?.prefersReducedMotion() ? 'instant' : 'smooth', inline: 'center', block: 'nearest' });
   }
 
   const dText = document.getElementById('qbSummaryDateText');
@@ -2750,6 +2791,7 @@ function selectQuickBookDate(btn, dateFull, dateLabel) {
     }
   }
   renderQuickBookTimes();
+  loadQuickBookSchedule(document.getElementById('qbSelectedFacilityId')?.value || '1', dateFull);
 }
 
 function openQuickBookModal(facilityId, courtName = 'Court 2', price = 180, facilityName = 'Pickleball Facility', surface = 'Hard', type = 'Indoor') {
@@ -2788,7 +2830,7 @@ function openQuickBookModal(facilityId, courtName = 'Court 2', price = 180, faci
   if (hud) hud.style.display = 'none';
   const btn = document.getElementById('btnQuickBookFindCourts');
   if (btn) {
-    btn.disabled = false;
+    btn.disabled = qbEndIdx <= qbStartIdx;
     btn.classList.remove('scanning', 'available');
     btn.innerHTML = `
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
@@ -2797,9 +2839,11 @@ function openQuickBookModal(facilityId, courtName = 'Court 2', price = 180, faci
   }
 
   openModal('quickBookModal');
+  loadQuickBookSchedule(facilityId, dateVal);
 }
 
 function backToQuickBookConfig() {
+  invalidateQuickBookAvailability();
   const configView = document.getElementById('qbConfigView');
   const resultsView = document.getElementById('qbResultsView');
   if (configView) configView.style.display = 'block';
@@ -2820,6 +2864,7 @@ function backToQuickBookConfig() {
 }
 
 function proceedToPaymentFromQuickBook() {
+  if (!quickBookScheduleReady) return;
   const btn = document.getElementById('btnQuickBookFindCourts');
   const hud = document.getElementById('qbScannerHud');
   const hudTitle = document.getElementById('qbHudStatusText');
@@ -2837,8 +2882,20 @@ function proceedToPaymentFromQuickBook() {
   const timeRange = `${QB_TIMES[qbStartIdx]} – ${QB_TIMES[qbEndIdx]}`;
   const rate = parseFloat(document.getElementById('qbBaseHourlyRate')?.value || '180');
 
+  if (qbStartIdx < getMinAllowedStartIdx(dateStr) || qbEndIdx <= qbStartIdx) {
+    showToast('Please choose an upcoming time slot or another date.');
+    return;
+  }
+  const requestedSlots = QB_TIMES.slice(qbStartIdx, qbEndIdx)
+    .map((start, i) => `${start} – ${QB_TIMES[qbStartIdx + i + 1]}`);
+
   // Prevent duplicate clicks if already scanning
   if (btn && btn.classList.contains('scanning')) return;
+  const generation = ++quickBookGeneration;
+  const selectionKey = quickBookSelectionKey();
+  const courts = [...cachedFacilityCourts];
+  quickBookCheckedSelection = null;
+  const isCurrent = () => generation === quickBookGeneration && selectionKey === quickBookSelectionKey();
 
   // Phase 1: Launch Scanning HUD & Button Pulse Animation
   if (btn) {
@@ -2862,21 +2919,36 @@ function proceedToPaymentFromQuickBook() {
 
   // Phase 2: Live status update midway through loading
   setTimeout(() => {
+    if (!isCurrent()) return;
     if (hudTitle) hudTitle.textContent = `Checking ${facilityName} court schedule...`;
     if (hudSub) hudSub.textContent = `Date: ${dateStr} • Duration: ${durHours} hr${durHours > 1 ? 's' : ''}`;
   }, 450);
 
   // Phase 3: Transition to Scanned Available Courts Results View
-  setTimeout(() => {
+  setTimeout(async () => {
+    if (!isCurrent()) return;
     // Filter courts list for this facility — ONLY INCLUDE TRULY AVAILABLE COURTS!
     // No fictional fallback courts here: if the real list is empty, the
     // "No Available Courts" empty state below is the honest result, not two
     // invented court listings a player could tap and try to book.
     let facilityCourts = [];
-    if (Array.isArray(cachedFacilityCourts) && cachedFacilityCourts.length > 0) {
-      facilityCourts = cachedFacilityCourts.filter(c => c.status === 'available');
+    if (courts.length > 0) {
+      try {
+        const checked = await Promise.all(courts.filter(c => c.status === 'available').map(async c => {
+          const params = new URLSearchParams({ action: 'slot_availability', facility_id: facilityId, court_id: c.id, date: dateStr });
+          const response = await fetch(`api.php?${params}`);
+          const res = await response.json();
+          if (!response.ok || !res?.success || !Array.isArray(res.slots)) throw new Error('Could not verify court availability. Please try again.');
+          return requestedSlots.every(label => res.slots.some(s => s.label === label && s.available === true)) ? c : null;
+        }));
+        facilityCourts = checked.filter(Boolean);
+      } catch (err) {
+        if (isCurrent()) showToast(err.message || 'Could not verify court availability. Please try again.', 'error');
+      }
     }
 
+    if (!isCurrent()) return;
+    quickBookCheckedSelection = { key: selectionKey, facilityId, facilityName, dateStr, timeRange, durHours, courtIds: facilityCourts.map(c => String(c.id)) };
     const resultsList = document.getElementById('qbAvailableCourtsList');
     const summaryTitle = document.getElementById('qbResultsSummaryTitle');
     const summarySub = document.getElementById('qbResultsSummarySub');
@@ -2894,7 +2966,7 @@ function proceedToPaymentFromQuickBook() {
           <div style="text-align:center; padding:32px 16px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:16px; margin-bottom:12px;">
             <div style="font-size:32px; margin-bottom:8px;">🔒</div>
             <div style="font-size:14px; font-weight:800; color:#FFFFFF; margin-bottom:4px;">No Available Courts</div>
-            <div style="font-size:12px; color:#94A3B8; max-width:280px; margin:0 auto;">All courts for this facility are currently booked or occupied during this time slot. Please adjust your date or time.</div>
+            <div style="font-size:12px; color:var(--pk-text-muted); max-width:280px; margin:0 auto;">All courts for this facility are currently booked or occupied during this time slot. Please adjust your date or time.</div>
           </div>
         `;
       } else {
@@ -2959,29 +3031,13 @@ function proceedToPaymentFromQuickBook() {
 }
 
 function bookCourtFromQuickBookResults(courtId, courtName, price, surface, type) {
-  const facilityId = document.getElementById('qbSelectedFacilityId')?.value || '1';
-  const facilityName = document.getElementById('qbFacilitySubtitle')?.textContent || 'Pickleball Facility';
-  const dateStr = document.getElementById('qbSelectedDateFull')?.value
-    || document.getElementById('qbSelectedDate')?.value
-    || 'Thu Sep 10 2026';
-  const durHours = Math.max(1, qbEndIdx - qbStartIdx);
-  const timeRange = `${QB_TIMES[qbStartIdx]} – ${QB_TIMES[qbEndIdx]}`;
-
+  const checked = quickBookCheckedSelection;
+  if (!checked || checked.key !== quickBookSelectionKey() || !checked.courtIds.includes(String(courtId)) || qbStartIdx < getMinAllowedStartIdx(checked.dateStr) || qbEndIdx <= qbStartIdx) {
+    showToast('Please check availability for the selected date and time.');
+    return;
+  }
   closeModal('quickBookModal');
-
-  // Direct redirection to Payment & Review Checkout view
-  openPaymentReview(
-    facilityId,
-    courtId,
-    courtName,
-    price,
-    surface,
-    type,
-    facilityName,
-    dateStr,
-    timeRange,
-    durHours
-  );
+  openPaymentReview(checked.facilityId, courtId, courtName, price, surface, type, checked.facilityName, checked.dateStr, checked.timeRange, checked.durHours);
 }
 
 let currentBookingBaseTotal = 396;
@@ -2989,11 +3045,32 @@ let currentBookingVoucherDiscount = 0;
 // The voucher code the server will re-validate and price. The browser never
 // decides the final amount — it only declares which code was entered.
 let currentBookingVoucherCode = '';
+let voucherRequestGeneration = 0;
+let voucherQuotePending = false;
+let bookingSubmissionPending = false;
+
+function voucherCheckoutIdentity() {
+  return ['finalMatchId', 'finalFacilityId', 'finalCourtId', 'finalCourtName', 'finalDate', 'finalTime', 'finalDuration']
+    .map(id => document.getElementById(id)?.value || '').join('\u0000');
+}
+
+function invalidateVoucherQuote() {
+  voucherRequestGeneration++;
+  voucherQuotePending = false;
+  const input = document.getElementById('voucherCodeInput');
+  if (input) input.disabled = false;
+  const button = document.getElementById('btnConfirmFinalPay');
+  if (button) button.disabled = bookingSubmissionPending;
+}
 
 function openPaymentReview(facilityId, courtId, courtName, price = 180, surface = 'Hard', type = 'Indoor', facilityName = '', date = 'Thu Sep 10 2026', time = '7:00 AM – 12:00 PM', duration = 5, matchId = '') {
+  openPaymentReview.generation = (openPaymentReview.generation || 0) + 1;
+  silentRefreshDiscover.generation = (silentRefreshDiscover.generation || 0) + 1;
+  invalidateVoucherQuote();
   const fName = facilityName || document.getElementById('qbFacilitySubtitle')?.textContent || 'Pickleball Facility';
   const durNum = parseInt(duration) || (matchId ? 2 : 5);
-  const rateNum = parseFloat(price) || 180;
+  const parsedPrice = parseFloat(price);
+  const rateNum = Number.isFinite(parsedPrice) ? parsedPrice : 180;
 
   // For Open Play matches, price is the fixed player share fee (not multiplied by hours)
   const courtFee = matchId ? rateNum : (durNum * rateNum);
@@ -3017,7 +3094,8 @@ function openPaymentReview(facilityId, courtId, courtName, price = 180, surface 
   if (hiddenDisc) hiddenDisc.value = '0';
 
   // Dynamically update facility image and location if matching facility card exists
-  const matchingCard = document.querySelector(`.app-facility-card[data-name="${fName}"]`);
+  const matchingCard = Array.from(document.querySelectorAll('.app-facility-card'))
+    .find(card => card.getAttribute('data-name') === fName);
   if (matchingCard) {
     const matchingImg = matchingCard.querySelector('img')?.src;
     if (matchingImg) {
@@ -3104,11 +3182,18 @@ function openPaymentReview(facilityId, courtId, courtName, price = 180, surface 
   const fMatch = document.getElementById('finalMatchId');
   if (fMatch) fMatch.value = matchId || '';
 
+  const payButton = document.getElementById('btnConfirmFinalPay');
+  if (payButton) {
+    payButton.disabled = bookingSubmissionPending;
+    payButton.innerHTML = `<div class="btn-checkout-content"><span>Send Request · <span id="btnPayTotalText">₱${subtotal.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
+  }
+
   // Configure back button dynamically
   const backBtn = document.querySelector('.payment-back-glass-btn');
   if (backBtn) {
     if (matchId) {
       backBtn.onclick = () => {
+        invalidateVoucherQuote();
         sessionStorage.removeItem('picklers_openplay_checkout');
         window.location.href = 'app.php?tab=explore';
       };
@@ -3134,11 +3219,13 @@ function openPaymentReview(facilityId, courtId, courtName, price = 180, surface 
   const payView = document.getElementById('paymentReviewView');
   if (payView) {
     payView.style.display = 'block';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: window.UX?.prefersReducedMotion() ? 'instant' : 'smooth' });
   }
 }
 
 function backToCourtsView() {
+  openPaymentReview.generation = (openPaymentReview.generation || 0) + 1;
+  invalidateVoucherQuote();
   const payView = document.getElementById('paymentReviewView');
   if (payView) payView.style.display = 'none';
 
@@ -3152,7 +3239,7 @@ function backToCourtsView() {
     if (playContent) playContent.style.display = 'block';
     if (facDetail) facDetail.style.display = 'none';
   }
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: 0, behavior: window.UX?.prefersReducedMotion() ? 'instant' : 'smooth' });
 }
 
 function selectPaymentChannel(channel) {
@@ -3171,6 +3258,8 @@ function selectPaymentChannel(channel) {
     const card = document.getElementById(m.id);
     const radio = document.getElementById(m.radioId);
     if (!card || !radio) return;
+    const input = document.getElementById(m.id + 'Input');
+    if (input) input.checked = m.name === channel;
 
     if (m.name === channel) {
       card.classList.add('active');
@@ -3183,6 +3272,7 @@ function selectPaymentChannel(channel) {
 }
 
 function applyVoucherCode() {
+  if (bookingSubmissionPending) return;
   const input = document.getElementById('voucherCodeInput');
   const msg = document.getElementById('voucherMsg');
   const discRow = document.getElementById('voucherDiscountRow');
@@ -3195,6 +3285,20 @@ function applyVoucherCode() {
 
   if (!input || !msg) return;
   const code = input.value.trim().toUpperCase();
+  invalidateVoucherQuote();
+  const generation = voucherRequestGeneration;
+  const identity = voucherCheckoutIdentity();
+  const isCurrentQuote = () => generation === voucherRequestGeneration
+    && identity === voucherCheckoutIdentity()
+    && document.getElementById('paymentReviewView')?.style.display !== 'none';
+  currentBookingVoucherCode = '';
+  currentBookingVoucherDiscount = 0;
+  if (discRow) discRow.style.display = 'none';
+  if (discVal) discVal.textContent = '-₱0';
+  if (hiddenDisc) hiddenDisc.value = '0';
+  if (hiddenPrice) hiddenPrice.value = currentBookingBaseTotal;
+  if (totalVal) totalVal.textContent = `₱${currentBookingBaseTotal.toLocaleString()}`;
+  if (btnTotal) btnTotal.textContent = `₱${currentBookingBaseTotal.toLocaleString()}`;
 
   if (!code) {
     msg.style.display = 'block';
@@ -3222,9 +3326,15 @@ function applyVoucherCode() {
   }
 
   input.disabled = true;
+  voucherQuotePending = true;
+  const confirmButton = document.getElementById('btnConfirmFinalPay');
+  if (confirmButton) confirmButton.disabled = true;
   fetch(`api.php?action=quote_booking&${params.toString()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(r => r.json())
     .then(res => {
+      if (!isCurrentQuote()) return;
+      voucherQuotePending = false;
+      if (confirmButton) confirmButton.disabled = false;
       input.disabled = false;
       if (!res.success || !res.promo_valid) {
         msg.style.display = 'block';
@@ -3234,10 +3344,11 @@ function applyVoucherCode() {
       }
 
       const discount = Math.round(Number(res.quote.discount || 0));
-      const finalPayable = Number(res.quote.total || currentBookingBaseTotal);
+      const finalPayable = Number(res.quote.total ?? currentBookingBaseTotal);
 
       currentBookingVoucherDiscount = discount;
       currentBookingVoucherCode = code;
+      input.value = code;
 
       if (discRow) discRow.style.display = 'flex';
       if (discLabel) discLabel.textContent = res.quote.promo_label || `${code} Applied`;
@@ -3252,6 +3363,9 @@ function applyVoucherCode() {
       msg.textContent = res.promo_message || `✓ Voucher applied! You saved ₱${discount.toLocaleString()}.`;
     })
     .catch(() => {
+      if (!isCurrentQuote()) return;
+      voucherQuotePending = false;
+      if (confirmButton) confirmButton.disabled = false;
       input.disabled = false;
       msg.style.display = 'block';
       msg.style.color = '#EF4444';
@@ -3260,6 +3374,11 @@ function applyVoucherCode() {
 }
 
 function executeFinalBooking() {
+  if (bookingSubmissionPending) return;
+  if (voucherQuotePending) {
+    showToast('Please wait for the voucher quote before confirming.', 'warning');
+    return;
+  }
   const matchId = document.getElementById('finalMatchId')?.value || '';
   const facilityId = document.getElementById('finalFacilityId')?.value || '1';
   const courtId = document.getElementById('finalCourtId')?.value || '';
@@ -3271,7 +3390,20 @@ function executeFinalBooking() {
   const paymentMethod = document.getElementById('finalPaymentMethod')?.value || 'GCash';
   const facilityName = document.getElementById('payFacilityName')?.textContent || 'Pickleball Facility';
 
+  const generation = openPaymentReview.generation;
+  const identity = voucherCheckoutIdentity();
+  const isCurrentCheckout = () => generation === openPaymentReview.generation
+    && identity === voucherCheckoutIdentity()
+    && document.getElementById('paymentReviewView')?.style.display !== 'none';
   const btn = document.getElementById('btnConfirmFinalPay');
+  const releaseSubmission = () => {
+    bookingSubmissionPending = false;
+    if (btn) {
+      btn.disabled = voucherQuotePending;
+      if (isCurrentCheckout()) btn.innerHTML = `<div class="btn-checkout-content"><span>Send Request · <span id="btnPayTotalText">₱${price.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
+    }
+  };
+  bookingSubmissionPending = true;
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span>Processing Reservation...</span>';
@@ -3296,29 +3428,22 @@ function executeFinalBooking() {
     })
       .then(r => r.json())
       .then(res => {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = `<div class="btn-checkout-content"><span>Pay <span id="btnPayTotalText">₱${price.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
-        }
+        const currentCheckout = isCurrentCheckout();
+        releaseSubmission();
         if (res.success || (res.message && res.message.indexOf('already joined') !== -1)) {
-          if (matchId) {
-            window.userJoinedMatchIds = window.userJoinedMatchIds || {};
-            window.userJoinedMatchIds[String(matchId)] = true;
-          }
-          if (facilityId) {
-            window.userJoinedFacilityIds = window.userJoinedFacilityIds || {};
-            window.userJoinedFacilityIds[String(facilityId)] = true;
-          }
-          if (Array.isArray(cachedFacilityCourts)) {
+          if (currentSelectedFacility && String(currentSelectedFacility.id) === String(facilityId) && Array.isArray(cachedFacilityCourts)) {
             cachedFacilityCourts.forEach(c => {
+              if (!c.open_play_match || String(c.open_play_match.id) !== String(matchId)) return;
               c.user_joined = true;
-              if (c.open_play_match) c.open_play_match.is_joined = true;
+              c.open_play_match.is_joined = true;
             });
           }
         }
         if (res.success) {
-          sessionStorage.removeItem('picklers_openplay_checkout');
-          backToCourtsView();
+          if (currentCheckout) {
+            sessionStorage.removeItem('picklers_openplay_checkout');
+            backToCourtsView();
+          }
 
           // The reference and amount come from the booking the server stored,
           // not from the checkout screen's own figures.
@@ -3326,7 +3451,7 @@ function executeFinalBooking() {
           const cleanCode = rawCode.replace(/^#+/, '').replace(/^PKL-PKL-/, 'PKL-');
           const chargedPrice = Number(res.booking?.price);
 
-          openBookingReceiptModal({
+          if (currentCheckout) openBookingReceiptModal({
             bookingId: cleanCode,
             facilityName: facilityName,
             courtName: courtName || 'Open Play Session',
@@ -3352,13 +3477,13 @@ function executeFinalBooking() {
                 }
               });
           }
-          if (currentSelectedFacility && cachedFacilityCourts) {
+          if (currentCheckout && currentSelectedFacility && cachedFacilityCourts) {
             renderDetailCourtsList(cachedFacilityCourts, currentSelectedFacility);
           }
         } else {
           if (res.message && res.message.indexOf('already joined') !== -1) {
             showToast('You have already joined this Open Play session!', 'warning');
-            if (currentSelectedFacility && cachedFacilityCourts) {
+            if (currentCheckout && currentSelectedFacility && cachedFacilityCourts) {
               renderDetailCourtsList(cachedFacilityCourts, currentSelectedFacility);
             }
           } else {
@@ -3367,10 +3492,7 @@ function executeFinalBooking() {
         }
       })
       .catch(err => {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = `<div class="btn-checkout-content"><span>Pay <span id="btnPayTotalText">₱${price.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
-        }
+        releaseSubmission();
         showToast('Network error occurred while booking. Please try again.', 'error');
       });
     return;
@@ -3402,18 +3524,16 @@ function executeFinalBooking() {
   })
     .then(r => r.json())
     .then(res => {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `<div class="btn-checkout-content"><span>Pay <span id="btnPayTotalText">₱${price.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
-      }
+      const currentCheckout = isCurrentCheckout();
+      releaseSubmission();
       if (res.success) {
-        backToCourtsView();
+        if (currentCheckout) backToCourtsView();
 
         const rawCode = String(res.booking?.id || '');
         const cleanCode = rawCode.replace(/^#+/, '').replace(/^PKL-PKL-/, 'PKL-');
         const chargedPrice = Number(res.booking?.price ?? res.quote?.total);
 
-        openBookingReceiptModal({
+        if (currentCheckout) openBookingReceiptModal({
           bookingId: cleanCode,
           facilityName: facilityName,
           courtName: courtName,
@@ -3446,10 +3566,7 @@ function executeFinalBooking() {
       }
     })
     .catch(err => {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `<div class="btn-checkout-content"><span>Pay <span id="btnPayTotalText">₱${price.toLocaleString()}</span></span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>`;
-      }
+      releaseSubmission();
       showToast('Network error occurred while booking. Please try again.', 'error');
     });
 }
@@ -3572,78 +3689,6 @@ function applyFilters() {
 
 
 
-// Community Feed Post & Likes
-function insertPostTag(tag) {
-  const input = document.getElementById('communityPostInput') || document.getElementById('feedPostInput');
-  if (!input) return;
-  input.value = input.value.trim() ? `${input.value} ${tag} ` : `${tag} `;
-  input.focus();
-}
-
-function submitCommunityPost() {
-  const input = document.getElementById('communityPostInput') || document.getElementById('feedPostInput');
-  const content = input ? input.value.trim() : '';
-  if (!content) {
-    showToast('Please enter your match note or update', 'error');
-    return;
-  }
-
-  fetch('api.php?action=create_post', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRF-Token': getCsrfToken()
-    },
-    body: JSON.stringify({ content: content })
-  })
-    .then(r => r.json())
-    .then(res => {
-      if (res.success) {
-        input.value = '';
-        showToast("✓ Post published to Picklers Feed!", "success");
-        setTimeout(() => window.location.reload(), 900);
-      } else {
-        showToast(res.message || 'Failed to post update', "error");
-      }
-    })
-    .catch(() => showToast('Network error posting update', 'error'));
-}
-
-function publishFeedPost() {
-  submitCommunityPost();
-}
-
-function togglePostLike(btn, postId = null) {
-  const countEl = btn.querySelector('.like-count');
-  const currentCount = parseInt(countEl?.textContent || '0', 10);
-  const isLiked = btn.classList.toggle('liked');
-
-  if (btn.style.color === 'rgb(239, 68, 68)' || btn.style.color === '#EF4444') {
-    btn.style.color = 'inherit';
-    if (countEl) countEl.textContent = Math.max(0, currentCount - 1);
-    showToast('Unliked post', 'info');
-  } else {
-    btn.style.color = '#EF4444';
-    if (countEl) countEl.textContent = currentCount + 1;
-    showToast('❤️ Liked post!', 'success');
-  }
-
-  if (postId) {
-    fetch('api.php?action=like_post', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': getCsrfToken()
-      },
-      body: JSON.stringify({ post_id: postId })
-    }).catch(() => { });
-  }
-}
-
-function toggleLike(postId, btn) {
-  togglePostLike(btn, postId);
-}
-
 // Live DM Chat
 function sendChatMessage() {
   const input = document.getElementById('chatInput');
@@ -3745,26 +3790,6 @@ function handleAvatarUpload(event) {
   showToast('Processing photo...', 'info');
 
   downscaleImageFile(file).then(function (base64Url) {
-
-    // 1. Immediately update Settings Tab Hero Avatar
-    const container = document.getElementById('settingsAvatarContainer');
-    if (container) {
-      container.innerHTML = `<img id="settingsHeroAvatarImg" src="${base64Url}" alt="Avatar">`;
-    }
-
-    // 2. Immediately update Mobile Sticky Header Avatar
-    const mobileAvatar = document.getElementById('mobileHeaderAvatarImg');
-    if (mobileAvatar) {
-      mobileAvatar.src = base64Url;
-    }
-
-    // 3. Immediately update Desktop Sidebar Avatar
-    const sidebarAvatar = document.getElementById('sidebarUserAvatar');
-    if (sidebarAvatar) {
-      sidebarAvatar.innerHTML = `<img src="${base64Url}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
-    }
-
-    // 4. Send to backend via REST API
     fetch('api.php?action=update_profile', {
       method: 'POST',
       headers: {
@@ -3775,10 +3800,21 @@ function handleAvatarUpload(event) {
     })
       .then(r => r.json())
       .then(res => {
-        if (res.success) {
+        if (res && res.success && typeof res.user?.avatar_url === 'string' && res.user.avatar_url) {
+          const savedUrl = res.user.avatar_url;
+          const container = document.getElementById('settingsAvatarContainer');
+          if (container) {
+            container.innerHTML = `<img id="settingsHeroAvatarImg" src="${escapeHtml(savedUrl)}" alt="Avatar">`;
+          }
+          const mobileAvatar = document.getElementById('mobileHeaderAvatarImg');
+          if (mobileAvatar) mobileAvatar.src = savedUrl;
+          const sidebarAvatar = document.getElementById('sidebarUserAvatar');
+          if (sidebarAvatar) {
+            sidebarAvatar.innerHTML = `<img src="${escapeHtml(savedUrl)}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+          }
           showToast('✓ Profile picture updated successfully!', 'success');
         } else {
-          showToast(res.message || 'Failed to save profile picture', 'error');
+          showToast((res && res.message) || 'Failed to save profile picture', 'error');
         }
       })
       .catch(() => {
@@ -4084,7 +4120,7 @@ document.addEventListener('DOMContentLoaded', () => {
             m.matchId,
             '', // no court concept for an Open Play session
             m.matchType || 'Open Play Session',
-            m.price || 200,
+            m.price ?? 200,
             m.level || 'All Levels',
             m.level || 'Intermediate',
             m.facilityName || 'Pickleball Facility',
@@ -4109,14 +4145,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Real-time Open Play Match Sync (Polls every 4 seconds)
 let openPlaySyncInterval = null;
+let openPlaySyncCleanup = null;
+let openPlaySyncRequest = null;
 
 function initRealTimeOpenPlaySync() {
-  if (openPlaySyncInterval) clearInterval(openPlaySyncInterval);
+  if (openPlaySyncCleanup) openPlaySyncCleanup();
+  let active = true;
+  let suspended = false;
+  let generation = 0;
+  let refreshQueued = false;
+  const visible = () => active && !suspended && !document.hidden;
   
   const syncMatches = () => {
-    fetch('api.php?action=matches')
-      .then(r => r.json())
+    if (!visible()) return;
+    if (openPlaySyncRequest) return;
+    const requestGeneration = generation;
+    const controller = new AbortController();
+    let timeout;
+    const request = Promise.race([
+      fetch('api.php?action=matches', { signal: controller.signal }).then(r => r.ok ? r.json() : null),
+      new Promise((resolve, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error('Match poll timed out'));
+        }, 15000);
+      })
+    ])
       .then(data => {
+        if (!visible() || generation !== requestGeneration) return;
         if (!data || !data.success || !Array.isArray(data.matches)) return;
         const matches = data.matches;
         
@@ -4162,8 +4218,40 @@ function initRealTimeOpenPlaySync() {
           }
         });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        clearTimeout(timeout);
+        if (openPlaySyncRequest === request) openPlaySyncRequest = null;
+      });
+    openPlaySyncRequest = request;
   };
 
+  const refresh = () => {
+    if (!visible()) return;
+    if (!openPlaySyncRequest) return syncMatches();
+    if (refreshQueued) return;
+    refreshQueued = true;
+    openPlaySyncRequest.then(() => {
+      refreshQueued = false;
+      syncMatches();
+    });
+  };
+  const visibilityChanged = () => {
+    generation++;
+    if (!document.hidden) refresh();
+  };
+  const pageHidden = () => { suspended = true; generation++; };
+  const pageShown = () => { suspended = false; refresh(); };
+  document.addEventListener('visibilitychange', visibilityChanged);
+  window.addEventListener('pagehide', pageHidden);
+  window.addEventListener('pageshow', pageShown);
   openPlaySyncInterval = setInterval(syncMatches, 4000);
+  openPlaySyncCleanup = () => {
+    active = false;
+    clearInterval(openPlaySyncInterval);
+    document.removeEventListener('visibilitychange', visibilityChanged);
+    window.removeEventListener('pagehide', pageHidden);
+    window.removeEventListener('pageshow', pageShown);
+  };
+  refresh();
 }

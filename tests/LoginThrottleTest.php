@@ -15,6 +15,7 @@ use Picklers\Services\LoginThrottle;
 final class LoginThrottleTest extends TestCase {
 
     public function run(): void {
+        $previousIp = $_SERVER['REMOTE_ADDR'] ?? null;
         $_SERVER['REMOTE_ADDR'] = '203.0.113.99';
         $store = sys_get_temp_dir() . '/picklers_throttle_' . bin2hex(random_bytes(5)) . '.json';
         $t     = new LoginThrottle($store);
@@ -62,12 +63,85 @@ final class LoginThrottleTest extends TestCase {
             $this->assertTrue($fresh->check($id)['locked'],
                 'Lockout persists across instances — it is not session-scoped');
 
+            $this->phoneAliases($t, $store);
+
             $this->assertSame('about a minute', LoginThrottle::describeWait(45),
                 'Short waits render in human terms');
             $this->assertSame('15 minutes', LoginThrottle::describeWait(900),
                 'Long waits render in whole minutes');
         } finally {
             @unlink($store);
+            if ($previousIp === null) {
+                unset($_SERVER['REMOTE_ADDR']);
+            } else {
+                $_SERVER['REMOTE_ADDR'] = $previousIp;
+            }
         }
+    }
+    private function phoneAliases(LoginThrottle $t, string $store): void {
+        $aliases = ['09171234567', '0917-123-4567', '+63 917 123 4567', '(0917) 123 4567'];
+        $t->clearAll();
+        for ($i = 0; $i < LoginThrottle::MAX_ATTEMPTS; $i++) {
+            $result = $t->recordFailure($aliases[$i % count($aliases)]);
+            $this->assertSame($i === LoginThrottle::MAX_ATTEMPTS - 1, $result['locked'],
+                'Equivalent phone spellings share the same-IP failure ceiling');
+        }
+        foreach ($aliases as $alias) {
+            $this->assertTrue($t->check($alias)['locked'], 'Every phone alias observes the same-IP lockout');
+        }
+        $this->assertFalse($t->check('09181234567')['locked'], 'Unrelated phone remains independent');
+        $this->assertFalse($t->check('phone@example.com')['locked'], 'Email remains independent of phone');
+        $t->clear($aliases[3]);
+        foreach ($aliases as $alias) {
+            $this->assertSame(5, $t->check($alias)['attempts_left'], 'Success through any alias clears the pair');
+        }
+
+        for ($i = 0; $i < LoginThrottle::MAX_ATTEMPTS_ACCOUNT; $i++) {
+            $_SERVER['REMOTE_ADDR'] = '203.0.113.' . ($i + 1);
+            $result = $t->recordFailure($aliases[$i % count($aliases)]);
+            $this->assertSame($i === LoginThrottle::MAX_ATTEMPTS_ACCOUNT - 1, $result['locked'],
+                'Equivalent phone spellings share the account-wide ceiling across IPs');
+        }
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.200';
+        foreach ($aliases as $alias) {
+            $this->assertTrue($t->check($alias)['locked'], 'Every alias observes account lockout on a fresh IP');
+        }
+        $this->assertFalse($t->check('09181234567')['locked'], 'Account lockout leaves another phone independent');
+        $t->clear($aliases[1]);
+        foreach ($aliases as $alias) {
+            $this->assertFalse($t->check($alias)['locked'], 'Success clears the normalized account backstop');
+        }
+
+        $t->clearAll();
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.99';
+        $entry = ['attempts' => 5, 'last_attempt' => time() - 901, 'locked_until' => time() - 1];
+        file_put_contents($store, json_encode([
+            hash('sha256', '+63 917 123 4567|203.0.113.99') => $entry,
+            'acct_' . hash('sha256', '+63 917 123 4567') => array_replace($entry, ['attempts' => 15]),
+        ]));
+        foreach ($aliases as $alias) {
+            $this->assertFalse($t->check($alias)['locked'], 'Expired phone lockouts release every alias');
+            $this->assertSame(5, $t->check($alias)['attempts_left'], 'Idle phone counters decay');
+        }
+        $this->assertFalse($t->recordFailure($aliases[0])['locked'], 'First failure after expiry starts a new window');
+        $this->assertSame(4, $t->check($aliases[2])['attempts_left'], 'New window is shared across aliases');
+
+        $entry = ['attempts' => 5, 'last_attempt' => time(), 'locked_until' => time() + 300];
+        file_put_contents($store, json_encode([
+            hash('sha256', '+63 917 123 4567|203.0.113.99') => $entry,
+            'acct_' . hash('sha256', '+63 917 123 4567') => array_replace($entry, ['attempts' => 15]),
+        ]));
+        foreach ($aliases as $alias) {
+            $this->assertTrue($t->check($alias)['locked'], 'Existing canonical legacy pair lock survives normalization');
+        }
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.201';
+        foreach ($aliases as $alias) {
+            $this->assertTrue($t->check($alias)['locked'], 'Existing canonical legacy account lock survives on a new IP');
+        }
+        $t->clearAll();
+        $t->recordFailure('  PERSON@EXAMPLE.COM ');
+        $this->assertSame(4, $t->check('person@example.com')['attempts_left'], 'Email case and whitespace handling is preserved');
+        $t->clear('person@example.com');
+        $this->assertSame(5, $t->check('PERSON@EXAMPLE.COM')['attempts_left'], 'Email clear behavior is preserved');
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Picklers\Web\Api;
 
 use Picklers\Services\TournamentService;
+use Picklers\Exceptions\TournamentBusyException;
 use Picklers\Web\Http\LegacyInput;
 use Picklers\Web\Http\LegacyResponses;
 use Picklers\Web\Service\OwnerScope;
@@ -29,8 +30,11 @@ final class TournamentActions
             return $this->jsonError('Unauthorized: owner access required.', 403);
         }
         $facility = $this->scope->ownedFacility($user, (string)$in->input('facility_id', ''));
+        if ($facility === null) {
+            return $this->jsonError('Unauthorized: owner access required.', 403);
+        }
 
-        return $this->jsonSuccess(['tournaments' => $this->tournaments->grouped($facility ? (string)$facility['id'] : null)]);
+        return $this->jsonSuccess(['tournaments' => $this->tournaments->grouped((string)$facility['id'])]);
     }
 
     public function get(LegacyInput $in, ?array $user): JsonResponse
@@ -47,24 +51,28 @@ final class TournamentActions
         if ($facility === null) {
             return $this->jsonError('Complete your owner application before hosting a tournament.', 403);
         }
-        $created = $this->tournaments->create([
-            'facility_id' => (string)$facility['id'],
-            'owner_id' => (string)($user['id'] ?? ''),
-            'title' => (string)$in->input('title', ''),
-            'category' => (string)$in->input('category', $in->input('type', '')),
-            'format' => (string)$in->input('format', 'single_elimination'),
-            'pairing_mode' => (string)$in->input('pairing_mode', 'fixed'),
-            'max_teams' => $in->input('max_teams', 16),
-            'date' => (string)$in->input('date', ''),
-            'end_date' => (string)$in->input('end_date', ''),
-            'time' => (string)$in->input('time', ''),
-            'venue' => (string)$in->input('venue', (string)($facility['name'] ?? '')),
-            'prize_pool' => (string)$in->input('prize_pool', ''),
-            'entry_fee' => (string)$in->input('entry_fee', ''),
-            'description' => (string)$in->input('description', ''),
-            'teams' => (array)$in->input('teams', []),
-            'players' => (array)$in->input('players', []),
-        ]);
+        try {
+            $created = $this->tournaments->create([
+                'facility_id' => (string)$facility['id'],
+                'owner_id' => (string)($user['id'] ?? ''),
+                'title' => (string)$in->input('title', ''),
+                'category' => (string)$in->input('category', $in->input('type', '')),
+                'format' => (string)$in->input('format', 'single_elimination'),
+                'pairing_mode' => (string)$in->input('pairing_mode', 'fixed'),
+                'max_teams' => $in->input('max_teams', 16),
+                'date' => (string)$in->input('date', ''),
+                'end_date' => (string)$in->input('end_date', ''),
+                'time' => (string)$in->input('time', ''),
+                'venue' => (string)$in->input('venue', (string)($facility['name'] ?? '')),
+                'prize_pool' => (string)$in->input('prize_pool', ''),
+                'entry_fee' => (string)$in->input('entry_fee', ''),
+                'description' => (string)$in->input('description', ''),
+                'teams' => (array)$in->input('teams', []),
+                'players' => (array)$in->input('players', []),
+            ]);
+        } catch (TournamentBusyException $e) {
+            return $this->jsonError($e->getMessage(), 503);
+        }
         if ($created['error'] !== null) {
             return $this->jsonError($created['error'], 422);
         }
@@ -187,7 +195,11 @@ final class TournamentActions
             return $this->jsonError($owned['error'], $owned['status']);
         }
 
-        return $then($owned['tournament']);
+        try {
+            return $then($owned['tournament']);
+        } catch (TournamentBusyException $e) {
+            return $this->jsonError($e->getMessage(), 503);
+        }
     }
 
     /** @param array{error:?string,tournament?:array} $result */

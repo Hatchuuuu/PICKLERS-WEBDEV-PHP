@@ -112,6 +112,7 @@ html.dark {
 
 /* Light Mode Tokens */
 html.light {
+  --pk-focus-ring: 0 0 0 3px #047857;
   --pk-bg-page: #F8FAFC;
   --pk-bg-card: #FFFFFF;
   --pk-bg-card-hover: #F1F5F9;
@@ -120,12 +121,12 @@ html.light {
   --pk-border-subtle: #EEF2F6;
   --pk-text-primary: #0F172A;        /* 17.9:1 on #FFFFFF */
   --pk-text-secondary: #334155;      /* 10.8:1 on #FFFFFF */
-  --pk-text-muted: #64748B;          /*  4.8:1 on #FFFFFF — AA */
+  --pk-text-muted: #55637A;          /* AA on white and tinted card surfaces */
   --pk-input-bg: #F1F5F9;
 
   --pk-danger-bg: #FEF2F2;
   --pk-danger-border: #FECACA;
-  --pk-danger-text: #DC2626;         /*  4.8:1 on #FFFFFF — AA */
+  --pk-danger-text: #B91C1C;         /* AA on white and pale red surfaces */
 
   /* #00E5FF is 1.4:1 on white and #0284C7 only 4.1:1; #0369A1 clears AA at 5.9:1 */
   --pk-accent-cyan: #0369A1;
@@ -142,6 +143,14 @@ html.light {
 :focus-visible {
   outline: none !important;
   box-shadow: var(--pk-focus-ring) !important;
+}
+
+/* Forced colors suppress shadows, so keep keyboard focus visible there. */
+@media (forced-colors: active) {
+  :root :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
 }
 
 /* Skeleton Pulse Animation Utility */

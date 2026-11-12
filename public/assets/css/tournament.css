@@ -198,13 +198,13 @@ html.light {
 .tb-btn--primary {
   background: var(--pk-brand-amber, #FFB800);
   border-color: transparent;
-  color: #04121F;
+  color: var(--on-accent);
   font-weight: 800;
 }
 
 .tb-btn--primary:hover:not(:disabled) {
   background: #FFC933;
-  color: #04121F;
+  color: var(--on-accent);
   box-shadow: 0 8px 22px rgba(255, 184, 0, 0.35);
 }
 
@@ -1365,7 +1365,7 @@ html.light .tb-crown-name {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #00D98B;
+  color: var(--pk-accent-emerald-text);
   font-weight: 800;
   font-size: 14px;
   flex-shrink: 0;
@@ -1652,13 +1652,13 @@ html.light .tb-crown-name {
 .tt-btn--primary {
   background: var(--pk-brand-amber, #FFB800);
   border-color: transparent;
-  color: #04121F;
+  color: var(--on-accent);
   font-weight: 800;
 }
 
 .tt-btn--primary:hover {
   background: #FFC933;
-  color: #04121F;
+  color: var(--on-accent);
   box-shadow: 0 8px 22px rgba(255, 184, 0, 0.35);
   transform: translateY(-1px);
 }
@@ -1821,15 +1821,21 @@ html.light .tb-crown-name {
 
 .tt-pair-option:has(input:focus-visible) { box-shadow: var(--pk-focus-ring); }
 
-/* Create-tournament modal high-polish styles ---------------------------- */
-/* Create-tournament modal screenshot matching styles ---------------------------- */
+/* Create-tournament modal themed styles ---------------------------- */
 #createTournamentModal .modal-box-card {
   background: #0b1426 !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8) !important;
   max-height: 92vh !important;
   overflow-y: auto !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
+}
+
+html.light #createTournamentModal .modal-box-card {
+  background: var(--pk-bg-card) !important;
+  border: 1px solid var(--pk-border-card) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12) !important;
 }
 
 #createTournamentModal .modal-box-card::-webkit-scrollbar,
@@ -1839,6 +1845,44 @@ html.light .tb-crown-name {
   height: 0 !important;
 }
 
+#createTournamentModal .tb-modal-close-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--pk-text-muted);
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  max-width: 30px;
+  max-height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#createTournamentModal .tb-modal-close-btn:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+html.light #createTournamentModal .tb-modal-close-btn {
+  background: var(--pk-input-bg) !important;
+  border: 1px solid var(--pk-border-card) !important;
+  color: var(--pk-text-muted) !important;
+}
+
+html.light #createTournamentModal .tb-modal-close-btn:hover {
+  background: var(--pk-border-card) !important;
+  color: var(--pk-text-primary) !important;
+}
+
 #createTournamentModal .tb-section-card {
   background: #0f182a !important;
   border: 1px solid rgba(255, 255, 255, 0.06) !important;
@@ -1846,12 +1890,21 @@ html.light .tb-crown-name {
   padding: 10px 12px !important;
 }
 
+html.light #createTournamentModal .tb-section-card {
+  background: var(--pk-bg-page) !important;
+  border: 1px solid var(--pk-border-card) !important;
+}
+
 #createTournamentModal .tb-label {
   display: block;
   font-size: 11px;
   font-weight: 700;
-  color: #94A3B8;
+  color: var(--pk-text-muted);
   margin-bottom: 4px;
+}
+
+html.light #createTournamentModal .tb-label {
+  color: var(--pk-text-secondary) !important;
 }
 
 #createTournamentModal .tb-input,
@@ -1880,6 +1933,48 @@ html.light .tb-crown-name {
   border: 1.5px solid #FFB800 !important;
   box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.22) !important;
   background: #131e33 !important;
+}
+
+#createTournamentModal .tb-input-icon-prefix {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748B;
+  pointer-events: none;
+}
+
+html.light #createTournamentModal .tb-input,
+html.light #createTournamentModal .tb-select {
+  background: #FFFFFF !important;
+  border: 1px solid var(--pk-border-card) !important;
+  color: var(--pk-text-primary) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+html.light #createTournamentModal .tb-input::placeholder {
+  color: var(--pk-text-muted) !important;
+  font-weight: 400;
+}
+
+html.light #createTournamentModal .tb-input-active,
+html.light #createTournamentModal .tb-input:focus,
+html.light #createTournamentModal .tb-select:focus {
+  background: #FFFFFF !important;
+  border-color: #FFB800 !important;
+  box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.22) !important;
+}
+
+html.light #createTournamentModal .tb-input-icon-prefix {
+  color: var(--pk-text-muted) !important;
+}
+
+#createTournamentModal input[type="date"] {
+  color-scheme: dark;
+}
+
+html.light #createTournamentModal input[type="date"] {
+  color-scheme: light !important;
 }
 
 #createTournamentModal .tt-pair-option {
@@ -1912,7 +2007,7 @@ html.light .tb-crown-name {
   display: block;
   font-style: normal;
   font-size: 10.5px;
-  color: #94A3B8;
+  color: var(--pk-text-muted);
   margin-top: 1px;
 }
 
@@ -1924,4 +2019,142 @@ html.light .tb-crown-name {
 #createTournamentModal .tt-pair-option--mix:has(input:checked) {
   border: 1.5px solid #FFB800 !important;
   background: rgba(255, 184, 0, 0.08) !important;
+}
+
+html.light #createTournamentModal .tt-pair-option {
+  background: #FFFFFF !important;
+  border: 1px solid var(--pk-border-card) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+html.light #createTournamentModal .tt-pair-option strong {
+  color: var(--pk-text-primary) !important;
+}
+
+html.light #createTournamentModal .tt-pair-option em {
+  color: var(--pk-text-muted) !important;
+}
+
+#createTournamentModal #tournAddEntrantBtn {
+  width: 100%;
+  padding: 9px;
+  font-weight: 800;
+  font-size: 12px;
+  background: #131e33;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+#createTournamentModal #tournAddEntrantBtn:hover {
+  background: rgba(255, 184, 0, 0.15);
+  border-color: #FFB800;
+}
+
+html.light #createTournamentModal #tournAddEntrantBtn {
+  background: #FFFFFF !important;
+  border: 1px solid var(--pk-border-card) !important;
+  color: var(--pk-text-primary) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+html.light #createTournamentModal #tournAddEntrantBtn:hover {
+  background: var(--pk-input-bg) !important;
+  border-color: #FFB800 !important;
+  color: #D97706 !important;
+}
+
+#createTournamentModal .tb-roster-box {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+}
+
+html.light #createTournamentModal .tb-roster-box {
+  background: var(--pk-bg-page) !important;
+  border: 1px dashed var(--pk-border-card) !important;
+}
+
+html.light .tb-pool-chip {
+  color: var(--pk-text-primary) !important;
+}
+
+html.light .tb-suggestions {
+  background: var(--pk-bg-card) !important;
+  border-color: rgba(3, 105, 161, 0.25) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12) !important;
+}
+
+html.light .tb-suggestion mark {
+  color: var(--pk-accent-cyan) !important;
+}
+
+html.light #createTournamentModal .tt-pair-option {
+  background: #FFFFFF !important;
+  border: 1px solid var(--pk-border-card) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+html.light #createTournamentModal .tt-pair-option strong {
+  color: var(--pk-text-primary) !important;
+}
+
+html.light #createTournamentModal .tt-pair-option em {
+  color: var(--pk-text-muted) !important;
+}
+
+#createTournamentModal #tournAddEntrantBtn {
+  width: 100%;
+  padding: 9px;
+  font-weight: 800;
+  font-size: 12px;
+  background: #131e33;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+#createTournamentModal #tournAddEntrantBtn:hover {
+  background: rgba(255, 184, 0, 0.15);
+  border-color: #FFB800;
+}
+
+html.light #createTournamentModal #tournAddEntrantBtn {
+  background: #FFFFFF !important;
+  border: 1px solid var(--pk-border-card) !important;
+  color: var(--pk-text-primary) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+html.light #createTournamentModal #tournAddEntrantBtn:hover {
+  background: var(--pk-input-bg) !important;
+  border-color: #FFB800 !important;
+  color: #D97706 !important;
+}
+
+#createTournamentModal .tb-roster-box {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+}
+
+html.light #createTournamentModal .tb-roster-box {
+  background: var(--pk-bg-page) !important;
+  border: 1px dashed var(--pk-border-card) !important;
+}
+
+html.light .tb-pool-chip {
+  color: var(--pk-text-primary) !important;
+}
+
+html.light .tb-suggestions {
+  background: var(--pk-bg-card) !important;
+  border-color: rgba(3, 105, 161, 0.25) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12) !important;
+}
+
+html.light .tb-suggestion mark {
+  color: var(--pk-accent-cyan) !important;
 }

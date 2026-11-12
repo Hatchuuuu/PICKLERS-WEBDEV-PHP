@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Twig;
 
-use Picklers\Core\Database;
+use Picklers\Domain\Schedule;
 use Picklers\Domain\BookingRules;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFunction;
@@ -19,7 +19,7 @@ final class PlayerViewExtension extends AbstractExtension
             new TwigFunction('booking_display_date', self::bookingDisplayDate(...)),
             new TwigFunction('booking_js_args', self::bookingJsArgs(...), ['is_safe' => ['html']]),
             new TwigFunction('booking_is_past', BookingRules::isBookingPast(...)),
-            new TwigFunction('court_label', static fn($name): string => Database::normalizeCourtName((string)$name)),
+            new TwigFunction('court_label', static fn($name): string => Schedule::normalizeCourtName((string)$name)),
             new TwigFunction('joined_occurrence_keys', self::joinedOccurrenceKeys(...)),
             new TwigFunction('upcoming_days', self::upcomingDays(...)),
         ];
@@ -51,33 +51,14 @@ final class PlayerViewExtension extends AbstractExtension
 
     /**
      * Open Play occurrences this player already holds a seat on (pending or
-     * confirmed), keyed by match id / facility+court, each with and without the
-     * occurrence date, so a card offers "Joined" instead of a doomed second join.
+     * confirmed), keyed by session and occurrence date.
      *
      * @param list<array<string,mixed>> $bookings
      * @return array<string,true>
      */
     public static function joinedOccurrenceKeys(array $bookings): array
     {
-        $keys = [];
-        foreach ($bookings as $b) {
-            if (!in_array($b['status'] ?? '', ['pending', 'confirmed'], true)) {
-                continue;
-            }
-            $date = (string)($b['booking_date'] ?? '');
-            if (!empty($b['match_id'])) {
-                $keys[(string)$b['match_id']] = true;
-                $keys[$b['match_id'] . '|' . $date] = true;
-            }
-            $facility = (string)($b['facility_id'] ?? '');
-            $court = Database::normalizeCourtName((string)($b['court_name'] ?? ''));
-            if ($facility !== '' && $court !== '') {
-                $keys[$facility . '|' . $court] = true;
-                $keys[$facility . '|' . $court . '|' . $date] = true;
-            }
-        }
-
-        return $keys;
+        return BookingRules::joinedOccurrenceKeys($bookings);
     }
 
     /**
@@ -114,21 +95,21 @@ final class PlayerViewExtension extends AbstractExtension
         } elseif ($label === 'Opening Balance') {
             $title = 'Opening Balance';
         } elseif ($isOpenPlay) {
-            $title = ($facility !== '' ? "Open Play • {$facility}" : 'Open Play') . " via {$method}";
+            $title = ($facility !== '' ? "Open Play • {$facility}" : 'Open Play') . ($payMethod !== '' ? " via {$payMethod}" : '');
         } elseif ($isBooking) {
-            $title = ($facility !== '' ? "Booked • {$facility}" : 'Booked') . " via {$method}";
+            $title = ($facility !== '' ? "Booked • {$facility}" : 'Booked') . ($payMethod !== '' ? " via {$payMethod}" : '');
         } else {
             $topUpMethod = trim((string)preg_replace('/\bWallet\s+/i', '', trim((string)preg_replace('/\s*(?:Wallet\s*)?Top[- ]?Up\b/i', '', $label))));
             $title = ($topUpMethod !== '' && $topUpMethod !== '0' ? $topUpMethod : $method) . ' Top-Up';
         }
 
         // The booking code from the label; otherwise the entry's own id, never an invented booking code.
-        if (preg_match('/#(PKL-?[A-Z0-9]+)/i', $label, $m)) {
+        if (preg_match('/#(PKL-?[A-Z0-9]+(?:-[A-Z0-9]+)*)/i', $label, $m)) {
             $code = '#' . strtoupper(str_replace('#', '', $m[1]));
             if (!str_starts_with($code, '#PKL-') && str_starts_with($code, '#PKL')) {
                 $code = '#PKL-' . substr($code, 4);
             }
-        } elseif (preg_match('/\b(PKL-[A-Z0-9]+)\b/i', $label, $m)) {
+        } elseif (preg_match('/\b(PKL-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b/i', $label, $m)) {
             $code = '#' . strtoupper($m[1]);
         } else {
             $code = '#' . strtoupper((string)($t['id'] ?? 'TX'));
@@ -168,12 +149,7 @@ final class PlayerViewExtension extends AbstractExtension
             $displayName = trim($name) === '' ? 'Court 1' : $name;
         }
 
-        $pm = trim((string)($b['payment_method'] ?? 'Maya')) ?: 'Maya';
-        $payment = match (true) {
-            stripos($pm, 'paid via') !== false => $pm,
-            stripos($pm, 'venue') !== false => 'Pay at Venue',
-            default => 'Paid via ' . $pm,
-        };
+        $payment = \Picklers\Domain\Payments::methodLabel($b['payment_method'] ?? null);
 
         return [
             'is_op' => $isOp,

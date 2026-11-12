@@ -12,10 +12,11 @@ final class AccountRepository
 {
     /** Columns ever returned to admin code — never password_hash. */
     private const COLUMNS = 'u.id, u.name, u.email, u.phone, u.role, u.verification_status, u.avatar_url, u.level,
-        u.wallet_balance, u.is_admin, u.is_owner, u.created_at, u.password_changed_at, (ap.user_id IS NOT NULL) AS is_privileged';
+        u.wallet_balance, u.is_admin, u.is_owner, u.created_at, u.password_changed_at, (ap.user_id IS NOT NULL) AS is_privileged,
+        EXISTS(SELECT 1 FROM staff s WHERE s.user_id = u.id) AS is_staff';
 
-    public const ROLE_FILTERS = ['player', 'owner', 'admin', 'privileged', 'deleted'];
-    public const VERIFICATION_FILTERS = ['verified', 'unverified', 'pending'];
+    public const ROLE_FILTERS = ['player', 'staff', 'owner', 'admin', 'privileged', 'deleted'];
+    public const VERIFICATION_FILTERS = ['verified', 'unverified', 'pending_review', 'pending'];
     public const SORTS = ['created_at', 'name', 'wallet_balance'];
 
     public function __construct(private readonly Connection $db)
@@ -41,14 +42,20 @@ final class AccountRepository
 
     public function countActiveAdmins(): int
     {
-        return (int)$this->db->fetchOne("SELECT COUNT(*) FROM users WHERE is_admin = 1 AND role <> 'deleted'");
+        return count($this->db->fetchFirstColumn("SELECT id FROM users WHERE is_admin = 1 AND role <> 'deleted'" . ($this->db->isTransactionActive() ? ' FOR UPDATE' : '')));
+    }
+
+    /** All role-removal paths take this lock before locking their individual target. */
+    public function lockActiveAdministrators(): void
+    {
+        $this->db->fetchFirstColumn("SELECT id FROM users WHERE is_admin = 1 AND role <> 'deleted' ORDER BY id FOR UPDATE");
     }
 
     public function countActivePrivileged(): int
     {
-        return (int)$this->db->fetchOne(
-            "SELECT COUNT(*) FROM admin_privileges ap JOIN users u ON u.id = ap.user_id WHERE u.is_admin = 1 AND u.role <> 'deleted'"
-        );
+        return count($this->db->fetchFirstColumn(
+            "SELECT u.id FROM admin_privileges ap JOIN users u ON u.id = ap.user_id WHERE u.is_admin = 1 AND u.role <> 'deleted'" . ($this->db->isTransactionActive() ? ' FOR UPDATE' : '')
+        ));
     }
 
     /** @return Page<array<string,mixed>> */
@@ -87,6 +94,7 @@ final class AccountRepository
             'deleted' => "u.role = 'deleted'",
             'privileged' => "u.role <> 'deleted' AND u.is_admin = 1 AND ap.user_id IS NOT NULL",
             'admin' => "u.role <> 'deleted' AND u.is_admin = 1",
+            'staff' => "u.role <> 'deleted' AND EXISTS(SELECT 1 FROM staff s WHERE s.user_id = u.id)",
             'owner' => "u.role <> 'deleted' AND (u.is_owner = 1 OR u.role = 'owner')",
             'player' => "u.role <> 'deleted' AND u.is_admin = 0 AND u.is_owner = 0 AND u.role <> 'owner'",
             default => '1=1',
@@ -120,7 +128,17 @@ final class AccountRepository
     /** @param array<string,mixed> $fields */
     public function update(string $id, array $fields): void
     {
-        $this->db->update('users', $fields, ['id' => $id]);
+        if (array_key_exists('phone', $fields)) {
+            $fields['phone'] = \Picklers\Repositories\UserRepository::normalizePhone($fields['phone']);
+        }
+        try {
+            $this->db->update('users', $fields, ['id' => $id]);
+        } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException $e) {
+            if (\Picklers\Repositories\UserRepository::isPhoneConflict($e)) {
+                throw \Picklers\Admin\Http\AdminActionException::invalid('This mobile number is already linked to another account.', 'phone');
+            }
+            throw $e;
+        }
     }
 
     public function grantPrivilege(string $userId, ?string $grantedBy, ?string $note): void

@@ -51,7 +51,7 @@
         <p class="pk-muted pk-small">
             {% if b.payment_method == 'Pickle Credits' %}No wallet movement is recorded for this booking.
             {% elseif b.payment_method == 'Pay at Venue' %}Pay at venue: nothing moves through the app.
-            {% else %}Paid via {{ b.payment_method }}: there is no payment-provider integration, so the app holds no confirmation of this payment.{% endif %}
+            {% else %}Selected method: {{ b.payment_method }}. There is no payment-provider integration, so the app holds no confirmation of this payment.{% endif %}
         </p>
     {% else %}
         <ul class="pk-list">

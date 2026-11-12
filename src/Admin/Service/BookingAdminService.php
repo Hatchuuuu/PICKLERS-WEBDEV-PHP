@@ -260,7 +260,7 @@ final class BookingAdminService
             $method = (string)($res['booking']['payment_method'] ?? '');
             $note = match (true) {
                 $res['refunded'] => ' ₱' . number_format((float)$res['refund_amount'], 2) . ' refunded to the player\'s Pickle Credits.',
-                $res['external_payment'] => " Paid via {$method}: no in-app refund was made (there is no payment-provider integration) — settle it with the player outside the app.",
+                $res['external_payment'] => " Selected method: {$method}; no in-app refund was made (there is no payment-provider integration) — settle it with the player outside the app.",
                 $method === 'Pickle Credits' => ' No refund issued: a refund for this booking already exists.',
                 default => ' Nothing was charged in-app.',
             };

@@ -4,9 +4,21 @@
 {% set c = panel.counts %}
 
 {% set header_actions %}
+    {% if is_granted('admin.users.create') %}
+        <button type="button" class="pk-btn pk-btn--primary" data-action="admin_create_user" data-form="create-user">Create account</button>
+    {% endif %}
     <a class="pk-btn pk-btn--ghost" href="{{ path('admin_export', {dataset: 'users'}|merge(q.params({page: null, per_page: null}))) }}">{{ icon('download', 15) }} Export CSV</a>
 {% endset %}
 {{ ui.header('User Directory & Roles', c.active|number_format ~ ' active accounts · ' ~ c.verified|number_format ~ ' verified · ' ~ c.deactivated|number_format ~ ' deactivated', header_actions) }}
+
+<template id="form-create-user" data-title="Create account" data-submit="Create account">
+    <label class="pk-field"><span>Name</span><input name="name" required maxlength="120" autocomplete="off"></label>
+    <label class="pk-field"><span>Email</span><input name="email" type="email" required maxlength="120" autocomplete="off"></label>
+    <label class="pk-field"><span>Initial password</span><input name="password" type="password" required minlength="8" maxlength="72" autocomplete="new-password"></label>
+    <p class="pk-muted pk-small">Use at least 8 characters with a number. Share the password through a verified channel; the account holder can change it in Settings.</p>
+    <label class="pk-field"><span>Account type</span><select name="role"><option value="player">Player</option><option value="staff">Staff</option>{% if is_granted('admin.users.role_admin') %}<option value="admin">Administrator</option>{% endif %}</select></label>
+    <label class="pk-field"><span>Facility (required for Staff)</span><select name="facility_id"><option value="">Select facility</option>{% for f in panel.facility_options %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></label>
+</template>
 
 <form id="panelFilters" class="pk-filters" method="get" action="{{ path('admin_console') }}" data-panel-form role="search" aria-label="Filter users">
     <input type="hidden" name="tab" value="users">
@@ -14,7 +26,7 @@
     <label class="pk-field pk-field--inline"><span>Role</span>
         <select name="role" data-autosubmit>
             <option value="">All accounts</option>
-            {% for key, label in {player: 'Players', owner: 'Owners', admin: 'Administrators', privileged: 'Privileged admins', deleted: 'Deactivated'} %}
+            {% for key, label in {player: 'Players', staff: 'Staff', owner: 'Owners', admin: 'Administrators', privileged: 'Privileged admins', deleted: 'Deactivated'} %}
                 <option value="{{ key }}" {{ q.filter('role') == key ? 'selected' }}>{{ label }}</option>
             {% endfor %}
         </select>
@@ -22,7 +34,7 @@
     <label class="pk-field pk-field--inline"><span>Verification</span>
         <select name="verification" data-autosubmit>
             <option value="">Any</option>
-            {% for s in ['verified', 'pending', 'unverified'] %}<option value="{{ s }}" {{ q.filter('verification') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
+            {% for s in ['verified', 'pending_review', 'pending', 'unverified'] %}<option value="{{ s }}" {{ q.filter('verification') == s ? 'selected' }}>{{ s|status_label }}</option>{% endfor %}
         </select>
     </label>
     {% if page.hasFilters %}<a class="pk-link" data-panel-link href="{{ path('admin_console', {tab: 'users'}) }}">Clear filters</a>{% endif %}
@@ -89,6 +101,10 @@
                                                 {% endif %}
                                             {% endfor %}
                                             <p class="pk-menu__label" role="presentation">Account</p>
+                                            {% if is_granted('admin.users.update') and (not is_admin_target or is_granted('admin.users.role_admin')) %}
+                                                <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_update_user" data-params="{{ {user_id: u.id}|json_encode }}" data-form="edit-user" data-subject="{{ u.name }}">Edit name and email</button>
+                                                <template data-prefill>{{ {name: u.name, email: u.email}|json_encode }}</template>
+                                            {% endif %}
                                             {% if is_granted('admin.users.notify') %}
                                                 <button type="button" role="menuitem" class="pk-menu__item" data-action="admin_send_notification" data-params="{{ {user_id: u.id}|json_encode }}" data-form="send-notice" data-subject="{{ u.name }}">{{ icon('bell', 15) }}Send notice</button>
                                             {% endif %}

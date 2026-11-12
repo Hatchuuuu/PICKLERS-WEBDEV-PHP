@@ -1,0 +1,10 @@
+# Uploaded content must never execute as server code, at any upload location.
+<FilesMatch "(?i)\.(php[0-9]*|phtml|phar|pht|inc|cgi|pl|py|sh|exe|bat|cmd|ps1)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

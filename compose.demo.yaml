@@ -1,0 +1,11 @@
+# Use with compose.yaml + compose.dev.yaml and a separate Compose project.
+services:
+  database:
+    environment:
+      MYSQL_DATABASE: picklers_e2e
+  setup:
+    environment:
+      DB_DATABASE: picklers_e2e
+  app:
+    environment:
+      DB_DATABASE: picklers_e2e

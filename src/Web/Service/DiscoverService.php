@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Service;
 
-use Picklers\Core\Database;
+use Picklers\Domain\BookingRules;
+use Picklers\Domain\Schedule;
 use Picklers\Repositories\BookingRepository;
 use Picklers\Repositories\FacilityRepository;
 
@@ -17,7 +18,6 @@ final class DiscoverService
     public function __construct(
         private readonly FacilityRepository $facilities,
         private readonly BookingRepository $bookings,
-        private readonly Database $db,
     ) {
     }
 
@@ -34,7 +34,7 @@ final class DiscoverService
         if ($userId !== null) {
             // So a client-side re-render (PickSync 'facilities'/'courts') keeps
             // this player's real favourite hearts filled in.
-            $favIds = $this->db->getFavoriteFacilityIds($userId);
+            $favIds = $this->facilities->getFavoriteFacilityIds($userId);
             foreach ($facilities as &$facility) {
                 $facility['is_favorited'] = in_array((int)($facility['id'] ?? 0), $favIds, true);
             }
@@ -54,6 +54,7 @@ final class DiscoverService
         // Per-court Indoor/Outdoor/Covered/Air Conditioned tags (F-17).
         $courts = $this->facilities->getCourtsWithAttributes($id);
         if ($userId !== null) {
+            $facility['is_favorited'] = in_array((int)$id, $this->facilities->getFavoriteFacilityIds($userId), true);
             $courts = $this->markJoinedOpenPlay($courts, $id, $userId);
         }
 
@@ -70,8 +71,13 @@ final class DiscoverService
     {
         // The checkout sends display dates ("Sun, Sep 14, 2026"); availability is
         // keyed on the canonical Y-m-d booking_date.
-        $ts = strtotime($date);
-        $day = $ts !== false ? date('Y-m-d', $ts) : date('Y-m-d');
+        $date = trim($date);
+        $ts = $date === '' ? time() : strtotime($date);
+        $parsed = $date === '' ? null : date_parse($date);
+        if ($ts === false || ($parsed !== null && ($parsed['warning_count'] > 0 || $parsed['error_count'] > 0))) {
+            throw new \InvalidArgumentException('Please choose a valid date.');
+        }
+        $day = date('Y-m-d', $ts);
 
         return ['date' => $day, 'slots' => $this->bookings->getSlotAvailability($facilityId, $courtId, $day)];
     }
@@ -79,36 +85,16 @@ final class DiscoverService
     /** @return array<string,mixed> the legacy {success, favorited, ...} result */
     public function toggleFavorite(string $userId, string $facilityId): array
     {
-        return $this->db->toggleFavoriteFacility($userId, $facilityId);
+        return $this->facilities->toggleFavoriteFacility($userId, $facilityId);
     }
 
     /**
      * Flag Open Play courts this player has already joined (pending/confirmed
-     * booking matched by match id, by facility+court+time, or any Open Play
-     * booking at the facility).
+     * booking matched by session and occurrence date).
      */
     private function markJoinedOpenPlay(array $courts, int|string $facilityId, string $userId): array
     {
-        $joined = [];
-        foreach ($this->db->getBookings($userId) as $b) {
-            if (!in_array($b['status'] ?? '', ['pending', 'confirmed'], true)) {
-                continue;
-            }
-            $bId = (string)($b['id'] ?? '');
-            $bCourt = (string)($b['court_name'] ?? '');
-            $bFac = (string)($b['facility_id'] ?? '');
-            if (!empty($b['match_id'])) {
-                $joined[(string)$b['match_id']] = true;
-            }
-            $isOpenPlay = str_starts_with($bId, 'PKL-OP-')
-                || stripos($bCourt, 'open play') !== false
-                || stripos((string)($b['label'] ?? ''), 'open play') !== false
-                || !empty($b['match_id']);
-            if ($isOpenPlay && $bFac !== '') {
-                $joined["fac_{$bFac}"] = true;
-            }
-            $joined[$bFac . '|' . $bCourt . '|' . (string)($b['time'] ?? '')] = true;
-        }
+        $joined = BookingRules::joinedOccurrenceKeys($this->bookings->getBookings($userId));
 
         foreach ($courts as &$c) {
             $cFac = (string)($c['facility_id'] ?? $facilityId);
@@ -120,8 +106,9 @@ final class DiscoverService
             }
             $op = $c['open_play_match'] ?? [];
             $opId = (string)($op['id'] ?? '');
-            $opKey = $cFac . '|' . (string)($op['type'] ?? ($c['name'] ?? '')) . '|' . (string)($op['time'] ?? '');
-            if (($opId !== '' && isset($joined[$opId])) || isset($joined[$opKey]) || isset($joined["fac_{$cFac}"])) {
+            $date = Schedule::getMatchTargetDate($op);
+            $opKey = $cFac . '|' . Schedule::normalizeCourtName((string)($op['type'] ?? ($c['name'] ?? ''))) . '|' . (string)($op['time'] ?? '') . '|' . $date;
+            if (($opId !== '' && isset($joined[$opId . '|' . $date])) || isset($joined[$opKey])) {
                 $c['user_joined'] = true;
                 if (!empty($c['open_play_match'])) {
                     $c['open_play_match']['is_joined'] = true;

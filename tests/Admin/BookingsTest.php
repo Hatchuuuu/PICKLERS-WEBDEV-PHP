@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Picklers\Tests\Admin;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\BookingRepository;
 
 /** R04 — bookings & matches: transitions, stale edits, refunds, capacity, concurrency. */
 final class BookingsTest extends AdminWebTestCase
@@ -56,7 +56,7 @@ final class BookingsTest extends AdminWebTestCase
         self::assertStringContainsString('Court flooded', (string)$this->scalar("SELECT body FROM notifications WHERE user_id = 'usr_fx_p1' ORDER BY created_at DESC LIMIT 1"));
 
         self::assertSame(409, $this->action('admin_cancel_booking', ['booking_id' => 'FX-CONF01', 'reason' => 'Again please'])['status']);
-        $player = Database::get()->cancelBooking('FX-CONF01', 'usr_fx_p1');
+        $player = static::getContainer()->get(BookingRepository::class)->cancelBooking('FX-CONF01', 'usr_fx_p1');
         self::assertFalse($player['success'], 'the player path also refuses');
         self::assertSame(number_format((float)$before + 300, 2, '.', ''), $this->balance('usr_fx_p1'), 'no second refund from any path');
         $audit = $this->lastAudit('booking.cancel');

@@ -3,7 +3,7 @@
     <!-- Header -->
     <div style="margin-bottom: 24px;">
       <h1 style="font-family: 'Montserrat', var(--font-heading), sans-serif; font-size: 26px; font-weight: 800; color: #FFFFFF; margin: 0 0 6px;">Open Play</h1>
-      <p style="font-size: 13px; color: #94A3B8; margin: 0;">Connect, compete, and play without the hassle.</p>
+      <p style="font-size: 13px; color:var(--pk-text-muted); margin: 0;">Connect, compete, and play without the hassle.</p>
     </div>
 
     <!-- Filter Pills Bar -->
@@ -56,10 +56,8 @@
           {% set courtNameDisplay = court_label(rawCourt) %}
           {% set mFacId = m.facility_id ?? '' %}
           {% set targetDate = m.target_date ?? '' %}
-          {% set joined = joinedKeys[m.id] is defined
-                       or joinedKeys[m.id ~ '|' ~ targetDate] is defined
-                       or joinedKeys[mFacId ~ '|' ~ courtNameDisplay] is defined
-                       or joinedKeys[mFacId ~ '|' ~ courtNameDisplay ~ '|' ~ targetDate] is defined %}
+          {% set joined = joinedKeys[m.id ~ '|' ~ targetDate] is defined
+                       or joinedKeys[mFacId ~ '|' ~ courtNameDisplay ~ '|' ~ m.time ~ '|' ~ targetDate] is defined %}
           {% set searchData = facilityName ~ ' ' ~ courtNameDisplay ~ ' ' ~ (m.title ?? '') ~ ' ' ~ (m.type ?? '') %}        <div class="openplay-card match-card-item" data-id="{{ m.id }}" data-level="{{ m.level }}" data-facility="{{ searchData }}" data-location="{{ m.location }}">
           <div>
             <!-- Card Header: Title + Level Badge -->
@@ -117,7 +115,7 @@
             <!-- Join Action Button -->
             <div class="openplay-actions-group">
               {% if joined %}
-                <button type="button" class="btn-openplay-join" id="btnJoinMatch_{{ m.id }}" data-user-joined="true" style="background: rgba(0, 217, 139, 0.15); color: #00D98B; border: 1px solid rgba(0, 217, 139, 0.3);" disabled>
+                <button type="button" class="btn-openplay-join" id="btnJoinMatch_{{ m.id }}" data-user-joined="true" style="background: rgba(0, 217, 139, 0.15); color:var(--pk-accent-emerald-text); border: 1px solid rgba(0, 217, 139, 0.3);" disabled>
                   Joined
                 </button>
               {% elseif isFull %}
@@ -136,11 +134,11 @@
     </div>
 
     <!-- Empty State -->
-    <div id="matchesEmptyState" style="display:none; text-align:center; padding:60px 20px; background:rgba(17,31,58,0.5); border:1px dashed rgba(255,255,255,0.1); border-radius:20px; margin-top:20px;">
+    <div id="matchesEmptyState" style="display:{{ matches is empty ? 'block' : 'none' }}; text-align:center; padding:60px 20px; background:var(--pk-bg-card); border:1px dashed var(--pk-border-card); border-radius:20px; margin-top:20px;">
       <div style="font-size:48px; margin-bottom:14px;">🏆</div>
       <h3 style="font-size:19px; font-weight:800; color:#FFFFFF; margin-bottom:6px;">No Matches Found</h3>
-      <p style="font-size:13px; color:#94A3B8; max-width:380px; margin:0 auto 18px; line-height:1.5;">There are no open play sessions currently matching your selected level.</p>
-      <button type="button" onclick="filterMatchesLevel('All')" style="background:rgba(0, 217, 139,0.15); border:1px solid rgba(0, 217, 139,0.3); color:#00D98B; border-radius:12px; padding:10px 22px; font-size:13px; font-weight:800; cursor:pointer;">
+      <p style="font-size:13px; color:var(--pk-text-muted); max-width:380px; margin:0 auto 18px; line-height:1.5;">There are no open play sessions currently matching your selected level.</p>
+      <button type="button" onclick="filterMatchesLevel('All')" style="background:rgba(0, 217, 139,0.15); border:1px solid rgba(0, 217, 139,0.3); color:var(--pk-accent-emerald-text); border-radius:12px; padding:10px 22px; font-size:13px; font-weight:800; cursor:pointer;">
         Show All Matches
       </button>
     </div>

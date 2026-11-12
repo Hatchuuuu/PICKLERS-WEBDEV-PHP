@@ -5,7 +5,7 @@ namespace Picklers\Persistence;
 
 /**
  * Creates and upgrades the base PICKLERS schema and its seed data (Doctrine migrations then add the
- * admin console's tables on top). Runs once per process: on the first request, or `picklers:schema:install`.
+ * admin console's tables on top). Invoked explicitly by `picklers:schema:install` or test setup.
  */
 final class SchemaInstaller
 {
@@ -17,12 +17,12 @@ final class SchemaInstaller
         if ($this->ensured) {
             return;
         }
-        $this->ensured = true;
         if (!is_dir($this->dataDir)) {
             @mkdir($this->dataDir, 0750, true);
         }
         $this->initialiseSchema();
         $this->seedInitialData();
+        $this->ensured = true;
     }
 
     private readonly \Doctrine\DBAL\Connection $db;
@@ -30,14 +30,14 @@ final class SchemaInstaller
     private readonly string $dataDir;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Repositories\PromoRepository $promos = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Repositories\PromoRepository $promos,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%picklers.data_dir%')]
-        ?string $dataDir = null,
+        string $dataDir,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->promos = $promos ?? new \Picklers\Repositories\PromoRepository($this->db);
-        $this->dataDir = $dataDir ?? (defined('DATA_PATH') ? DATA_PATH : (getcwd() . '/database/.data'));
+        $this->db = $db;
+        $this->promos = $promos;
+        $this->dataDir = $dataDir;
     }
 
     private bool $schemaInitialisedThisBoot = false;
@@ -125,6 +125,7 @@ final class SchemaInstaller
                 name VARCHAR(120) NOT NULL,
                 email VARCHAR(120) UNIQUE,
                 phone VARCHAR(32),
+                UNIQUE KEY uniq_users_phone (phone),
                 password_hash VARCHAR(255),
                 role VARCHAR(20) DEFAULT 'player',
                 verification_status VARCHAR(20) DEFAULT 'unverified',
@@ -205,7 +206,7 @@ final class SchemaInstaller
                 max_players INT DEFAULT 4,
                 price DECIMAL(10,2) DEFAULT 150.00,
                 type VARCHAR(60) DEFAULT 'Doubles Open Play',
-                host VARCHAR(100) DEFAULT 'Coach Marco',
+                host VARCHAR(100) DEFAULT 'Facility Host',
                 title VARCHAR(150) NULL,
                 INDEX idx_matches_facility (facility_id),
                 INDEX idx_matches_level (level)
@@ -260,7 +261,8 @@ final class SchemaInstaller
                 -- fix: scoped to the resolved calendar date, not the raw display
                 -- string, so it narrows correctly regardless of which spelling the
                 -- client sent for \"today\".
-                INDEX idx_booking_date_lock (facility_id, booking_date, court_id, status)
+                INDEX idx_booking_date_lock (facility_id, booking_date, court_id, status),
+                INDEX idx_booking_match_date (match_id, status, booking_date)
             )",
             "CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id VARCHAR(64) PRIMARY KEY,
@@ -524,21 +526,18 @@ final class SchemaInstaller
              'sql'  => "ALTER TABLE owner_applications ADD INDEX idx_app_status (status, created_at)"],
             ['type' => 'index', 'table' => 'bookings', 'name' => 'idx_booking_date_lock',
              'sql'  => "ALTER TABLE bookings ADD INDEX idx_booking_date_lock (facility_id, booking_date, court_id, status)"],
+            ['type' => 'index', 'table' => 'bookings', 'name' => 'idx_booking_match_date',
+             'sql'  => "ALTER TABLE bookings ADD INDEX idx_booking_match_date (match_id, status, booking_date)"],
         ];
 
         foreach ($migrations as $m) {
-            try {
-                if ($m['type'] === 'column' && $this->columnExists($m['table'], $m['name'])) {
-                    continue;
-                }
-                if ($m['type'] === 'index' && $this->indexExists($m['table'], $m['name'])) {
-                    continue;
-                }
-                $this->db->executeStatement($m['sql']);
-            } catch (\Throwable $e) {
-                // A migration that cannot apply must never take the app down.
-                error_log("[PICKLERS Migration] {$m['table']}.{$m['name']} skipped: " . $e->getMessage());
+            if ($m['type'] === 'column' && $this->columnExists($m['table'], $m['name'])) {
+                continue;
             }
+            if ($m['type'] === 'index' && $this->indexExists($m['table'], $m['name'])) {
+                continue;
+            }
+            $this->db->executeStatement($m['sql']);
         }
 
         // New tables added after the initial schema shipped: initMySQLSchema()'s
@@ -546,8 +545,7 @@ final class SchemaInstaller
         // (see schemaNeedsInit() in the constructor) — an already-provisioned
         // database at the current SCHEMA_VERSION never sees it again, so a
         // table added later needs its own CREATE TABLE IF NOT EXISTS here too.
-        try {
-            $this->db->executeStatement(
+        $this->db->executeStatement(
                 "CREATE TABLE IF NOT EXISTS facility_favorites (
                     user_id VARCHAR(64),
                     facility_id INT,
@@ -555,10 +553,7 @@ final class SchemaInstaller
                     PRIMARY KEY (user_id, facility_id),
                     INDEX idx_favorites_facility (facility_id)
                 )"
-            );
-        } catch (\Throwable $e) {
-            error_log('[PICKLERS Migration] facility_favorites table skipped: ' . $e->getMessage());
-        }
+        );
 
         // Demo-data fixups for local development only. Seed fixtures never run
         // in production, and a dev account's password is set once, never reset.
@@ -650,10 +645,10 @@ final class SchemaInstaller
         }
     }
 
-    /** APP_ENV resolves to a live deployment (unset counts as production — fail closed). */
+    /** Only explicit development/test environments may receive demo fixtures. */
     public static function isProductionEnv(): bool {
         $env = strtolower((string)($_ENV['APP_ENV'] ?? 'production'));
-        return in_array($env, ['production', 'prod', 'live'], true);
+        return !in_array($env, ['dev', 'development', 'local', 'test'], true);
     }
 
     /**
@@ -796,8 +791,7 @@ final class SchemaInstaller
 
     private function seedInitialData() {
         // Never seed in production — real deployments use migrations, not demo fixtures.
-        $env = strtolower((string)($_ENV['APP_ENV'] ?? 'production'));
-        if (in_array($env, ['production', 'prod', 'live'], true)) {
+        if (self::isProductionEnv()) {
             return;
         }
 
@@ -1265,7 +1259,7 @@ final class SchemaInstaller
                 'max_players' => 4,
                 'price' => 150.00,
                 'type' => 'Doubles Open Play',
-                'host' => 'Coach Marco'
+                'host' => 'A-Courts'
             ],
             [
                 'id' => 'match_2',

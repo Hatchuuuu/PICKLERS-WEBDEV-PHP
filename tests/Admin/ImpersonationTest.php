@@ -39,7 +39,7 @@ final class ImpersonationTest extends AdminWebTestCase
         foreach (['change_password', 'top_up'] as $restricted) {
             self::assertSame('This action is not available while an administrator is viewing as this user.', $this->web($restricted)['json']['message'] ?? null, $restricted);
         }
-        self::assertNotSame(403, $this->web('like_post', ['post_id' => 'fx_post2'])['status'], 'ordinary actions stay available');
+        self::assertNotSame(403, $this->web('send_message', ['partner_id' => 'usr_fx_p2', 'content' => 'Support follow-up'])['status'], 'ordinary actions stay available');
 
         // The console is closed (no nested impersonation, no admin mutations).
         $this->client->request('GET', '/admin');
@@ -84,13 +84,13 @@ final class ImpersonationTest extends AdminWebTestCase
         $this->signIn('usr_fx_root');
         $this->start();
         // Each change is recorded once the response status is known.
-        self::assertSame(200, $this->web('like_post', ['post_id' => 'fx_post2'])['status']);
-        self::assertSame(400, $this->web('create_post', ['content' => ''])['status']);
+        self::assertSame(200, $this->web('send_message', ['partner_id' => 'usr_fx_p2', 'content' => 'Support follow-up'])['status']);
+        self::assertSame(400, $this->web('send_message', ['partner_id' => 'usr_fx_p2', 'content' => ''])['status']);
         $rows = self::pdo()->query("SELECT actor_user_id, effective_user_id, outcome, changes FROM audit_events WHERE action = 'impersonation.action' ORDER BY id DESC LIMIT 2")->fetchAll();
         self::assertSame('usr_fx_root', $rows[0]['actor_user_id'], 'recorded against the original administrator');
         self::assertSame('usr_fx_p1', $rows[0]['effective_user_id']);
         self::assertSame('failure', $rows[0]['outcome']);
-        self::assertStringContainsString('create_post', $rows[0]['changes']);
+        self::assertStringContainsString('send_message', $rows[0]['changes']);
         self::assertSame('success', $rows[1]['outcome']);
     }
     /** POST a player API action with the app's CSRF token. */

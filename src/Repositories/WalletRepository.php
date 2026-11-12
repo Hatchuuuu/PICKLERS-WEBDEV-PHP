@@ -14,15 +14,15 @@ final class WalletRepository
     private readonly \Picklers\Repositories\NotificationRepository $notifications;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\WalletLedger $ledger = null,
-        ?\Picklers\Repositories\UserRepository $users = null,
-        ?\Picklers\Repositories\NotificationRepository $notifications = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\WalletLedger $ledger,
+        \Picklers\Repositories\UserRepository $users,
+        \Picklers\Repositories\NotificationRepository $notifications,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->ledger = $ledger ?? \Picklers\Core\Database::get()->ledger();
-        $this->users = $users ?? new \Picklers\Repositories\UserRepository($this->db);
-        $this->notifications = $notifications ?? new \Picklers\Repositories\NotificationRepository($this->db);
+        $this->db = $db;
+        $this->ledger = $ledger;
+        $this->users = $users;
+        $this->notifications = $notifications;
     }
 
     /** Credit a wallet at most once per idempotency key; see WalletLedger::creditOnce(). MySQL only. */
@@ -69,10 +69,21 @@ final class WalletRepository
         if ($user) {
             $existingLabels = array_column($rows, 'label');
             $bookings = [];
-            $stmt = $this->db->executeQuery("SELECT * FROM bookings WHERE user_id = ? AND status != 'cancelled' ORDER BY created_at DESC", [$userId]);
+            $stmt = $this->db->executeQuery("SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC", [$userId]);
             $bookings = $stmt->fetchAllAssociative();
+            $bookingsById = array_column($bookings, null, 'id');
+            foreach ($rows as &$row) {
+                $linkedBooking = $bookingsById[$row['booking_id'] ?? ''] ?? null;
+                if ($linkedBooking && !empty($linkedBooking['payment_method'])) {
+                    $row['payment_method'] = $linkedBooking['payment_method'];
+                }
+            }
+            unset($row);
 
             foreach ($bookings as $b) {
+                if (($b['status'] ?? '') === 'cancelled') {
+                    continue;
+                }
                 $bId = (string)($b['id'] ?? '');
                 $alreadyInTx = false;
                 foreach ($existingLabels as $lbl) {
@@ -157,7 +168,14 @@ final class WalletRepository
                 [$amount, $userId]
             );
 
-            $this->addTransaction($userId, 'credit', $amount, $method, ['entry_kind' => 'top_up']);
+            $this->addTransaction($userId, 'credit', $amount, $method, ['entry_kind' => 'top_up', 'balance_after' => (string)$this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = ?', [$userId])]);
+
+            $this->notifications->addNotification(
+                $userId,
+                'Top-Up Successful! 💳',
+                "₱" . number_format($amount, 2) . " Pickle Credits added via $method. Previous balance: ₱" . number_format($oldBalance, 2) . ", Current balance: ₱" . number_format($newBalance, 2),
+                'system'
+            );
 
             $this->db->commit();
         } catch (\Throwable $e) {
@@ -167,13 +185,6 @@ final class WalletRepository
             error_log('[DB Error] topUpWallet failed: ' . $e->getMessage());
             return ['success' => false, 'message' => 'Top-up failed. Please try again.'];
         }
-
-        $this->notifications->addNotification(
-            $userId, 
-            'Top-Up Successful! 💳', 
-            "₱" . number_format($amount, 2) . " Pickle Credits added via $method. Previous balance: ₱" . number_format($oldBalance, 2) . ", Current balance: ₱" . number_format($newBalance, 2), 
-            'system'
-        );
 
         return [
             'success' => true,

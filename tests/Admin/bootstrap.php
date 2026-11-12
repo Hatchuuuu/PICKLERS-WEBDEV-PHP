@@ -39,6 +39,18 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 if (getenv('PICKLERS_SKIP_DB_REBUILD') !== '1') {
+    $server = new PDO(
+        sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $_ENV['DB_HOST'] ?? '127.0.0.1', (int)($_ENV['DB_PORT'] ?? 3306)),
+        $_ENV['DB_USERNAME'] ?? 'root', $_ENV['DB_PASSWORD'] ?? '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+    // Keep the shared database and compiled test cache owned by one suite.
+    if ((int)$server->query("SELECT GET_LOCK('picklers_admin_test_suite', 0)")->fetchColumn() !== 1) {
+        fwrite(STDERR, "Another test suite is already using picklers_admin_test; retry after it finishes.\n");
+        exit(75);
+    }
+    register_shutdown_function(static function () use ($server): void {
+        try { $server->query("SELECT RELEASE_LOCK('picklers_admin_test_suite')"); } catch (Throwable) {}
+    });
     // The test kernel runs without debug, so its compiled container is never
     // refreshed automatically; start every run from fresh configuration.
     $cacheDir = $root . '/var/cache/test';
@@ -50,10 +62,6 @@ if (getenv('PICKLERS_SKIP_DB_REBUILD') !== '1') {
         @rmdir($cacheDir);
     }
 
-    $server = new PDO(
-        sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $_ENV['DB_HOST'] ?? '127.0.0.1', (int)($_ENV['DB_PORT'] ?? 3306)),
-        $_ENV['DB_USERNAME'] ?? 'root', $_ENV['DB_PASSWORD'] ?? '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-    );
     $server->exec('DROP DATABASE IF EXISTS `' . ADMIN_TEST_DB . '`');
     foreach (['.schema_version', '.seeded', '.court_names_normalized'] as $stamp) {
         @unlink(DATA_PATH . '/' . $stamp);
@@ -73,12 +81,7 @@ if (getenv('PICKLERS_SKIP_DB_REBUILD') !== '1') {
             exit(1);
         }
     };
-    // The legacy bootstrap creates the database and its base tables; Doctrine
-    // (its own connection) then applies the migrations on top.
-    $run("{$php} -r " . escapeshellarg(
-        "define('DATA_PATH', getcwd() . '/database/.test-state/admin'); \$_ENV['DB_DATABASE'] = '" . ADMIN_TEST_DB . "'; "
-        . "\$_ENV['DB_STRICT_MYSQL'] = 'true'; require 'config/bootstrap.php'; Picklers\\Core\\Database::get();"
-    ));
+    $run("{$php} {$console} picklers:schema:install{$env}");
     $run("{$php} {$console} doctrine:migrations:migrate -n{$env}");
     $run("{$php} " . escapeshellarg($root . '/scripts/seed-fixtures.php') . ' ' . ADMIN_TEST_DB);
     $run("{$php} {$console} picklers:admin:privilege grant root@fixture.test --reason=\"Test fixture privileged admin\"{$env}");

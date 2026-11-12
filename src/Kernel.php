@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers;
 
-use Doctrine\DBAL\Connection;
-use Picklers\Core\Database;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -40,14 +38,6 @@ final class Kernel extends BaseKernel
     private function getConfigDir(): string
     {
         return $this->getProjectDir() . '/config/symfony';
-    }
-
-    public function boot(): void
-    {
-        parent::boot();
-        // The persistence engine runs on Doctrine's connection (resolved on first use).
-        $container = $this->getContainer();
-        Database::useConnection(static fn(): Connection => $container->get('doctrine')->getConnection());
     }
 
     protected function build(ContainerBuilder $container): void

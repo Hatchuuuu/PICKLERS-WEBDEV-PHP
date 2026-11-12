@@ -19,7 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
- * The app's API entry point, /api?action=… (and /api.php), which app.js,
+ * The app's API entry point, /api?action=â€¦ (and /api.php), which app.js,
  * owner.js and tournament.js call.
  *
  * - `admin_*` and `switch_user` run through the admin firewall, CSRF, capability
@@ -37,7 +37,7 @@ final class ApiController extends AbstractWebController
     private const CSRF_ACTIONS = [
         'book_court', 'join_match', 'cancel_booking', 'top_up',
         'approve_booking', 'decline_booking', 'update_court_status', 'owner_update_court',
-        'create_post', 'send_message', 'like_post', 'add_comment',
+        'send_message',
         'create_tournament', 'update_tournament', 'delete_tournament',
         'add_tournament_team', 'add_tournament_player', 'add_tournament_entrant',
         'update_tournament_team', 'remove_tournament_team', 'remove_tournament_player',
@@ -51,7 +51,7 @@ final class ApiController extends AbstractWebController
      */
     private const RATE_LIMITED = [
         'book_court', 'join_match', 'cancel_booking',
-        'create_post', 'send_message', 'like_post', 'add_comment',
+        'send_message',
         'top_up',
         'create_tournament', 'update_tournament', 'delete_tournament',
         'generate_tournament_bracket', 'mix_tournament_teams',
@@ -157,10 +157,6 @@ final class ApiController extends AbstractWebController
             'cancel_booking' => $this->player->cancelBooking(...),
             'wallet' => $this->player->wallet(...),
             'top_up' => $this->player->topUp(...),
-            'feed_posts' => $this->community->feedPosts(...),
-            'create_post' => $this->community->createPost(...),
-            'like_post' => $this->community->likePost(...),
-            'add_comment' => $this->community->addComment(...),
             'messages' => $this->community->messages(...),
             'send_message' => $this->community->sendMessage(...),
             'get_open_play_roster' => $this->owner->openPlayRoster(...),

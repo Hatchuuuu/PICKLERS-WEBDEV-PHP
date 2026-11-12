@@ -15,6 +15,8 @@ final class MetricsService
 {
     /** Human-readable definitions, rendered next to the numbers and in docs. */
     public const DEFINITIONS = [
+        'staff_total' => 'Distinct active accounts assigned to at least one facility; unlinked legacy staff entries are excluded.',
+        'records_total' => 'All community posts, including posts hidden by moderation. Community posts are the authored record module.',
         'active_accounts' => 'Accounts that are not deactivated (players, owners and administrators).',
         'players' => 'Active accounts that are neither administrators nor facility owners.',
         'facility_owners' => 'Active accounts holding the owner capacity.',
@@ -53,6 +55,8 @@ final class MetricsService
         $total = (int)($bookings['total'] ?? 0);
 
         return [
+            'staff_total' => (int)$this->db->fetchOne("SELECT COUNT(*) FROM users u WHERE u.role <> 'deleted' AND EXISTS(SELECT 1 FROM staff s WHERE s.user_id = u.id)"),
+            'records_total' => (int)$this->db->fetchOne('SELECT COUNT(*) FROM feed_posts'),
             'active_accounts' => (int)($users['active_accounts'] ?? 0),
             'players' => (int)($users['players'] ?? 0),
             'facility_owners' => (int)($users['facility_owners'] ?? 0),

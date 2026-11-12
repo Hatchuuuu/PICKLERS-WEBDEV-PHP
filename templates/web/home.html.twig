@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ site_name }} - {{ tagline }}</title>
-  <meta name="description" content="The #1 Philippines Pickleball Booking App. Discover courts, book seamlessly, join open play sessions, and connect with players nationwide.">
+  {% include 'web/partials/_theme.html.twig' %}
+  <title>{{ site_name }} - Pickleball Court Booking</title>
+  <meta name="description" content="Discover pickleball courts, request bookings, join open play sessions, and connect with players in the Philippines.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -22,7 +23,7 @@
         <span class="brand-name">PICKLERS</span>
       </a>
 
-      <div class="nav-actions">
+      <div class="nav-actions" id="homeNav">
         <!-- Theme Toggle Switch -->
         <button type="button" class="theme-switch" id="themeSwitch" aria-label="Toggle Dark/Light Mode" title="Toggle theme">
           <div class="theme-switch-knob">
@@ -32,17 +33,17 @@
         </button>
 
         {% if currentUser %}
-          <a href="app.php" class="btn-nav-login" style="background:#10B981; color:#FFFFFF; border:none; padding:8px 18px; border-radius:12px; font-weight:800; display:inline-flex; align-items:center; gap:8px;">
+          <a href="app.php" class="btn-nav-login" style="background:#10B981; color:var(--on-accent); border:none; padding:8px 18px; border-radius:12px; font-weight:800; display:inline-flex; align-items:center; gap:8px;">
             <img src="{{ currentUser.avatar_url }}" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover;">
-            <span>Open App →</span>
+            <span>Open App &#8594;</span>
           </a>
         {% else %}
           <a href="auth.php" class="btn-nav-login">Log In</a>
-          <a href="auth.php?intent=signup" class="btn-nav-signup" style="color: #FFFFFF !important;">Sign Up</a>
+          <a href="auth.php?intent=signup" class="btn-nav-signup" style="color: var(--on-accent) !important;">Sign Up</a>
         {% endif %}
       </div>
 
-      <button type="button" class="mobile-menu-btn" id="mobileToggle" aria-label="Toggle Menu">
+      <button type="button" class="mobile-menu-btn" id="mobileToggle" aria-controls="homeNav" aria-expanded="false" aria-label="Toggle Menu">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
       </button>
     </div>
@@ -59,7 +60,7 @@
         <span class="pulse-dot">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg>
         </span>
-        <span>#1 Philippines Pickleball Booking App</span>
+        <span>Philippines Pickleball Booking App</span>
       </div>
       <div class="hero-badge-tracer">
         <div class="hero-badge-tracer-beam"></div>
@@ -69,7 +70,7 @@
     <!-- 2. Giant Glowing Title -->
     <h1 class="hero-title reveal-on-scroll">PICKLERS</h1>
 
-    <!-- 3. Subtags: FIND • BOOK • PLAY -->
+    <!-- 3. Subtags: FIND / BOOK / PLAY -->
     <div class="hero-subtags reveal-on-scroll">
       <span>FIND</span>
       <span class="hero-dot"></span>
@@ -123,7 +124,7 @@
       </div>
       <div class="trusted-line-row">
         <div class="trusted-line"></div>
-        <div class="trusted-label">TRUSTED BY FAMOUS BRANDS & FACILITIES</div>
+        <div class="trusted-label">PICKLEBALL EQUIPMENT BRANDS</div>
         <div class="trusted-line"></div>
       </div>
     </div>
@@ -164,9 +165,9 @@
         </div>
         <div class="stat-top-highlight"></div>
         <div class="stat-number">
-          <span class="countup-val" data-target="142">0</span>+
+          <span class="countup-val" data-target="{{ facilities|length }}">{{ facilities|length }}</span>
         </div>
-        <div class="stat-label">Venues</div>
+        <div class="stat-label">Listed Facilities</div>
       </div>
 
       <!-- Card 2 -->
@@ -176,9 +177,9 @@
         </div>
         <div class="stat-top-highlight"></div>
         <div class="stat-number">
-          <span class="countup-val" data-target="12450" data-separator=",">0</span>+
+          <span class="countup-val" data-target="{{ matches|length }}">{{ matches|length }}</span>
         </div>
-        <div class="stat-label">Players</div>
+        <div class="stat-label">Listed Open Play Sessions</div>
       </div>
 
       <!-- Card 3 -->
@@ -188,22 +189,23 @@
         </div>
         <div class="stat-top-highlight"></div>
         <div class="stat-number">
-          <span class="countup-val" data-target="5">0</span>–<span class="countup-val" data-target="10">0</span>%
+          <span class="countup-val" data-target="{{ city_count }}">{{ city_count }}</span>
         </div>
-        <div class="stat-label">Service Fee</div>
+        <div class="stat-label">Cities Covered</div>
       </div>
 
-      <!-- Card 4 -->
       <div class="stat-card reveal-on-scroll">
         <div class="stat-tracing-beam">
           <div class="stat-beam-rotor"></div>
         </div>
         <div class="stat-top-highlight"></div>
+        {% set court_count = facilities|reduce((total, facility) => total + facility.real_courts_count, 0) %}
         <div class="stat-number">
-          <span class="countup-val" data-target="200">0</span><small>/day</small>
+          <span class="countup-val" data-target="{{ court_count }}">{{ court_count }}</span>
         </div>
-        <div class="stat-label">Signups</div>
+        <div class="stat-label">Listed Courts</div>
       </div>
+
     </div>
   </section>
 
@@ -227,7 +229,7 @@
 
     <!-- 1. Facilities Grid View -->
     <div class="facilities-main-grid" id="facilitiesGrid">
-      {% for f in facilities|slice(0, 4) %}
+      {% for f in facilities|slice(0, 6) %}
         {% set typeStr = (f.type ?? 'Indoor') %}
 {% set typeNormalized = (((stripos_found(typeStr, 'indoor'))) ? 'Indoor' : 'Outdoor') %}
 {% set minP = (((f.min_price ?? (f.price_numeric ?? 200))))|float %}
@@ -237,9 +239,6 @@
         <div class="app-facility-card reveal-on-scroll">
           <div class="card-thumb-wrap">
             <img src="{{ (f.image ?? '') }}" alt="{{ (f.name ?? '') }}" class="card-thumb-img" loading="lazy">
-            <button type="button" class="card-heart-btn" onclick="toggleFav(this, event)" aria-label="Favorite">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-            </button>
           </div>
           <div class="card-body">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
@@ -251,17 +250,17 @@
             </div>
             {% set formattedHours = hours_label(f.hours ?? null) %}
             <div style="margin-top: 2px; margin-bottom: 2px;">
-              <span style="color:#FFFFFF; font-weight:800; font-size:12.5px;">{{ (((f.courts_count ?? 0)))|int }} Courts Listed</span>
+              <span style="color:var(--ink-primary); font-weight:800; font-size:12.5px;">{{ (((f.courts_count ?? 0)))|int }} Courts Listed</span>
             </div>
-            <div style="font-size:12px; color:#94A3B8; margin-bottom: 3px; display:inline-flex; align-items:center; gap:5px;">
+            <div style="font-size:12px; color:var(--ink-muted); margin-bottom: 3px; display:inline-flex; align-items:center; gap:5px;">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               <span>{{ formattedHours }}</span>
             </div>
-            <div style="font-size:12px; color:#94A3B8; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
-              <span style="color:var(--ink-secondary);">{{ (not ((not (f.transit ?? null))) ? f.transit : '🛵 10 min · 🚗 18 min') }}</span>
-              <div style="font-size:12px; color:rgba(255,255,255,0.7); display:inline-flex; align-items:center; gap:4px;">
+            <div style="font-size:12px; color:var(--ink-muted); margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
+              <span style="color:var(--ink-secondary);">{{ (not ((not (f.transit ?? null))) ? f.transit : 'Travel time unavailable') }}</span>
+              <div style="font-size:12px; color:var(--ink-secondary); display:inline-flex; align-items:center; gap:4px;">
                 {% if (reviewCount > 0) %}
-                <span style="color:#F59E0B; font-weight:800;">★ {{ ratingNum|number_format(1) }}</span>
+                <span style="color:var(--accent-warning-text); font-weight:800;">&#9733; {{ ratingNum|number_format(1) }}</span>
                 <span style="color:var(--ink-secondary);">({{ reviewCount }} reviews)</span>
                 {% else %}
                 <span style="color:var(--ink-secondary); font-weight:700;">New venue</span>
@@ -270,12 +269,12 @@
             </div>
             <div class="card-meta-row" style="margin-top:auto; gap:8px;">
               <div>
-                <div style="font-size:10px; color:rgba(255,255,255,0.45); text-transform:uppercase; font-weight:700;">{{ (((minP < maxP)) ? 'Rates' : 'Rate') }}</div>
+                <div style="font-size:10px; color:var(--ink-muted); text-transform:uppercase; font-weight:700;">{{ (((minP < maxP)) ? 'Rates' : 'Rate') }}</div>
                 <div class="card-price-cyan">
                   {% if (minP < maxP) %}
-                    ₱{{ minP|number_format(0) }} - ₱{{ maxP|number_format(0) }}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span>
+                    &#8369;{{ minP|number_format(0) }} - &#8369;{{ maxP|number_format(0) }}<span style="font-size:12px; color:var(--ink-muted);">/hr</span>
                   {% else %}
-                    ₱{{ minP|number_format(0) }}<span style="font-size:12px; color:rgba(255,255,255,0.5);">/hr</span>
+                    &#8369;{{ minP|number_format(0) }}<span style="font-size:12px; color:var(--ink-muted);">/hr</span>
                   {% endif %}
                 </div>
               </div>
@@ -288,12 +287,14 @@
             </div>
           </div>
         </div>
+      {% else %}
+        <p class="section-subtitle" style="grid-column: 1 / -1;">No facilities are listed yet. <a href="owner-application.php">List your court</a> to get started.</p>
       {% endfor %}
     </div>
 
     <!-- 2. Open Play Grid View (Initially Hidden) -->
     <div class="open-play-grid" id="openPlayGrid" style="display: none;">
-      {% for m in matches|slice(0, 4) %}
+      {% for m in matches|slice(0, 6) %}
         {% set cardTitle = (m.title ?? null) ?: (m.facility_name ?? 'Open Play Session') %}
         {% set facilityName = m.facility_name ?? '' %}
         {% set currentPlayers = (m.current_players ?? 0)|int %}
@@ -330,7 +331,7 @@
                 </div>
               </div>
               <div class="openplay-price-wrap" style="text-align: right; margin-bottom: 2px;">
-                <span class="openplay-price-val">₱{{ priceVal|number_format(0) }}</span>
+                <span class="openplay-price-val">&#8369;{{ priceVal|number_format(0) }}</span>
                 <span class="openplay-price-label">your share</span>
               </div>
             </div>
@@ -365,6 +366,8 @@
             </div>
           </div>
         </div>
+      {% else %}
+        <p class="section-subtitle" style="grid-column: 1 / -1;">No Open Play sessions are listed yet. Check back after a facility hosts a session.</p>
       {% endfor %}
     </div>
   </section>
@@ -397,8 +400,8 @@
         <div class="bento-badge-icon badge-blue">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
         </div>
-        <h3 class="bento-title">Split Payments</h3>
-        <p class="bento-desc">No more chasing friends for GCash. Split court costs automatically at checkout.</p>
+        <h3 class="bento-title">Booking Tracking</h3>
+        <p class="bento-desc">Review your upcoming bookings, approval status, and booking history in one place.</p>
       </div>
 
       <!-- Feature 3 (Small) -->
@@ -408,87 +411,37 @@
         <div class="bento-badge-icon badge-purple">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
         </div>
-        <h3 class="bento-title">Instant Booking</h3>
-        <p class="bento-desc">Live availability sync. Secure your preferred court and slot in under 15 seconds flat.</p>
+        <h3 class="bento-title">Court Availability</h3>
+        <p class="bento-desc">Check available court slots, choose your time, and send a booking request for facility approval.</p>
       </div>
 
       <!-- Feature 4 (Large - 2 cols) -->
       <div class="bento-card bento-col-span-2 reveal-on-scroll">
-        <!-- SVG Watermark: Users -->
-        <svg class="bento-watermark" style="color: #f97316;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <!-- SVG Watermark: Location -->
+        <svg class="bento-watermark" style="color: #f97316;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/></svg>
         <div class="bento-badge-icon badge-orange">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/></svg>
         </div>
-        <h3 class="bento-title">Vibrant Community</h3>
-        <p class="bento-desc">Join clubs, climb local leaderboards, chat with players, and get notified when your favorite group hosts an open play.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ========================================================================
-       Testimonials - Loved by the Community
-       ======================================================================== -->
-  <section class="testimonials-section">
-    <div class="testimonials-glow"></div>
-
-    <div class="section-head reveal-on-scroll">
-      <h2 class="section-title">Loved by the Community</h2>
-      <p class="section-subtitle">Join thousands of players who found their match on Picklers.</p>
-    </div>
-
-    <div class="testimonials-grid">
-      <div class="testimonial-card reveal-on-scroll">
-        <div>
-          <div class="stars-row">
-            {% for i in 0..4 %}
-              <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            {% endfor %}
-          </div>
-          <p class="testimonial-quote">"Finding open play courts used to be such a hassle in group chats. Thanks to Picklers, booking courts and joining matches is now effortless!"</p>
-        </div>
-        <div class="author-row">
-          <div class="author-avatar"><span>B</span></div>
-          <div>
-            <div class="author-name">Bob Joshua</div>
-            <div class="author-role">Pickleball Enthusiast</div>
-          </div>
-        </div>
+        <h3 class="bento-title">Facility Details</h3>
+        <p class="bento-desc">Compare court rates, explore amenities, and check facility locations to find the right venue for your next game.</p>
       </div>
 
-      <div class="testimonial-card reveal-on-scroll">
-        <div>
-          <div class="stars-row">
-            {% for i in 0..4 %}
-              <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            {% endfor %}
-          </div>
-          <p class="testimonial-quote">"The split payment feature alone makes this app worth it! No more paying upfront for the whole court or chasing friends for GCash transfers."</p>
+      <div class="bento-card reveal-on-scroll">
+        <svg class="bento-watermark" aria-hidden="true" style="color: #3b82f6;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h3v3h3v3h-6v-3M21 15v1"/></svg>
+        <div class="bento-badge-icon badge-blue">
+          <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h3v3h3v3h-6v-3M21 15v1"/></svg>
         </div>
-        <div class="author-row">
-          <div class="author-avatar"><span>D</span></div>
-          <div>
-            <div class="author-name">Daniel Alfeche</div>
-            <div class="author-role">Advanced Player (4.0)</div>
-          </div>
-        </div>
+        <h3 class="bento-title">Digital Court Pass</h3>
+        <p class="bento-desc">Keep your booking details and QR pass in the app, ready to present at the facility for check-in.</p>
       </div>
 
-      <div class="testimonial-card reveal-on-scroll">
-        <div>
-          <div class="stars-row">
-            {% for i in 0..4 %}
-              <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            {% endfor %}
-          </div>
-          <p class="testimonial-quote">"Ever since listing our venue on Picklers, our morning court bookings surged by 40%. The manager dashboard is super intuitive and easy to use!"</p>
+      <div class="bento-card reveal-on-scroll">
+        <svg class="bento-watermark" aria-hidden="true" style="color: #00D98B;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <div class="bento-badge-icon badge-emerald">
+          <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </div>
-        <div class="author-row">
-          <div class="author-avatar"><span>K</span></div>
-          <div>
-            <div class="author-name">Kyle Asentista</div>
-            <div class="author-role">Partner Facility</div>
-          </div>
-        </div>
+        <h3 class="bento-title">Saved Facilities</h3>
+        <p class="bento-desc">Save your favorite facilities so you can find them again when planning your next game.</p>
       </div>
     </div>
   </section>
@@ -517,8 +470,8 @@
         <div class="how-icon-box">
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
         </div>
-        <h3 class="how-step-title">Book & Pay</h3>
-        <p class="how-step-desc">Secure your court with a few taps. Split the fee with friends or keep it exclusive. Cashless and hassle-free.</p>
+        <h3 class="how-step-title">Request a Booking</h3>
+        <p class="how-step-desc">Choose your slot and payment method, then submit your request. Arrange external payments directly with the facility.</p>
       </div>
 
       <div class="how-card reveal-on-scroll">
@@ -526,7 +479,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         </div>
         <h3 class="how-step-title">Show Up & Play</h3>
-        <p class="how-step-desc">Just arrive at the venue, present your digital court pass, and start playing. We take care of the rest.</p>
+        <p class="how-step-desc">Once the facility approves your booking, arrive at the venue and present your digital court pass.</p>
       </div>
     </div>
   </section>
@@ -542,12 +495,12 @@
     <!-- Accordion List -->
     <div class="faq-list">
       {% for i, faq in faqs %}
-        <div class="faq-item reveal-on-scroll" onclick="toggleFaq(this)">
-          <div class="faq-question-btn">
+        <div class="faq-item reveal-on-scroll">
+          <button type="button" class="faq-question-btn" aria-expanded="false" aria-controls="faqAnswer{{ i }}" onclick="toggleFaq(this.parentElement)">
             <span>{{ (faq.q ?? (faq.question ?? '')) }}</span>
             <svg class="faq-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-          </div>
-          <div class="faq-answer">
+          </button>
+          <div class="faq-answer" id="faqAnswer{{ i }}" hidden>
             <div class="faq-answer-inner">
               {{ (faq.a ?? (faq.answer ?? '')) }}            </div>
           </div>
@@ -566,13 +519,13 @@
       </div>
 
       <form class="prend-form" onsubmit="handlePrendSubmit(event)">
-        <input type="text" id="prendInput" class="prend-input" placeholder="e.g. Can I bring my own paddle?">
+        <input type="text" id="prendInput" class="prend-input" aria-label="Ask Prend a question" placeholder="e.g. Can I bring my own paddle?">
         <button type="submit" class="prend-send-btn" aria-label="Send">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
         </button>
       </form>
 
-      <div class="prend-response-wrap" id="prendResponse">
+      <div class="prend-response-wrap" id="prendResponse" role="status" aria-live="polite">
         <img src="prend-chatbot-logo.svg" alt="Prend" class="prend-response-avatar" onerror="this.src='prend_logo.png'">
         <div class="prend-response-text" id="prendResponseText"></div>
       </div>
@@ -586,24 +539,13 @@
     <div class="container">
       <div class="footer-grid">
         <div>
-          <a href="#" class="brand-wrap">
+          <a href="index.php" class="brand-wrap">
             <img src="assets/images/PICKLERS_OFFICIAL_LOGO.svg" alt="Picklers Logo" class="brand-icon" onerror="this.src='assets/images/PICKLERS_LOGO.png'">
             <span class="brand-name">PICKLERS</span>
           </a>
           <p class="footer-brand-desc">
-            The Philippines' premier pickleball booking and community platform. Find courts, join matches, and play.
+            Your pickleball court booking platform in the Philippines. Find courts, join matches, and play.
           </p>
-          <div class="footer-socials">
-            <a href="#" class="social-link" aria-label="Instagram">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
-            </a>
-            <a href="#" class="social-link" aria-label="Facebook">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
-            </a>
-            <a href="#" class="social-link" aria-label="Twitter">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg>
-            </a>
-          </div>
         </div>
 
         <div>
@@ -611,28 +553,14 @@
           <ul class="footer-nav">
             <li><a href="#venues" onclick="switchTab('facilities')">Find Courts</a></li>
             <li><a href="#venues" onclick="switchTab('open-play')">Open Play</a></li>
-            <li><a href="#venues">List Your Court</a></li>
-            <li><a href="#venues">Pricing</a></li>
+            <li><a href="owner-application.php">List Your Court</a></li>
           </ul>
         </div>
 
-        <div>
-          <h4 class="footer-heading">Company</h4>
-          <ul class="footer-nav">
-            <li><a href="#">About Us</a></li>
-            <li><a href="#">Careers</a></li>
-            <li><a href="#">Contact Support</a></li>
-            <li><a href="#">Privacy & Terms</a></li>
-          </ul>
-        </div>
       </div>
 
       <div class="footer-bottom">
-        <div>© {{ 'now'|date('Y') }} Picklers PH. All rights reserved.</div>
-        <div class="footer-legal-links">
-          <a href="#">Terms of Service</a>
-          <a href="#">Privacy Policy</a>
-        </div>
+        <div>&#169; {{ 'now'|date('Y') }} Picklers PH. All rights reserved.</div>
       </div>
     </div>
   </footer>
@@ -656,15 +584,6 @@
     const themeSwitch = document.getElementById('themeSwitch');
     const htmlEl = document.documentElement;
 
-    const savedTheme = localStorage.getItem('picklers_theme') || 'dark';
-    if (savedTheme === 'light') {
-      htmlEl.classList.remove('dark');
-      htmlEl.classList.add('light');
-    } else {
-      htmlEl.classList.remove('light');
-      htmlEl.classList.add('dark');
-    }
-
     if (themeSwitch) {
       themeSwitch.addEventListener('click', () => {
         const isDark = htmlEl.classList.contains('dark');
@@ -679,6 +598,25 @@
         }
       });
     }
+
+    const mobileToggle = document.getElementById('mobileToggle');
+    const homeNav = document.getElementById('homeNav');
+    function setMobileMenu(open) {
+      mobileToggle.setAttribute('aria-expanded', String(open));
+      homeNav.classList.toggle('is-open', open);
+    }
+    mobileToggle.addEventListener('click', () => {
+      setMobileMenu(mobileToggle.getAttribute('aria-expanded') !== 'true');
+    });
+    homeNav.addEventListener('click', event => {
+      if (event.target.closest('a')) setMobileMenu(false);
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && mobileToggle.getAttribute('aria-expanded') === 'true') {
+        setMobileMenu(false);
+        mobileToggle.focus();
+      }
+    });
 
     // 2. Scroll-Linked Navbar Elevation & Height Shrink
     const siteHeader = document.getElementById('siteHeader');
@@ -700,6 +638,8 @@
 
       if (tab === 'facilities') {
         slider.style.transform = 'translateX(0)';
+        slider.style.backgroundColor = '';
+        slider.style.boxShadow = '';
         btnFac.classList.add('active');
         btnPlay.classList.remove('active');
         facGrid.style.display = 'grid';
@@ -708,6 +648,8 @@
         // Relative to the slider's own (now fluid) width so the control
         // stays aligned at every viewport size.
         slider.style.transform = 'translateX(100%)';
+        slider.style.backgroundColor = '#3B82F6';
+        slider.style.boxShadow = '0 2px 10px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
         btnFac.classList.remove('active');
         btnPlay.classList.add('active');
         facGrid.style.display = 'none';
@@ -715,33 +657,76 @@
       }
     }
 
-    // 4. Favorite Heart Pop Animation
-    function toggleFav(btn, e) {
-      e.stopPropagation();
-      btn.classList.toggle('favorited');
-      btn.style.transform = 'scale(1.4)';
-      setTimeout(() => {
-        btn.style.transform = 'scale(1)';
-      }, 250);
+    // 4. Drag the brand strip, then resume its existing rightward animation.
+    const marquee = document.getElementById('marqueeContainer');
+    const marqueeTrack = marquee.querySelector('.marquee-track');
+    let marqueePointer = null;
+    let marqueeX = 0;
+    let marqueeOffset = 0;
+    let marqueeAnimation = null;
+    let marqueeResumeTimer;
+
+    marquee.addEventListener('dragstart', event => event.preventDefault());
+    marquee.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0 || marqueePointer !== null) return;
+      clearTimeout(marqueeResumeTimer);
+      marqueePointer = event.pointerId;
+      marqueeX = event.clientX;
+      marqueeAnimation = marqueeTrack.getAnimations()[0];
+      if (marqueeAnimation) marqueeAnimation.pause();
+      marquee.setPointerCapture(event.pointerId);
+    });
+
+    marquee.addEventListener('pointermove', event => {
+      if (event.pointerId !== marqueePointer) return;
+      const delta = event.clientX - marqueeX;
+      marqueeX = event.clientX;
+      // Each repeated group includes one gap, including the gap at the loop seam.
+      const cycle = (marqueeTrack.getBoundingClientRect().width + parseFloat(getComputedStyle(marqueeTrack).columnGap)) / 2;
+      if (cycle <= 0) return;
+      if (marqueeAnimation) {
+        const duration = marqueeAnimation.effect.getTiming().duration;
+        const time = marqueeAnimation.currentTime + delta / cycle * duration;
+        marqueeAnimation.currentTime = ((time % duration) + duration) % duration;
+      } else {
+        // Reduced motion disables the animation, but manual swiping still works.
+        marqueeOffset = ((marqueeOffset + delta) % cycle + cycle) % cycle - cycle;
+        marqueeTrack.style.transform = `translateX(${marqueeOffset}px)`;
+      }
+    });
+
+    function releaseMarquee(event) {
+      if (event.pointerId !== marqueePointer) return;
+      marqueePointer = null;
+      marqueeResumeTimer = setTimeout(() => {
+        if (marqueeAnimation && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          marqueeAnimation.play();
+        }
+      }, 1500);
     }
+    marquee.addEventListener('pointerup', releaseMarquee);
+    marquee.addEventListener('pointercancel', releaseMarquee);
+    marquee.addEventListener('lostpointercapture', releaseMarquee);
 
     // 5. Accordion Expand/Collapse
     function toggleFaq(item) {
-      const isOpen = item.classList.contains('open');
-      document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
-      if (!isOpen) {
-        item.classList.add('open');
-      }
+      const wasOpen = item.querySelector('.faq-question-btn').getAttribute('aria-expanded') === 'true';
+      document.querySelectorAll('.faq-item').forEach(faq => {
+        const open = faq === item && !wasOpen;
+        faq.classList.toggle('open', open);
+        faq.querySelector('.faq-question-btn').setAttribute('aria-expanded', String(open));
+        faq.querySelector('.faq-answer').hidden = !open;
+      });
     }
 
     // 6. Interactive "Ask Prend" Knowledge Assistant
     const prendResponses = {
       greeting: "Hi, ma PREND! What's up! Ready to hit the kitchen line, or are you just here to ask me philosophical questions while avoiding your backhand drills? Let's play some pickleball!",
-      paddle: "Hi, ma PREND! Yes, you can definitely bring your own USAPA-approved paddle and balls to any of our partner venues!",
-      book: "Hi, ma PREND! To book a court, simply browse our facilities above, pick your preferred court, select your time slot, and confirm your payment via GCash or Pickle Credits!",
-      refund: "Hi, ma PREND! Cancellations made at least 24 hours prior to your scheduled booking receive an instant 100% refund in Pickle Credits automatically.",
+      paddle: "Hi, ma PREND! Check with your selected facility about bringing paddles and balls, equipment requirements, and any rental options.",
+      book: "Hi, ma PREND! To book a court, browse our facilities, choose a court and time slot, then submit your booking request. Pickle Credits use your wallet balance; external payments must be arranged directly with the facility.",
+      refund: "Hi, ma PREND! Pending Pickle Credits bookings can be withdrawn for a full wallet refund. Confirmed Pickle Credits bookings qualify when cancelled at least 24 hours before play. For external payments, contact the facility about any refund.",
       rules: "Hi, ma PREND! Remember the golden rule: stay out of the Non-Volley Zone (the Kitchen) unless the ball bounces in it first!",
-      wallet: "Hi, ma PREND! We support instant cashless top-ups and payments through GCash, Maya, and Pickle Credits.",
+      wallet: "Hi, ma PREND! Real-money top-ups are currently unavailable. You can use your available Pickle Credits balance; external payment choices must be arranged directly with the facility.",
       default: "Hi, ma PREND! That's a great question! While the universe contemplates that mystery, I can tell you that the answer usually involves hitting a crisp third-shot drop right into your opponent's kitchen! Ask me anything about courts, bookings, or open play!"
     };
 
@@ -811,6 +796,10 @@
     function animateCountUp(el) {
       const target = parseInt(el.getAttribute('data-target'), 10);
       const separator = el.getAttribute('data-separator') || '';
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        el.textContent = separator ? target.toLocaleString() : target;
+        return;
+      }
       const duration = 1800;
       const startTime = performance.now();
 

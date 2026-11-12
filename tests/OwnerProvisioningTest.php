@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
  * Guards the Owner -> Player provisioning pipeline.
  *
@@ -19,10 +17,13 @@ use Picklers\Core\Database;
 final class OwnerProvisioningTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $userRepository = $this->service(\Picklers\Repositories\UserRepository::class);
+        $notificationRepository = $this->service(\Picklers\Repositories\NotificationRepository::class);
+        $ownerRepository = $this->service(\Picklers\Repositories\OwnerRepository::class);
+        $facilityRepository = $this->service(\Picklers\Repositories\FacilityRepository::class);
 
         $ownerId = 'usr_test_provision_' . bin2hex(random_bytes(4));
-        $db->createUser([
+        $userRepository->createUser([
             'id' => $ownerId, 'name' => 'Provisioning Tester',
             'email' => $ownerId . '@example.test', 'password_hash' => password_hash('x', PASSWORD_DEFAULT),
         ]);
@@ -39,13 +40,13 @@ final class OwnerProvisioningTest extends TestCase {
         // ── PickSync (F-09): provisioning bumps the version counters a client
         // polls, which is what actually makes the new facility reach a
         // player's Discover feed without a manual refresh ──────────────────
-        $versionsBefore = $db->getSyncVersions();
+        $versionsBefore = $notificationRepository->getSyncVersions();
 
         // ── A real, findable facility is created ────────────────────────────
-        $facilityId = $db->createFacilityFromApplication($application);
+        $facilityId = $ownerRepository->createFacilityFromApplication($application);
         $this->assertGreaterThan(0, $facilityId, 'A positive integer facility id is returned');
 
-        $versionsAfter = $db->getSyncVersions();
+        $versionsAfter = $notificationRepository->getSyncVersions();
         $this->assertTrue(
             ($versionsAfter['facilities'] ?? 0) > ($versionsBefore['facilities'] ?? 0),
             'REGRESSION: provisioning a facility bumps the "facilities" sync version, so a polling client notices'
@@ -55,7 +56,7 @@ final class OwnerProvisioningTest extends TestCase {
             'REGRESSION: provisioning also bumps "courts" — the scaffolded court rows are new too'
         );
 
-        $facility = $db->getFacility($facilityId);
+        $facility = $facilityRepository->getFacility($facilityId);
         $this->assertNotNull($facility, 'The created facility is immediately findable by id');
         $this->assertSame($application['facility_name'], $facility['name'] ?? null,
             'The facility carries the applicant\'s real facility name, not a placeholder');
@@ -67,13 +68,13 @@ final class OwnerProvisioningTest extends TestCase {
         $this->assertSame(0, (int)($facility['reviews'] ?? -1), 'A new facility starts with zero reviews, not an invented count');
 
         // ── Courts are scaffolded to the declared count ──────────────────────
-        $courts = $db->getCourtsByFacility($facilityId);
+        $courts = $facilityRepository->getCourtsByFacility($facilityId);
         $this->assertSame(3, count($courts), 'courts_count from the application scaffolds that many real court rows');
 
         // ── REGRESSION: the facility is immediately visible to players,
         // exactly the Owner -> Player requirement this whole pipeline exists
         // for — not just present in a direct id lookup. ────────────────────
-        $discoverable = $db->getFacilities();
+        $discoverable = $facilityRepository->getFacilities();
         $foundInDiscover = false;
         foreach ($discoverable as $f) {
             if ((int)($f['id'] ?? 0) === $facilityId) { $foundInDiscover = true; break; }
@@ -83,13 +84,13 @@ final class OwnerProvisioningTest extends TestCase {
 
         // ── Idempotent: approving the same application twice must not create
         // a second facility (a double-click, or a retried admin request) ────
-        $facilityIdAgain = $db->createFacilityFromApplication($application);
+        $facilityIdAgain = $ownerRepository->createFacilityFromApplication($application);
         $this->assertSame($facilityId, $facilityIdAgain,
             'Re-provisioning the same owner_id + facility_name returns the existing facility, never a duplicate');
 
         // ── An owner can add a court to their OWN facility ──────────────────
-        $newCourt = $db->insertCourt(['facility_id' => $facilityId, 'name' => 'Court 4', 'price' => 300.0]);
-        $this->assertTrue($db->verifyCourtOwner((string)$newCourt['id'], $ownerId),
+        $newCourt = $facilityRepository->insertCourt(['facility_id' => $facilityId, 'name' => 'Court 4', 'price' => 300.0]);
+        $this->assertTrue($facilityRepository->verifyCourtOwner((string)$newCourt['id'], $ownerId),
             'The applicant is verified as the owner of a court on their own newly-provisioned facility');
 
         // ── REGRESSION: verifyCourtOwner() no longer treats an unrelated
@@ -97,12 +98,12 @@ final class OwnerProvisioningTest extends TestCase {
         // unassigned (it never should be in practice, but the loophole
         // existed regardless of whether real data ever hit it) ─────────────
         $otherOwnerId = 'usr_test_provision_other_' . bin2hex(random_bytes(4));
-        $db->createUser([
+        $userRepository->createUser([
             'id' => $otherOwnerId, 'name' => 'Unrelated Owner',
             'email' => $otherOwnerId . '@example.test', 'password_hash' => password_hash('x', PASSWORD_DEFAULT),
         ]);
         // ── Staff Member Provisioning & Verification ──────────────────────────
-        $stf = $db->insertStaff([
+        $stf = $ownerRepository->insertStaff([
             'facility_id' => $facilityId,
             'name' => 'Maria Santos',
             'email' => 'maria@bgcpickle.ph',
@@ -112,14 +113,14 @@ final class OwnerProvisioningTest extends TestCase {
         ]);
         $this->assertTrue(!empty($stf['id']), 'insertStaff returns a generated staff ID');
         $this->assertSame('Maria Santos', $stf['name'], 'Staff member name matches input');
-        $this->assertTrue($db->verifyStaffOwner((string)$stf['id'], $ownerId), 'Facility owner is verified for added staff member');
-        $this->assertFalse($db->verifyStaffOwner((string)$stf['id'], $otherOwnerId), 'Unrelated owner cannot manage staff member');
+        $this->assertTrue($ownerRepository->verifyStaffOwner((string)$stf['id'], $ownerId), 'Facility owner is verified for added staff member');
+        $this->assertFalse($ownerRepository->verifyStaffOwner((string)$stf['id'], $otherOwnerId), 'Unrelated owner cannot manage staff member');
 
-        $staffList = $db->getStaffByFacility($facilityId);
+        $staffList = $ownerRepository->getStaffByFacility($facilityId);
         $this->assertTrue(count($staffList) >= 1, 'Staff list includes the newly added staff member');
 
-        $db->deleteStaff((string)$stf['id']);
-        $staffAfterDelete = $db->getStaffByFacility($facilityId);
+        $ownerRepository->deleteStaff((string)$stf['id']);
+        $staffAfterDelete = $ownerRepository->getStaffByFacility($facilityId);
         $this->assertSame(0, count(array_filter($staffAfterDelete, fn($s) => (string)$s['id'] === (string)$stf['id'])), 'Revoking staff member removes them from facility roster');
 
         // Test users/facilities/courts are left in place, same as the rest of

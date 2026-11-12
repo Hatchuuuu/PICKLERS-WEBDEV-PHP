@@ -43,11 +43,11 @@ final class PricingService {
     private readonly PromoRepository $promos;
 
     public function __construct(
-        mixed $facilities = null,
-        mixed $promos = null,
+        FacilityRepository $facilities,
+        PromoRepository $promos,
     ) {
-        $this->facilities = $facilities instanceof FacilityRepository ? $facilities : new FacilityRepository();
-        $this->promos = $promos instanceof PromoRepository ? $promos : new PromoRepository();
+        $this->facilities = $facilities;
+        $this->promos = $promos;
     }
 
     /**
@@ -144,8 +144,7 @@ final class PricingService {
      *
      * @param string $courtId When supplied, this is the ONLY thing that
      *        identifies the court — see resolveCourt(). Leave empty for the
-     *        legacy name-only lookup (falls back to the facility's base rate
-     *        if the name doesn't match any court exactly).
+     *        legacy name-only lookup; an unmatched court is refused.
      * @return array{success:bool,message?:string,rate?:float,court_fee?:float,
      *               service_fee?:float,discount?:float,promo_label?:?string,total?:float}
      */
@@ -159,22 +158,11 @@ final class PricingService {
     ): array {
         $hours = $this->normalizeDuration($duration);
 
-        if ($courtId !== '') {
-            $court = $this->resolveCourt($facilityId, $courtName, $courtId);
-            if ($court === null) {
-                return ['success' => false, 'message' => 'That court is no longer listed at this venue.'];
-            }
-            $rate = (float)($court['price'] ?? 0);
-            if ($rate <= 0) {
-                return ['success' => false, 'message' => 'This court has no published rate. Please contact the venue.'];
-            }
-            return $this->assemble($rate * $hours, $promoCode, $rate, $userId);
+        $court = $this->resolveCourt($facilityId, $courtName, $courtId);
+        if ($court === null) {
+            return ['success' => false, 'message' => 'That court is no longer listed at this venue.'];
         }
-
-        $rate = $this->resolveCourtRate($facilityId, $courtName);
-        if ($rate === null) {
-            return ['success' => false, 'message' => 'That facility is no longer available for booking.'];
-        }
+        $rate = (float)($court['price'] ?? 0);
         if ($rate <= 0) {
             return ['success' => false, 'message' => 'This court has no published rate. Please contact the venue.'];
         }

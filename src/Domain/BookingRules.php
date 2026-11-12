@@ -27,7 +27,7 @@ final class BookingRules
      * Inside a transaction the facility row is share-locked, so a booking cannot
      * slip in while an administrator is suspending the venue.
      */
-    public function blockReason(int|string $facilityId, ?string $courtId = null, ?string $courtName = null): ?string
+    public function blockReason(int|string $facilityId, ?string $courtId = null, ?string $courtName = null, ?string $time = null): ?string
     {
         if ($this->hasColumn('facilities', 'operating_status')) {
             $lock = $this->inTransaction() ? ' LOCK IN SHARE MODE' : '';
@@ -43,6 +43,13 @@ final class BookingRules
             );
             if ($courtStatus !== false && in_array(strtolower((string)$courtStatus), ['maintenance', 'unavailable'], true)) {
                 return 'This court is under maintenance and cannot be booked right now.';
+            }
+        }
+        if ($time !== null && ($slot = Schedule::parseTimeRange($time)) !== null) {
+            $lock = $this->inTransaction() ? ' LOCK IN SHARE MODE' : '';
+            $hours = $this->db->fetchOne("SELECT hours FROM facilities WHERE id = ?{$lock}", [(int)$facilityId]);
+            if (!Schedule::slotWithinOperatingHours($hours !== false ? (string)$hours : null, $slot)) {
+                return 'This time slot is outside the facility operating hours. Please choose another time.';
             }
         }
 
@@ -87,6 +94,28 @@ final class BookingRules
     private static function mayBelongToMatch(array $booking): bool
     {
         return !empty($booking['court_name']) || str_starts_with((string)($booking['id'] ?? ''), 'PKL-OP-');
+    }
+
+    /** Active Open Play memberships, always scoped to one occurrence. */
+    public static function joinedOccurrenceKeys(array $bookings): array
+    {
+        $keys = [];
+        foreach ($bookings as $booking) {
+            if (!in_array($booking['status'] ?? '', ['pending', 'confirmed'], true) || !empty($booking['ended_early'])) {
+                continue;
+            }
+            $date = (string)($booking['booking_date'] ?? '');
+            if ($date === '') {
+                $date = self::resolveDisplayDate((string)($booking['date'] ?? '')) ?? substr((string)($booking['created_at'] ?? ''), 0, 10);
+            }
+            if ($date === '') continue;
+            if (!empty($booking['match_id'])) {
+                $keys[$booking['match_id'] . '|' . $date] = true;
+            } elseif (str_starts_with((string)($booking['id'] ?? ''), 'PKL-OP-') || stripos((string)($booking['court_name'] ?? ''), 'open play') !== false) {
+                $keys[(string)($booking['facility_id'] ?? '') . '|' . Schedule::normalizeCourtName((string)($booking['court_name'] ?? '')) . '|' . (string)($booking['time'] ?? '') . '|' . $date] = true;
+            }
+        }
+        return $keys;
     }
 
     /**
@@ -193,7 +222,7 @@ final class BookingRules
     }
 
     /** Whether a booking's session is over (ended early, or its date/end time has passed). */
-    public static function isBookingPast(array $booking): bool
+    public static function isBookingPast(array $booking, ?\DateTimeImmutable $now = null): bool
     {
         if (!empty($booking['ended_early'])) {
             return true;
@@ -208,18 +237,18 @@ final class BookingRules
         if ($dateStr === '') {
             return false; // can't tell — don't hide it
         }
-        $todayStr = date('Y-m-d');
-        if ($dateStr !== $todayStr) {
-            return $dateStr < $todayStr;
-        }
+        $now ??= new \DateTimeImmutable('now');
         $endMin = isset($booking['end_min']) && $booking['end_min'] !== null
             ? (int)$booking['end_min']
             : (self::parseTimeRange((string)($booking['time'] ?? ''))[1] ?? null);
         if ($endMin === null) {
-            return false;
+            return $dateStr < $now->format('Y-m-d');
         }
 
-        return ((int)date('G') * 60) + (int)date('i') >= $endMin;
+        // Overnight end minutes belong to the following day, not the booking's calendar day.
+        $end = (new \DateTimeImmutable($dateStr, $now->getTimezone()))->setTime(0, 0)->modify("+{$endMin} minutes");
+
+        return $now >= $end;
     }
 
     /**
@@ -304,7 +333,7 @@ final class BookingRules
      *    the result says so instead;
      *  - the player is notified with the given wording and reason.
      *
-     * @param array{allowed_from?:list<string>,actor_id?:?string,reason?:?string,notify_title?:string,notify_lead?:string,refund_label?:string,before_commit?:callable(array):void} $opts
+     * @param array{allowed_from?:list<string>,can_cancel?:callable(array):bool,actor_id?:?string,reason?:?string,notify_title?:string,notify_lead?:string,refund_label?:string,before_commit?:callable(array):void} $opts
      * @return array{ok:bool,code:int,message:string,previous_status:?string,refunded:bool,refund_amount:string,external_payment:bool,booking:?array}
      */
     public function cancelAsStaff(string $bookingId, array $opts = []): array
@@ -330,6 +359,11 @@ final class BookingRules
                 $this->rollBackOwn($owns);
 
                 return ['code' => 409, 'message' => "A {$prev} booking cannot be cancelled here."] + $result;
+            }
+            if (isset($opts['can_cancel']) && !$opts['can_cancel']($b)) {
+                $this->rollBackOwn($owns);
+
+                return ['code' => 409, 'message' => 'A session that has started cannot be declined. Contact Picklers support for a refund review.'] + $result;
             }
 
             [$set, $params] = $this->statusChange('cancelled', $opts);
@@ -357,7 +391,7 @@ final class BookingRules
             $body = $lead
                 . (!empty($opts['reason']) ? ' Reason: ' . $opts['reason'] . '.' : '')
                 . ($result['refunded'] ? ' ₱' . number_format((float)$price, 2) . ' has been refunded to your wallet.' : '')
-                . ($result['external_payment'] ? " This booking was paid via {$method}; contact the facility or Picklers support about that payment." : '');
+                . ($result['external_payment'] ? " Selected payment method: {$method}. The app does not confirm external payment; contact the facility about that payment." : '');
             $this->notifier->notify($userId, $opts['notify_title'] ?? 'Booking Declined ⚠️', $body, 'booking');
 
             $b['status'] = 'cancelled';

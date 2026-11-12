@@ -36,7 +36,89 @@ final class UserAdminService
         private readonly Notifier $notifier,
         private readonly Security $security,
         private readonly ImpersonationManager $impersonation,
+        private readonly \Picklers\Repositories\UserRepository $users,
+        private readonly \Picklers\Repositories\OwnerRepository $owners,
     ) {
+    }
+
+    public function create(AdminUser $actor, array $input): array
+    {
+        $this->requireCapability(Capability::CREATE_USER, 'user.create', '', 'Only administrators can create accounts.');
+        [$name, $email] = $this->identity($input);
+        $role = $input['role'] ?? 'player';
+        if (!is_string($role) || !in_array($role, ['player', 'staff', 'admin'], true)) {
+            throw AdminActionException::invalid('Choose player, staff, or admin.', 'role');
+        }
+        if ($role === 'staff' && mb_strlen($name) > 100) {
+            throw AdminActionException::invalid('Staff names must be up to 100 characters.', 'name');
+        }
+        if ($role === 'admin') {
+            $this->requireCapability(Capability::SET_ADMIN_ROLE, 'user.create', '', 'Only a privileged administrator can create administrators.');
+        }
+        $password = $input['password'] ?? '';
+        if (!is_string($password) || ($error = PasswordPolicy::error($password)) !== null) {
+            throw AdminActionException::invalid($error ?? 'Enter a password.', 'password');
+        }
+        $facilityId = $input['facility_id'] ?? '';
+        if ($role === 'staff' && (!is_scalar($facilityId) || !ctype_digit((string)$facilityId))) {
+            throw AdminActionException::invalid('Select a facility for this staff account.', 'facility_id');
+        }
+        try {
+            return $this->db->transactional(function () use ($actor, $name, $email, $password, $role, $facilityId): array {
+                if ($role === 'staff' && !$this->db->fetchOne('SELECT id FROM facilities WHERE id = ? FOR UPDATE', [$facilityId])) {
+                    throw AdminActionException::invalid('Select an existing facility.', 'facility_id');
+                }
+                $user = $this->users->createUser(['name' => $name, 'email' => $email,
+                    'password_hash' => password_hash($password, PASSWORD_DEFAULT), 'role' => $role === 'admin' ? 'admin' : 'player']);
+                // Administrative creation must never set the legacy development marker.
+                $this->accounts->update((string)$user['id'], ['is_dev' => 0]);
+                if ($role === 'staff') {
+                    $this->owners->insertStaff(['facility_id' => $facilityId, 'user_id' => $user['id'],
+                        'name' => $name, 'email' => $email, 'role' => 'Front Desk']);
+                }
+                $this->audit->record('user.create', 'user', (string)$user['id'], ['role' => $role, 'facility_id' => $role === 'staff' ? $facilityId : null]);
+                return ['user_id' => $user['id'], 'message' => ucfirst($role) . ' account created. Share its password through a verified channel.'];
+            });
+        } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException) {
+            throw AdminActionException::invalid('An account with this email address already exists.', 'email');
+        }
+    }
+
+    public function updateIdentity(AdminUser $actor, string $targetId, array $input): array
+    {
+        $this->requireCapability(Capability::UPDATE_USER, 'user.update', $targetId, 'Only administrators can edit accounts.');
+        [$name, $email] = $this->identity($input);
+        try {
+            return $this->db->transactional(function () use ($actor, $targetId, $name, $email): array {
+                $target = $this->target($actor, $targetId, lock: true);
+                if ((int)$target['is_admin'] === 1) {
+                    $this->requireCapability(Capability::SET_ADMIN_ROLE, 'user.update', $targetId, 'Only a privileged administrator can edit another administrator.');
+                }
+                if (!empty($target['is_staff']) && mb_strlen($name) > 100) {
+                    throw AdminActionException::invalid('Staff names must be up to 100 characters.', 'name');
+                }
+                $this->accounts->update($targetId, ['name' => $name, 'email' => $email]);
+                $this->db->update('staff', ['name' => $name, 'email' => $email], ['user_id' => $targetId]);
+                $this->audit->record('user.update', 'user', $targetId, [
+                    'name' => ['from' => $target['name'], 'to' => $name], 'email' => ['from' => $target['email'], 'to' => $email]]);
+                return ['user_id' => $targetId, 'message' => 'Account details updated.'];
+            });
+        } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException) {
+            throw AdminActionException::invalid('An account with this email address already exists.', 'email');
+        }
+    }
+
+    private function identity(array $input): array
+    {
+        $name = $input['name'] ?? '';
+        $email = $input['email'] ?? '';
+        if (!is_string($name) || trim($name) === '' || mb_strlen(trim($name)) > 120 || preg_match('/[<>]/', $name)) {
+            throw AdminActionException::invalid('Enter a name (up to 120 characters, no < or >).', 'name');
+        }
+        if (!is_string($email) || strlen(trim($email)) > 120 || !filter_var(trim($email), FILTER_VALIDATE_EMAIL)) {
+            throw AdminActionException::invalid('Enter a valid email address (up to 120 characters).', 'email');
+        }
+        return [trim($name), trim($email)];
     }
 
     /** @return array<string,mixed> */
@@ -99,6 +181,7 @@ final class UserAdminService
         }
 
         return $this->db->transactional(function () use ($actor, $targetId, $role): array {
+            $this->accounts->lockActiveAdministrators();
             $target = $this->target($actor, $targetId, lock: true);
             $this->assertActive($target);
             $wasAdmin = RoleMapper::isAdmin($target);
@@ -140,6 +223,7 @@ final class UserAdminService
         $reason = $this->requireReason($reason);
 
         return $this->db->transactional(function () use ($actor, $targetId, $grant, $reason): array {
+            $this->accounts->lockActiveAdministrators();
             $target = $this->target($actor, $targetId, lock: true);
             $this->assertActive($target);
             if (!RoleMapper::isAdmin($target)) {
@@ -165,6 +249,7 @@ final class UserAdminService
         $reason = $this->requireReason($reason);
 
         return $this->db->transactional(function () use ($actor, $targetId, $reason): array {
+            $this->accounts->lockActiveAdministrators();
             $target = $this->target($actor, $targetId, lock: true);
             $this->assertActive($target);
             if (RoleMapper::isAdmin($target)) {
@@ -244,7 +329,7 @@ final class UserAdminService
                 }
                 throw AdminActionException::conflict('This account has history (' . implode(', ', $parts) . '). Deleting it would orphan financial and booking records — deactivate it instead.', ['history' => $counts]);
             }
-            foreach (['notifications' => 'user_id', 'facility_favorites' => 'user_id', 'feed_likes' => 'user_id'] as $table => $col) {
+            foreach (['notifications' => 'user_id', 'facility_favorites' => 'user_id', 'feed_likes' => 'user_id', 'staff' => 'user_id'] as $table => $col) {
                 $this->db->delete($table, [$col => $targetId]);
             }
             $this->db->delete('admin_activity_seen', ['user_id' => $targetId]);

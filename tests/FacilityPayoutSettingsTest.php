@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
  * Covers the facility Settings tab's payout fields: gcash_number, maya_number,
  * gcash_enabled, maya_enabled, cash_on_site used to be saved to localStorage
@@ -15,16 +13,16 @@ use Picklers\Core\Database;
 final class FacilityPayoutSettingsTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $facilityRepository = $this->service(\Picklers\Repositories\FacilityRepository::class);
         $facilityId = 3;
 
-        $before = $db->getFacility($facilityId);
+        $before = $facilityRepository->getFacility($facilityId);
         $this->assertNotNull($before, 'Facility 3 exists');
         $originalGcash = $before['gcash_number'] ?? null;
         $originalMaya = $before['maya_number'] ?? null;
         $originalCash = $before['cash_on_site'] ?? null;
 
-        $ok = $db->updateFacility($facilityId, [
+        $ok = $facilityRepository->updateFacility($facilityId, [
             'gcash_number' => '09171234567',
             'maya_number'  => '09281234567',
             'gcash_enabled' => 0,
@@ -33,7 +31,7 @@ final class FacilityPayoutSettingsTest extends TestCase {
         ]);
         $this->assertTrue($ok, 'updateFacility() accepts the payout fields');
 
-        $after = $db->getFacility($facilityId);
+        $after = $facilityRepository->getFacility($facilityId);
         $this->assertSame('09171234567', (string)($after['gcash_number'] ?? ''), 'gcash_number persisted');
         $this->assertSame('09281234567', (string)($after['maya_number'] ?? ''), 'maya_number persisted');
         $this->assertSame(0, (int)($after['gcash_enabled'] ?? 1), 'gcash_enabled persisted as 0');
@@ -42,13 +40,13 @@ final class FacilityPayoutSettingsTest extends TestCase {
 
         // A field NOT in the allow-list must still be silently ignored, not
         // fail the whole update or write to an arbitrary column.
-        $ok2 = $db->updateFacility($facilityId, ['owner_id' => 'usr_hacker', 'gcash_number' => '09190001111']);
+        $ok2 = $facilityRepository->updateFacility($facilityId, ['owner_id' => 'usr_hacker', 'gcash_number' => '09190001111']);
         $this->assertTrue($ok2, 'A mixed update with one allowed field still succeeds');
-        $afterOwnerCheck = $db->getFacility($facilityId);
+        $afterOwnerCheck = $facilityRepository->getFacility($facilityId);
         $this->assertSame((string)($before['owner_id'] ?? ''), (string)($afterOwnerCheck['owner_id'] ?? ''), 'owner_id is not writable through this path');
 
         // Restore original values so later suite runs see a clean facility.
-        $db->updateFacility($facilityId, [
+        $facilityRepository->updateFacility($facilityId, [
             'gcash_number' => $originalGcash ?? '',
             'maya_number'  => $originalMaya ?? '',
             'gcash_enabled' => 1,

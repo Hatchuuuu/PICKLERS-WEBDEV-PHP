@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
  * Guards double-booking detection.
  *
@@ -15,57 +13,60 @@ use Picklers\Core\Database;
 final class SlotCollisionTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $bookingRepository = $this->service(\Picklers\Repositories\BookingRepository::class);
+        $facilityRepository = $this->service(\Picklers\Repositories\FacilityRepository::class);
+        $userRepository = $this->service(\Picklers\Repositories\UserRepository::class);
+        $notificationRepository = $this->service(\Picklers\Repositories\NotificationRepository::class);
 
         // ── Range parsing ──────────────────────────────────────────────────
-        $this->assertEquals([1080, 1200], $db->parseTimeRange('6:00 PM - 8:00 PM'),
+        $this->assertEquals([1080, 1200], \Picklers\Domain\Schedule::parseTimeRange('6:00 PM - 8:00 PM'),
             'A 12-hour range parses to minutes from midnight');
-        $this->assertEquals([1080, 1200], $db->parseTimeRange('6:00 PM – 8:00 PM'),
+        $this->assertEquals([1080, 1200], \Picklers\Domain\Schedule::parseTimeRange('6:00 PM – 8:00 PM'),
             'An en-dash separator parses identically');
-        $this->assertEquals([1080, 1200], $db->parseTimeRange('18:00 - 20:00'),
+        $this->assertEquals([1080, 1200], \Picklers\Domain\Schedule::parseTimeRange('18:00 - 20:00'),
             'A 24-hour range parses identically');
-        $this->assertEquals([540, 630], $db->parseTimeRange('9:00 AM - 10:30 AM'),
+        $this->assertEquals([540, 630], \Picklers\Domain\Schedule::parseTimeRange('9:00 AM - 10:30 AM'),
             'Half-hour boundaries parse correctly');
-        $this->assertEquals([1380, 1500], $db->parseTimeRange('11:00 PM - 1:00 AM'),
+        $this->assertEquals([1380, 1500], \Picklers\Domain\Schedule::parseTimeRange('11:00 PM - 1:00 AM'),
             'A range crossing midnight is unwrapped past 1440');
-        $this->assertNull($db->parseTimeRange('whenever'),
+        $this->assertNull(\Picklers\Domain\Schedule::parseTimeRange('whenever'),
             'Unparseable text yields null rather than a bogus range');
-        $this->assertNull($db->parseTimeRange('6:00 PM'),
+        $this->assertNull(\Picklers\Domain\Schedule::parseTimeRange('6:00 PM'),
             'A single time with no range yields null');
 
         // ── Overlap maths ──────────────────────────────────────────────────
-        $this->assertTrue($db->rangesOverlap([1080, 1200], [1080, 1200]), 'Identical ranges overlap');
-        $this->assertTrue($db->rangesOverlap([1080, 1200], [1140, 1440]), 'Partially offset ranges overlap');
-        $this->assertTrue($db->rangesOverlap([1080, 1200], [1140, 1190]), 'A contained range overlaps');
-        $this->assertFalse($db->rangesOverlap([1080, 1200], [1200, 1440]), 'Back-to-back ranges do NOT overlap');
-        $this->assertFalse($db->rangesOverlap([540, 600], [1080, 1200]), 'Disjoint ranges do not overlap');
+        $this->assertTrue(\Picklers\Domain\Schedule::rangesOverlap([1080, 1200], [1080, 1200]), 'Identical ranges overlap');
+        $this->assertTrue(\Picklers\Domain\Schedule::rangesOverlap([1080, 1200], [1140, 1440]), 'Partially offset ranges overlap');
+        $this->assertTrue(\Picklers\Domain\Schedule::rangesOverlap([1080, 1200], [1140, 1190]), 'A contained range overlaps');
+        $this->assertFalse(\Picklers\Domain\Schedule::rangesOverlap([1080, 1200], [1200, 1440]), 'Back-to-back ranges do NOT overlap');
+        $this->assertFalse(\Picklers\Domain\Schedule::rangesOverlap([540, 600], [1080, 1200]), 'Disjoint ranges do not overlap');
 
         // ── The actual regression ──────────────────────────────────────────
         $this->assertSame('7:00 PM - 9:00 PM',
-            $db->findSlotConflict('6:00 PM - 8:00 PM', ['7:00 PM - 9:00 PM']),
+            $bookingRepository->findSlotConflict('6:00 PM - 8:00 PM', ['7:00 PM - 9:00 PM']),
             'REGRESSION: an overlapping-but-differently-worded slot is now caught');
         $this->assertNull(
-            $db->findSlotConflict('6:00 PM - 8:00 PM', ['8:00 PM - 10:00 PM']),
+            $bookingRepository->findSlotConflict('6:00 PM - 8:00 PM', ['8:00 PM - 10:00 PM']),
             'An adjacent slot is still bookable');
         $this->assertSame('6:00 PM - 8:00 PM',
-            $db->findSlotConflict('6:00 PM - 8:00 PM', ['6:00 PM - 8:00 PM']),
+            $bookingRepository->findSlotConflict('6:00 PM - 8:00 PM', ['6:00 PM - 8:00 PM']),
             'An exact duplicate still conflicts');
         $this->assertSame('6:00 PM - 8:00 PM',
-            $db->findSlotConflict('6:30 PM - 7:30 PM', ['6:00 PM - 8:00 PM']),
+            $bookingRepository->findSlotConflict('6:30 PM - 7:30 PM', ['6:00 PM - 8:00 PM']),
             'A shorter slot inside an existing booking conflicts');
-        $this->assertNull($db->findSlotConflict('6:00 PM - 8:00 PM', []),
+        $this->assertNull($bookingRepository->findSlotConflict('6:00 PM - 8:00 PM', []),
             'An empty court has no conflict');
         $this->assertNull(
-            $db->findSlotConflict('9:00 AM - 10:00 AM', ['6:00 PM - 8:00 PM', '8:00 PM - 10:00 PM']),
+            $bookingRepository->findSlotConflict('9:00 AM - 10:00 AM', ['6:00 PM - 8:00 PM', '8:00 PM - 10:00 PM']),
             'A morning slot is free against evening bookings');
         $this->assertSame('6:30 PM - 7:30 PM',
-            $db->findSlotConflict('7:00 PM - 8:00 PM', ['9:00 AM - 10:00 AM', '6:30 PM - 7:30 PM']),
+            $bookingRepository->findSlotConflict('7:00 PM - 8:00 PM', ['9:00 AM - 10:00 AM', '6:30 PM - 7:30 PM']),
             'The conflicting slot is found among several bookings');
 
         // ── Unparseable data must fail safe, never silently allow ──────────
-        $this->assertSame('TBD', $db->findSlotConflict('TBD', ['TBD']),
+        $this->assertSame('TBD', $bookingRepository->findSlotConflict('TBD', ['TBD']),
             'Unparseable slots fall back to exact-match so a clash is not missed');
-        $this->assertNull($db->findSlotConflict('6:00 PM - 8:00 PM', ['TBD']),
+        $this->assertNull($bookingRepository->findSlotConflict('6:00 PM - 8:00 PM', ['TBD']),
             'An unparseable existing slot with a different string does not block');
 
         // ── Integration: createBooking() itself enforces this across DATE
@@ -76,15 +77,14 @@ final class SlotCollisionTest extends TestCase {
         // value — so "Tomorrow" and tomorrow's own "D, M j, Y" spelling for
         // the exact same real day never collided, and a real double-booking
         // (PKL-59B129 / PKL-3BD361, same court, same day, overlapping times)
-        // reached the live database before this fix. Late-night hours here
-        // are deliberate: they must stay valid no matter what hour of the
-        // day this suite itself happens to run at. ──────────────────────
-        $facility = $db->getFacilities()[0] ?? null;
+        // reached the live database before this fix. Tomorrow's evening
+        // slots stay in the fixture venue's hours regardless of run time.
+        $facility = $facilityRepository->getFacilities()[0] ?? null;
         $this->assertNotNull($facility, 'At least one seeded facility exists to run this integration check against');
 
         if ($facility) {
             $facilityId = $facility['id'];
-            $tester = $db->createUser([
+            $tester = $userRepository->createUser([
                 'id' => 'usr_test_slot_' . bin2hex(random_bytes(4)),
                 'name' => 'Slot Collision Tester',
                 'email' => 'slot_test_' . bin2hex(random_bytes(4)) . '@example.test',
@@ -92,7 +92,7 @@ final class SlotCollisionTest extends TestCase {
             ]);
             // A disposable court of its own, so this never collides with
             // seeded data or with a previous run of this same test.
-            $court = $db->insertCourt([
+            $court = $facilityRepository->insertCourt([
                 'facility_id' => $facilityId,
                 'name'        => 'Court ' . random_int(5000, 99999),
                 'price'       => 100.00,
@@ -101,8 +101,8 @@ final class SlotCollisionTest extends TestCase {
 
             $tomorrowSpelledOut = date('D, M j, Y', strtotime('+1 day'));
 
-            $first = $db->createBooking(
-                $tester['id'], $facilityId, $court['name'], 'Tomorrow', '10:00 PM - 11:00 PM',
+            $first = $bookingRepository->createBooking(
+                $tester['id'], $facilityId, $court['name'], 'Tomorrow', '6:00 PM - 7:00 PM',
                 1, 100.0, 'Pay at Venue', (string)$court['id']
             );
             $this->assertTrue((bool)($first['success'] ?? false),
@@ -112,9 +112,9 @@ final class SlotCollisionTest extends TestCase {
             // not just the player who made it (F-24 — createBooking() used
             // to tell only the booker; the owner's only way to learn of a
             // reservation was noticing it in the dashboard queue) ──────────
-            $ownerId = $db->getFacilityOwnerId($facilityId);
+            $ownerId = $facilityRepository->getFacilityOwnerId($facilityId);
             if ($ownerId !== null) {
-                $latestOwnerNotif = $db->getNotifications($ownerId)[0] ?? null;
+                $latestOwnerNotif = $notificationRepository->getNotifications($ownerId)[0] ?? null;
                 $this->assertNotNull($latestOwnerNotif,
                     'The facility owner has at least one notification after a booking is created');
                 $this->assertTrue(
@@ -123,23 +123,23 @@ final class SlotCollisionTest extends TestCase {
                 );
             }
 
-            $second = $db->createBooking(
-                $tester['id'], $facilityId, $court['name'], $tomorrowSpelledOut, '10:30 PM - 11:30 PM',
+            $second = $bookingRepository->createBooking(
+                $tester['id'], $facilityId, $court['name'], $tomorrowSpelledOut, '6:30 PM - 7:30 PM',
                 1, 100.0, 'Pay at Venue', (string)$court['id']
             );
             $this->assertFalse((bool)($second['success'] ?? true),
                 "REGRESSION: an overlapping slot on the SAME real day, spelled differently "
                 . "('Tomorrow' vs '{$tomorrowSpelledOut}'), is now correctly rejected");
 
-            $third = $db->createBooking(
-                $tester['id'], $facilityId, $court['name'], $tomorrowSpelledOut, '11:30 PM - 11:59 PM',
+            $third = $bookingRepository->createBooking(
+                $tester['id'], $facilityId, $court['name'], $tomorrowSpelledOut, '7:30 PM - 8:00 PM',
                 1, 100.0, 'Pay at Venue', (string)$court['id']
             );
             $this->assertTrue((bool)($third['success'] ?? false),
                 'A genuinely free slot later the same day still books fine: ' . ($third['message'] ?? ''));
 
             // ── Dynamic real-time court status verification ──────────────────────
-            $courtList = $db->getCourtsByFacility($facilityId);
+            $courtList = $facilityRepository->getCourtsByFacility($facilityId);
             $testCourtRow = null;
             foreach ($courtList as $cRow) {
                 if ((string)($cRow['id'] ?? '') === (string)$court['id']) {
@@ -151,7 +151,7 @@ final class SlotCollisionTest extends TestCase {
             $this->assertSame('available', strtolower((string)($testCourtRow['status'] ?? '')),
                 'A court with a booking later in the day remains AVAILABLE at the current real time');
 
-            $slots = $db->getSlotAvailability($facilityId, (string)$court['id'], date('Y-m-d', strtotime('+1 day')));
+            $slots = $bookingRepository->getSlotAvailability($facilityId, (string)$court['id'], date('Y-m-d', strtotime('+1 day')));
             $this->assertTrue(!empty($slots), 'getSlotAvailability returns slots for the court');
             $bookedSlot = null;
             foreach ($slots as $s) {
@@ -166,8 +166,8 @@ final class SlotCollisionTest extends TestCase {
             }
 
             // Leave no state behind — the next run reuses a fresh random court.
-            if (!empty($first['booking']['id']))  $db->cancelBooking($first['booking']['id'], $tester['id']);
-            if (!empty($third['booking']['id']))  $db->cancelBooking($third['booking']['id'], $tester['id']);
+            if (!empty($first['booking']['id']))  $bookingRepository->cancelBooking($first['booking']['id'], $tester['id']);
+            if (!empty($third['booking']['id']))  $bookingRepository->cancelBooking($third['booking']['id'], $tester['id']);
         }
     }
 }

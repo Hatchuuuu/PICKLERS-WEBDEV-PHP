@@ -18,9 +18,8 @@
   --ink-muted: #55637a;
   --ink-inverse: #ffffff;
 
-  /* Foreground to use on top of --accent-primary. White on mint measured
-     1.86:1 — a hard AA failure on the primary CTA. Deep navy gives 9.6:1. */
-  --on-accent: #06131f;
+  /* Filled action labels stay white in both themes. */
+  --on-accent: #FFFFFF;
 
   --accent-primary: #00D98B;
   --accent-primary-hover: #00C27C;
@@ -36,8 +35,11 @@
   /* Accents are BACKGROUND colours. On the light surface the raw brand mint
      measured 1.78:1 and amber 1.96:1 as text, so text usage gets a darkened
      variant that still reads as the same hue. */
-  --accent-primary-text: #007f53;
+  --accent-primary-text: #006b46;
   --accent-warning-text: #8f5606;
+  --accent-danger-text: #b91c1c;
+  --accent-secondary-text: #0369a1;
+  --accent-purple-text: #7e22ce;
 
   --surface-veil: rgba(15, 23, 42, 0.04);
   --surface-veil-strong: rgba(15, 23, 42, 0.06);
@@ -77,7 +79,7 @@
 
 /* Accessible focus outline */
 :focus-visible {
-  outline: 2px solid var(--accent-primary, #00D98B);
+  outline: 2px solid var(--accent-primary-text, #00D98B);
   outline-offset: 2px;
 }
 
@@ -103,6 +105,10 @@
   border-radius: 8px;
 }
 
+html.light {
+  --on-accent: #FFFFFF;
+}
+
 html.dark {
   color-scheme: dark;
   /* Picklers Theme - Dark Mode (Official Vercel Deep Navy #0B182B) */
@@ -117,11 +123,14 @@ html.dark {
      #8493a6 gives 5.0:1 on raised and 5.7:1 on base, same slate family. */
   --ink-muted: #8493a6;
   --ink-inverse: #0B182B;
-  --on-accent: #06131f;
+  --on-accent: #FFFFFF;
 
   /* On the dark surface the brand colours already pass, so text uses them as-is. */
   --accent-primary-text: #00D98B;
   --accent-warning-text: #ffba3b;
+  --accent-danger-text: #f87171;
+  --accent-secondary-text: #69a2d0;
+  --accent-purple-text: #c084fc;
 
   --surface-veil: rgba(255, 255, 255, 0.05);
   --surface-veil-strong: rgba(255, 255, 255, 0.06);
@@ -158,7 +167,7 @@ select {
   background-position: right 14px center !important;
   background-size: 14px 14px !important;
   padding-right: 36px !important;
-  color-scheme: dark !important;
+  color-scheme: inherit;
   cursor: pointer !important;
 }
 
@@ -166,21 +175,21 @@ html.dark select,
 html.dark select option,
 .dark select,
 .dark select option {
-  background-color: #0d1a31 !important;
-  color: #f8fafc !important;
+  background-color: var(--surface-overlay) !important;
+  color: var(--ink-primary) !important;
   color-scheme: dark !important;
 }
 
 select option {
-  background-color: #0d1a31 !important;
-  color: #f8fafc !important;
+  background-color: var(--surface-overlay) !important;
+  color: var(--ink-primary) !important;
   padding: 8px 12px;
 }
 
 select option:checked,
 select option:hover,
 select option:focus {
-  background-color: #132040 !important;
+  background-color: var(--surface-interactive) !important;
   color: var(--accent-primary-text, #00D98B) !important;
 }
 
@@ -190,8 +199,8 @@ input:-webkit-autofill:hover,
 input:-webkit-autofill:focus,
 input:-webkit-autofill:active {
   -webkit-text-fill-color: var(--ink-primary, #ffffff) !important;
-  -webkit-box-shadow: 0 0 0 1000px #13223f inset !important;
-  box-shadow: 0 0 0 1000px #13223f inset !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-overlay) inset !important;
+  box-shadow: 0 0 0 1000px var(--surface-overlay) inset !important;
   border-radius: inherit;
   transition: background-color 5000s ease-in-out 0s;
 }
@@ -210,7 +219,7 @@ input:-webkit-autofill:active {
 html {
   font-size: 16px;
   scroll-behavior: smooth;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -409,7 +418,7 @@ html:not(.dark) .shiny-text, html:not(.dark) .brand-name, html:not(.dark) .brand
 /* 6. Infinite Marquee Scrolling (Flows to the right) */
 @keyframes marquee-flow {
   0% {
-    transform: translateX(-50%);
+    transform: translateX(calc(-50% - 14px));
   }
 
   100% {
@@ -595,7 +604,7 @@ html:not(.dark) .theme-sun {
 
 .btn-nav-signup {
   background-color: var(--accent-primary);
-  color: #FFFFFF !important;
+  color: var(--on-accent);
   font-weight: 700;
   font-size: 0.95rem;
   padding: 10px 22px;
@@ -606,13 +615,13 @@ html:not(.dark) .theme-sun {
 
 .btn-nav-signup:hover {
   background-color: var(--accent-primary-hover);
-  color: #FFFFFF !important;
+  color: var(--on-accent);
   transform: translateY(-2px);
   box-shadow: 0 8px 24px -4px rgba(0, 217, 139, 0.5);
 }
 
 .btn-nav-signup:active {
-  color: #FFFFFF !important;
+  color: var(--on-accent);
   transform: scale(0.97);
 }
 
@@ -709,7 +718,7 @@ html:not(.dark) .hero-badge-body {
   font-weight: 900;
   line-height: 0.95;
   letter-spacing: -0.03em;
-  color: #4abd96;
+  color: var(--accent-primary-text);
   text-shadow: none;
   margin-bottom: 16px;
   position: relative;
@@ -773,7 +782,7 @@ html:not(.dark) .hero-badge-body {
   justify-content: center;
   gap: 10px;
   background-color: var(--accent-primary);
-  color: #FFFFFF !important;
+  color: var(--on-accent);
   font-weight: 800;
   font-size: 1rem;
   padding: 16px 28px;
@@ -787,8 +796,8 @@ html:not(.dark) .hero-badge-body {
 
 .btn-hero-primary svg,
 .btn-hero-primary span {
-  color: #FFFFFF !important;
-  stroke: #FFFFFF !important;
+  color: var(--on-accent);
+  stroke: currentColor;
   flex-shrink: 0;
 }
 
@@ -806,7 +815,7 @@ html:not(.dark) .hero-badge-body {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background-color: var(--accent-secondary);
+  background-color: #2563EB;
   color: #FFFFFF !important;
   font-weight: 800;
   font-size: 1rem;
@@ -982,7 +991,7 @@ html:not(.dark) .hero-badge-body {
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #94A3B8;
+  color: var(--ink-muted);
   white-space: nowrap;
 }
 
@@ -994,6 +1003,8 @@ html:not(.dark) .hero-badge-body {
   mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
   -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
   cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
 }
 
 .marquee-container:active {
@@ -1006,10 +1017,6 @@ html:not(.dark) .hero-badge-body {
   animation: marquee-flow 36s linear infinite;
   gap: 28px;
   padding: 12px 0;
-}
-
-.marquee-container:hover .marquee-track {
-  animation-play-state: paused;
 }
 
 .brand-card {
@@ -1038,6 +1045,9 @@ html:not(.dark) .hero-badge-body {
 }
 
 .brand-logo-box {
+  background: #11233D;
+  border-radius: 8px;
+  padding: 6px;
   height: 46px;
   width: 100%;
   display: flex;
@@ -1070,7 +1080,7 @@ body.dark .brand-logo-img {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #FFFFFF !important;
+  color: var(--ink-secondary);
   text-align: center;
   line-height: 1.2;
   white-space: nowrap;
@@ -1079,15 +1089,15 @@ body.dark .brand-logo-img {
   max-width: 138px;
   padding: 4px 12px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: var(--surface-veil);
+  border: 1px solid var(--border-veil);
   transition: all 0.3s ease;
 }
 
 .brand-card:hover .brand-tag {
   transform: scale(1.05);
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(255, 255, 255, 0.4) !important;
+  background: var(--surface-veil-strong);
+  border-color: var(--border-default);
 }
 
 /* ==========================================================================
@@ -1300,7 +1310,7 @@ html.dark .pill-switcher {
 }
 
 .pill-btn.active {
-  color: #020617;
+  color: var(--on-accent);
 }
 
 html.dark .pill-btn.active {
@@ -1335,8 +1345,8 @@ html.dark .pill-btn.active {
 
 .app-facility-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(255, 255, 255, 0.25);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-lg);
 }
 
 .card-thumb-wrap {
@@ -1460,7 +1470,7 @@ html.dark .pill-btn.active {
 .card-price-cyan {
   font-size: 18px;
   font-weight: 800;
-  color: #FFFFFF;
+  color: var(--ink-primary);
   font-family: 'Montserrat', var(--font-heading), sans-serif;
 }
 
@@ -1470,7 +1480,7 @@ html.dark .pill-btn.active {
   gap: 6px;
   padding: 6.5px 15px;
   background: #00D98B;
-  color: #FFFFFF;
+  color: var(--on-accent);
   border-radius: 10px;
   font-size: 12.5px;
   font-weight: 700;
@@ -1486,7 +1496,7 @@ html.dark .pill-btn.active {
   background: #00C27C;
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(0, 217, 139, 0.45);
-  color: #FFFFFF;
+  color: var(--on-accent);
 }
 
 /* Open Play Match Card */
@@ -1513,14 +1523,14 @@ html.dark .pill-btn.active {
   flex-direction: column;
   justify-content: space-between;
   gap: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-md);
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .openplay-card:hover {
   border-color: rgba(255, 255, 255, 0.16);
   transform: translateY(-2px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 
 .openplay-card-header {
@@ -1534,7 +1544,7 @@ html.dark .pill-btn.active {
   font-family: 'Montserrat', var(--font-heading), sans-serif;
   font-size: 16.5px;
   font-weight: 800;
-  color: #FFFFFF;
+  color: var(--ink-primary);
   margin: 0;
   letter-spacing: -0.02em;
   line-height: 1.25;
@@ -1553,7 +1563,7 @@ html.dark .pill-btn.active {
   align-items: center;
   font-size: 11px;
   font-weight: 600;
-  color: #CBD5E1;
+  color: var(--ink-secondary);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9999px;
@@ -1576,7 +1586,7 @@ html.dark .pill-btn.active {
 }
 
 .openplay-detail-item.loc {
-  color: #94A3B8;
+  color: var(--ink-muted);
   font-weight: 500;
 }
 
@@ -1586,7 +1596,7 @@ html.dark .pill-btn.active {
 }
 
 .openplay-detail-item.date {
-  color: #CBD5E1;
+  color: var(--ink-secondary);
   font-weight: 700;
 }
 
@@ -1596,7 +1606,7 @@ html.dark .pill-btn.active {
 }
 
 .openplay-detail-item.time {
-  color: #CBD5E1;
+  color: var(--ink-secondary);
   font-weight: 700;
 }
 
@@ -1606,7 +1616,7 @@ html.dark .pill-btn.active {
 }
 
 .openplay-detail-item.host {
-  color: #94A3B8;
+  color: var(--ink-muted);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1617,7 +1627,7 @@ html.dark .pill-btn.active {
 }
 
 .openplay-detail-item.host strong {
-  color: #CBD5E1;
+  color: var(--ink-secondary);
   font-weight: 700;
 }
 
@@ -1638,14 +1648,14 @@ html.dark .pill-btn.active {
 .openplay-price-val {
   font-size: 17px;
   font-weight: 900;
-  color: #FFFFFF;
+  color: var(--ink-primary);
   font-variant-numeric: tabular-nums;
 }
 
 .openplay-price-label {
   font-size: 11px;
   font-weight: 500;
-  color: #94A3B8;
+  color: var(--ink-muted);
 }
 
 .openplay-card-footer {
@@ -1689,14 +1699,14 @@ html.dark .pill-btn.active {
 .openplay-spots-filled {
   font-size: 13px;
   font-weight: 800;
-  color: #FFFFFF;
+  color: var(--ink-primary);
   line-height: 1.2;
 }
 
 .openplay-spots-remain {
   font-size: 11px;
   font-weight: 500;
-  color: #8493a6;
+  color: var(--ink-muted);
 }
 
 .openplay-actions-group {
@@ -1707,7 +1717,7 @@ html.dark .pill-btn.active {
 }
 
 .btn-openplay-join {
-  background: #3B82F6;
+  background: #2563EB;
   color: #FFFFFF;
   font-weight: 800;
   font-size: 13px;
@@ -1756,7 +1766,7 @@ html.dark .pill-btn.active {
 
 .bento-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 24px;
   max-width: 1120px;
   margin: 0 auto;
@@ -1913,7 +1923,7 @@ html.light .badge-orange {
 
 .testimonials-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 24px;
   max-width: 1120px;
   margin: 0 auto;
@@ -2129,6 +2139,9 @@ html.light .badge-orange {
   font-weight: 700;
   color: var(--ink-primary);
   cursor: pointer;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
 }
 
 .faq-chevron {
@@ -2139,16 +2152,6 @@ html.light .badge-orange {
 
 .faq-item.open .faq-chevron {
   transform: rotate(180deg);
-}
-
-.faq-answer {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.35s cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-.faq-item.open .faq-answer {
-  max-height: 200px;
 }
 
 .faq-answer-inner {
@@ -2375,6 +2378,19 @@ html.light .badge-orange {
 @media (max-width: 768px) {
   .nav-actions {
     display: none;
+  }
+
+  .nav-actions.is-open {
+    display: flex;
+    position: absolute;
+    top: 100%;
+    right: 16px;
+    max-width: calc(100vw - 32px);
+    flex-wrap: wrap;
+    padding: 16px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
   }
 
   .mobile-menu-btn {

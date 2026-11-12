@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Api;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\OpenPlayRepository;
 use Picklers\Domain\BookingRules;
 use Picklers\Repositories\BookingRepository;
 use Picklers\Repositories\MatchRepository;
@@ -29,7 +29,7 @@ final class PlayerActions
     public const PAYMENT_METHOD_ALIASES = ['Cash on Site' => 'Pay at Venue'];
 
     public function __construct(
-        private readonly Database $db,
+        private readonly OpenPlayRepository $openPlay,
         private readonly AuthService $auth,
         private readonly BookingRepository $bookings,
         private readonly MatchRepository $matches,
@@ -49,12 +49,12 @@ final class PlayerActions
      */
     public function sync(LegacyInput $in, ?array $user): JsonResponse
     {
-        $payload = ['success' => true, 'versions' => $this->db->getSyncVersions(), 'server_time' => time()];
+        $payload = ['success' => true, 'versions' => $this->notifications->getSyncVersions(), 'server_time' => time()];
         if ($user) {
-            $payload['ended_sessions'] = $this->db->checkAndNotifySessionEnd((string)$user['id']);
+            $payload['ended_sessions'] = $this->bookings->checkAndNotifySessionEnd((string)$user['id']);
             $unread = $this->notifications->getNotifications($user['id']);
             $payload['unread_notifications'] = count(array_filter($unread, fn($n) => empty($n['is_read'])));
-            $payload['account'] = $this->db->getAccountSyncState((string)$user['id']);
+            $payload['account'] = $this->notifications->getAccountSyncState((string)$user['id']);
         }
 
         return $this->json($payload);
@@ -110,7 +110,7 @@ final class PlayerActions
 
     public function matches(LegacyInput $in, ?array $user): JsonResponse
     {
-        return $this->json(['success' => true, 'matches' => $this->matches->getMatches((string)$in->query('level', 'All'), (string)$in->query('facility', ''))]);
+        return $this->json(['success' => true, 'matches' => $this->openPlay->getMatches((string)$in->query('level', 'All'), (string)$in->query('facility', ''))]);
     }
 
     public function joinMatch(LegacyInput $in, ?array $user): JsonResponse
@@ -125,7 +125,7 @@ final class PlayerActions
         // The entry fee comes from the match record; a client-supplied price is never trusted.
         $promo = trim((string)$in->input('promo_code', ''));
 
-        return $this->json($this->matches->joinMatch((string)$in->input('match_id', ''), $user['id'], $method, $promo !== '' ? $promo : null));
+        return $this->json($this->openPlay->joinMatch((string)$in->input('match_id', ''), $user['id'], $method, $promo !== '' ? $promo : null));
     }
 
     public function bookCourt(LegacyInput $in, ?array $user): JsonResponse
@@ -137,6 +137,12 @@ final class PlayerActions
         // court_id is the authoritative identity; court_name is a fallback for callers without one.
         $courtId = trim((string)$in->input('court_id', ''));
         $courtName = (string)$in->input('court_name', 'Court 1');
+        $court = $this->pricing->resolveCourt($facilityId, $courtName, $courtId);
+        if ($court === null) {
+            return $this->jsonError('That court is no longer listed at this venue.', 400);
+        }
+        $courtId = (string)$court['id'];
+        $courtName = (string)$court['name'];
         $date = trim((string)$in->input('date', ''));
         $time = trim((string)$in->input('time', ''));
         $method = $this->paymentMethod((string)$in->input('payment_method', 'Pickle Credits'));
@@ -258,7 +264,7 @@ final class PlayerActions
         }
         $amount = (float)($in->input('amount') ?? $in->query('amount', 0));
         $method = trim((string)($in->input('method') ?? $in->query('method', 'GCash'))) ?: 'GCash';
-        if ($this->environment === 'prod' || !filter_var($this->paymentsSimulated ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        if (!in_array($this->environment, ['dev', 'test'], true) || !filter_var($this->paymentsSimulated ?? false, FILTER_VALIDATE_BOOLEAN)) {
             return $this->jsonError('Wallet top-ups are temporarily unavailable while payment processing is being finalised.', 503);
         }
         $res = $this->wallet->topUpWallet($user['id'], $amount, $method);

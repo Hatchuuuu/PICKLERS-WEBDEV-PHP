@@ -96,12 +96,14 @@ class AuthService {
 
         $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
         // password_changed_at signs out the account's OTHER sessions; the caller
-        // re-stamps the current one (AuthMiddleware::markAuthenticatedNow()).
+        // re-binds the current one (PlatformSession::markAuthenticatedNow()).
         $updatedUser = $this->userRepo->updateUser($userId, [
             'password_hash' => $newHash,
             'password_changed_at' => date('Y-m-d H:i:s'),
         ]);
 
+        // Bind the caller to the hash it wrote, even if another reset wins before the readback.
+        $updatedUser['password_hash'] = $newHash;
         return ['success' => true, 'user' => $updatedUser];
     }
 }

@@ -1,0 +1,29 @@
+# Live source edits; dependencies remain built inside the Linux image.
+services:
+  app:
+    image: picklers-app:development
+    build:
+      target: development
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      PAYMENTS_SIMULATED: "true"
+    volumes:
+      - ./src:/var/www/html/src:ro
+      - ./config:/var/www/html/config:ro
+      - ./templates:/var/www/html/templates:ro
+      - ./public/assets:/var/www/html/public/assets:ro
+      - ./scripts:/var/www/html/scripts:ro
+      - ./tests:/var/www/html/tests:ro
+  setup:
+    image: picklers-app:development
+    build:
+      target: development
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      PAYMENTS_SIMULATED: "true"
+    volumes:
+      - ./src:/var/www/html/src:ro
+      - ./config:/var/www/html/config:ro
+      - ./templates:/var/www/html/templates:ro

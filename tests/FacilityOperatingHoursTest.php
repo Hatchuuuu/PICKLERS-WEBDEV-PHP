@@ -3,26 +3,33 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
-/**
- * Tests facility operating hours calculations (isFacilityOpen).
- */
+/** Tests facility operating hours calculations without the wall clock or database. */
 final class FacilityOperatingHoursTest extends TestCase {
-
     public function run(): void {
-        $db = Database::get();
-
-        // 1. 24/hrs facilities should always be open
-        $this->assertTrue($db->isFacilityOpen('24/hrs'), '24/hrs is open');
-        $this->assertTrue($db->isFacilityOpen('24 Hours'), '24 Hours is open');
-        $this->assertTrue($db->isFacilityOpen(''), 'Empty hours defaults to open');
-
-        // 2. Test active vs closed operating hours
-        $this->assertFalse($db->isFacilityOpen('1:00 AM - 2:00 AM'), '1am to 2am is closed at night');
-
-        // Range spanning current time is open
-        $openNowRange = date('g:i A', strtotime('-1 hour')) . ' - ' . date('g:i A', strtotime('+1 hour'));
-        $this->assertTrue($db->isFacilityOpen($openNowRange), 'Time range covering current time is open');
+        $bookingRepository = (new \ReflectionClass(\Picklers\Repositories\BookingRepository::class))->newInstanceWithoutConstructor();
+        foreach ([
+            ['24/hrs', '01:30', true],
+            ['24 Hours', '23:59', true],
+            ['', '01:30', true],
+            [null, '01:30', true],
+            ['1:00 AM - 2:00 AM', '00:59', false],
+            ['1:00 AM - 2:00 AM', '01:00', true],
+            ['1:00 AM - 2:00 AM', '01:30', true],
+            ['1:00 AM - 2:00 AM', '02:00', false],
+            ['6:00 AM - 10:00 PM', '05:59', false],
+            ['6:00 AM - 10:00 PM', '06:00', true],
+            ['6:00 AM - 10:00 PM', '21:59', true],
+            ['6:00 AM - 10:00 PM', '22:00', false],
+            ['10:00 PM - 2:00 AM', '21:59', false],
+            ['10:00 PM - 2:00 AM', '22:00', true],
+            ['10:00 PM - 2:00 AM', '23:59', true],
+            ['10:00 PM - 2:00 AM', '00:00', true],
+            ['10:00 PM - 2:00 AM', '01:59', true],
+            ['10:00 PM - 2:00 AM', '02:00', false],
+            ['6:00 AM - 6:00 AM', '12:00', true],
+        ] as [$hours, $time, $expected]) {
+            $now = new \DateTimeImmutable('2026-10-12 ' . $time);
+            $this->assertSame($expected, $bookingRepository->isFacilityOpen($hours, $now), ($hours ?? 'null') . ' at ' . $time);
+        }
     }
 }

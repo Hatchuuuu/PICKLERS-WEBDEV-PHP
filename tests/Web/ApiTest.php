@@ -55,11 +55,29 @@ final class ApiTest extends AdminWebTestCase
     {
         self::assertSame(400, $this->api('no_such_action', [], 'GET')['status']);
         $this->signIn('usr_fx_p1');
-        $r = $this->api('create_post', ['content' => 'Hello'], 'POST', 'forged');
+        $r = $this->api('send_message', ['content' => 'Hello'], 'POST', 'forged');
         self::assertSame(403, $r['status']);
         self::assertSame('CSRF security verification failed.', $r['json']['message']);
-        // Mutating by action even over GET: a crafted link cannot post.
-        self::assertSame(403, $this->api('like_post', ['post_id' => 'fx_post1'], 'GET', null)['status']);
+        // Mutating by action even over GET: a crafted link cannot send a message.
+        self::assertSame(403, $this->api('send_message', ['partner_id' => 'usr_fx_p2', 'content' => 'Hello'], 'GET', null)['status']);
+    }
+
+    public function testReadingOneNotificationIsScopedToItsOwner(): void
+    {
+        foreach (['notice_one' => 'usr_fx_p1', 'notice_two' => 'usr_fx_p1', 'notice_other' => 'usr_fx_p2'] as $id => $userId) {
+            $this->db()->insert('notifications', ['id' => $id, 'user_id' => $userId, 'title' => 'Notice', 'body' => 'Details', 'type' => 'system', 'is_read' => 0, 'created_at' => date('Y-m-d H:i:s')]);
+        }
+        $this->signIn('usr_fx_p1');
+        self::assertSame(403, $this->api('mark_notifications_read', ['id' => 'notice_one'], 'POST', 'forged')['status']);
+        self::assertSame(400, $this->api('mark_notifications_read', ['id' => []])['status']);
+        self::assertTrue($this->api('mark_notifications_read', ['id' => 'notice_one'])['json']['success']);
+        self::assertSame(1, (int)$this->scalar("SELECT is_read FROM notifications WHERE id = 'notice_one'"));
+        self::assertSame(0, (int)$this->scalar("SELECT is_read FROM notifications WHERE id = 'notice_two'"));
+        $this->api('mark_notifications_read', ['id' => 'notice_other']);
+        self::assertSame(0, (int)$this->scalar("SELECT is_read FROM notifications WHERE id = 'notice_other'"));
+        self::assertTrue($this->api('mark_notifications_read')['json']['success']);
+        self::assertSame(1, (int)$this->scalar("SELECT is_read FROM notifications WHERE id = 'notice_two'"));
+        self::assertSame(0, (int)$this->scalar("SELECT is_read FROM notifications WHERE id = 'notice_other'"));
     }
 
     public function testBookingIsPricedServerSideAndValidated(): void
@@ -78,10 +96,29 @@ final class ApiTest extends AdminWebTestCase
         $r = $this->api('book_court', ['time' => '9:00 AM - 10:00 AM', 'duration' => 1] + $base);
         self::assertTrue($r['json']['success'], json_encode($r['json']));
         self::assertSame((float)$quote['json']['quote']['total'], (float)$r['json']['quote']['total'], 'charged what was quoted, never the client price');
+        $tx = $this->db()->fetchAssociative('SELECT * FROM wallet_transactions WHERE booking_id = ?', [$r['json']['booking']['id']]);
+        self::assertSame('booking_payment', $tx['entry_kind']);
+        self::assertSame('debit', $tx['type']);
+        self::assertSame(number_format(1200 - (float)$quote['json']['quote']['total'], 2, '.', ''), $tx['balance_after']);
+        self::assertSame($this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p1'"), $tx['balance_after']);
 
         $bookings = $this->api('bookings', [], 'GET');
         self::assertTrue($bookings['json']['success']);
         self::assertNotEmpty($bookings['json']['bookings']);
+    }
+
+    public function testDecimalTopUpsRecordResultingBalances(): void
+    {
+        $wallet = static::getContainer()->get(\Picklers\Repositories\WalletRepository::class);
+        foreach ([['0.10', '80.60'], ['0.20', '80.80']] as [$amount, $after]) {
+            self::assertTrue($wallet->topUpWallet('usr_fx_p2', $amount, 'Ledger test ' . $amount)['success']);
+            $tx = $this->db()->fetchAssociative('SELECT * FROM wallet_transactions WHERE user_id = ? AND label = ?', ['usr_fx_p2', 'Ledger test ' . $amount]);
+            self::assertSame('top_up', $tx['entry_kind']);
+            self::assertSame('credit', $tx['type']);
+            self::assertSame($amount, $tx['amount']);
+            self::assertSame($after, $tx['balance_after']);
+            self::assertSame($after, $this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p2'"));
+        }
     }
 
     public function testWalletAndDisabledTopUp(): void
@@ -100,16 +137,9 @@ final class ApiTest extends AdminWebTestCase
         }
     }
 
-    public function testCommunityFeedAndMessages(): void
+    public function testMessages(): void
     {
-        self::assertTrue($this->api('feed_posts', [], 'GET')['json']['success']);
         $this->signIn('usr_fx_p1');
-        self::assertSame(400, $this->api('create_post', ['content' => '   '])['status']);
-        self::assertSame(400, $this->api('create_post', ['content' => 'x', 'image_url' => 'javascript:alert(1)'])['status'], 'no script URLs in feeds');
-        self::assertTrue($this->api('create_post', ['content' => 'Doubles at 6pm?'])['json']['success']);
-        self::assertArrayHasKey('success', $this->api('like_post', ['post_id' => 'fx_post2'])['json']);
-        self::assertTrue($this->api('add_comment', ['post_id' => 'fx_post2', 'comment' => 'Nice'])['json']['success']);
-
         self::assertSame(404, $this->api('send_message', ['partner_id' => 'usr_fx_p1', 'content' => 'me'])['status'], 'not to yourself');
         self::assertTrue($this->api('send_message', ['partner_id' => 'usr_fx_p2', 'content' => 'Game tomorrow?'])['json']['success']);
         $thread = $this->api('messages', ['partner_id' => 'usr_fx_p2'], 'GET');
@@ -132,10 +162,49 @@ final class ApiTest extends AdminWebTestCase
         self::assertTrue($ok['json']['success'], json_encode($ok['json']));
         self::assertSame('confirmed', $this->scalar("SELECT status FROM bookings WHERE id = 'FX-PEND01'"));
 
-        $declined = $this->api('decline_booking', ['booking_id' => 'FX-PEND02']);
+        $declined = $this->api('decline_booking', ['booking_id' => 'FX-PEND02', 'reason' => 'Court maintenance']);
         self::assertTrue($declined['json']['success']);
         self::assertFalse($declined['json']['refunded'], 'a GCash payment is never "refunded" in-app');
+        self::assertTrue($declined['json']['external_payment']);
+        self::assertSame('0.00', $declined['json']['refund_amount']);
+        self::assertStringContainsString('No refund was issued in-app', $declined['json']['message']);
         self::assertSame('cancelled', $this->scalar("SELECT status FROM bookings WHERE id = 'FX-PEND02'"));
+        self::assertSame(1, (int)$this->scalar("SELECT COUNT(*) FROM notifications WHERE user_id = 'usr_fx_p2' AND body LIKE '%Reason: Court maintenance.%'"));
+    }
+
+    public function testOwnerDeclineReportsWalletAndPayAtVenueOutcomes(): void
+    {
+        $this->signIn('usr_fx_owner1');
+        $this->db()->update('bookings', ['payment_method' => 'Pay at Venue'], ['id' => 'FX-PEND01']);
+        $venue = $this->api('decline_booking', ['booking_id' => 'FX-PEND01']);
+        self::assertTrue($venue['json']['success']);
+        self::assertFalse($venue['json']['refunded']);
+        self::assertFalse($venue['json']['external_payment']);
+        self::assertStringContainsString('Nothing was charged', $venue['json']['message']);
+
+        $this->db()->update('bookings', ['payment_method' => 'Pickle Credits', 'price' => '500.00'], ['id' => 'FX-PEND02']);
+        $wallet = $this->api('decline_booking', ['booking_id' => 'FX-PEND02']);
+        self::assertTrue($wallet['json']['success']);
+        self::assertTrue($wallet['json']['refunded']);
+        self::assertSame('500.00', $wallet['json']['refund_amount']);
+        self::assertStringContainsString('₱500.00 refunded to Pickle Credits', $wallet['json']['message']);
+    }
+
+    public function testOwnerDeclineRejectsOverlongReasonWithoutCancelling(): void
+    {
+        $this->signIn('usr_fx_owner1');
+        self::assertSame(400, $this->api('decline_booking', ['booking_id' => 'FX-PEND01', 'reason' => str_repeat('x', 501)])['status']);
+        self::assertSame('pending', $this->scalar("SELECT status FROM bookings WHERE id = 'FX-PEND01'"));
+    }
+
+    public function testOwnerDeclineDoesNotReportSuccessWhenTransitionIsRejected(): void
+    {
+        $this->signIn('usr_fx_owner1');
+        $this->db()->update('bookings', ['status' => 'declined'], ['id' => 'FX-PEND01']);
+        $result = $this->api('decline_booking', ['booking_id' => 'FX-PEND01']);
+        self::assertSame(409, $result['status']);
+        self::assertFalse($result['json']['success']);
+        self::assertSame('declined', $this->scalar("SELECT status FROM bookings WHERE id = 'FX-PEND01'"));
     }
 
     public function testCheckinOnlyForTodaysConfirmedPassesAtYourVenue(): void
@@ -168,6 +237,15 @@ final class ApiTest extends AdminWebTestCase
             $r = $this->api('add_tournament_entrant', ['tournament_id' => $id, 'name' => $name, 'player1' => $name]);
             self::assertTrue($r['json']['success'], json_encode($r['json']));
         }
+        $before = $this->api('get_tournament', ['tournament_id' => $id], 'GET')['json']['tournament'];
+        $teamId = $before['teams'][0]['id'];
+        $invalid = $this->api('update_tournament_team', ['tournament_id' => $id, 'team_id' => $teamId, 'player1' => '']);
+        self::assertSame(422, $invalid['status']);
+        self::assertFalse($invalid['json']['success']);
+        self::assertSame($before, $this->api('get_tournament', ['tournament_id' => $id], 'GET')['json']['tournament']);
+        $renamed = $this->api('update_tournament_team', ['tournament_id' => $id, 'team_id' => $teamId, 'name' => 'Renamed Ana']);
+        self::assertTrue($renamed['json']['success']);
+        self::assertSame('Ana', $renamed['json']['tournament']['teams'][0]['player1']);
         self::assertTrue($this->api('generate_tournament_bracket', ['tournament_id' => $id])['json']['success']);
         self::assertTrue($this->api('reset_tournament_bracket', ['tournament_id' => $id])['json']['success']);
         self::assertContains($id, array_column(array_merge(...array_values($this->api('list_tournaments', [], 'GET')['json']['tournaments'])), 'id'));

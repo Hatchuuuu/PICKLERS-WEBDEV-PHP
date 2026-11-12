@@ -3,7 +3,15 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Api;
 
-use Picklers\Core\Database;
+use Picklers\Exceptions\TournamentBusyException;
+
+use Picklers\Domain\Schedule;
+
+use Picklers\Repositories\FacilityRepository;
+use Picklers\Repositories\BookingRepository;
+use Picklers\Repositories\MatchRepository;
+use Picklers\Repositories\OpenPlayRepository;
+use Picklers\Repositories\OwnerRepository;
 use Picklers\Domain\Payments;
 use Picklers\Services\TournamentService;
 use Picklers\Web\Http\LegacyInput;
@@ -40,10 +48,15 @@ final class OwnerPortalActions
     public const FACILITY_LOGO_MAX_BYTES = 2 * 1024 * 1024;
 
     public function __construct(
-        private readonly Database $db,
+        private readonly FacilityRepository $facilities,
+        private readonly BookingRepository $bookings,
+        private readonly MatchRepository $matches,
+        private readonly OpenPlayRepository $openPlay,
+        private readonly OwnerRepository $owners,
         private readonly OwnerScope $scope,
         private readonly TournamentService $tournaments,
         #[Autowire('%kernel.project_dir%/public')] private readonly string $publicDir,
+        private readonly \Doctrine\DBAL\Connection $db,
     ) {
     }
 
@@ -64,45 +77,54 @@ final class OwnerPortalActions
             return $this->jsonError('No facility to list this court under. Please complete your owner application first.', 403);
         }
 
-        $existingNums = [];
-        foreach ($this->db->getCourtsByFacility($facility['id']) as $c) {
-            if (preg_match('/\d+/', (string)($c['name'] ?? ''), $m)) {
-                $existingNums[] = (int)$m[0];
-            }
-        }
-        $nextNum = 1;
-        while (in_array($nextNum, $existingNums, true)) {
-            $nextNum++;
-        }
-        $courtNum = preg_match('/\d+/', $rawName, $m) ? (int)$m[0] : $nextNum;
-        $courtName = 'Court ' . $courtNum;
-        // Courts are identified by name in slot locks, rosters and Open Play; two
-        // "Court 2" rows at one venue blocked or double-booked each other.
-        if ($courtNum < 1 || $courtNum > 999) {
-            return $this->jsonError('Court numbers must be between 1 and 999.', 400);
-        }
-        if (in_array($courtNum, $existingNums, true)) {
-            return $this->jsonError("{$courtName} already exists at this facility. Choose a different court number.", 409);
-        }
         try {
-            $court = $this->db->insertCourt([
-                'facility_id' => $facility['id'],
-                'name' => $courtName,
-                'surface' => $surface,
-                'type' => 'Indoor',
-                'price' => $rate,
-                'status' => 'available',
-            ]);
-            $this->db->setCourtAttributes((string)$court['id'], $attributes);
-            $court['attribute_slugs'] = $attributes;
-        } catch (\Throwable $e) {
-            return $this->jsonError('Failed to add court. Please try again.', 500);
-        }
-        if (empty($court)) {
-            return $this->jsonError('Failed to add court. Please try again.', 500);
-        }
+            return $this->db->transactional(function () use ($in, $user, $facility, $rawName, $surface, $rate, $attributes): JsonResponse {
+                $this->facilities->lockFacilityCourts($facility['id']);
+                if ((string)($this->facility($in, $user)['id'] ?? '') !== (string)$facility['id']) {
+                    return $this->jsonError('Unauthorized: facility access has changed.', 403);
+                }
+                $existingNums = [];
+                foreach ($this->facilities->getCourtsByFacility($facility['id']) as $c) {
+                    if (preg_match('/\d+/', (string)($c['name'] ?? ''), $m)) {
+                        $existingNums[] = (int)$m[0];
+                    }
+                }
+                $nextNum = 1;
+                while (in_array($nextNum, $existingNums, true)) {
+                    $nextNum++;
+                }
+                $courtNum = preg_match('/\d+/', $rawName, $m) ? (int)$m[0] : $nextNum;
+                $courtName = 'Court ' . $courtNum;
+                // Courts are identified by name in slot locks, rosters and Open Play; two
+                // "Court 2" rows at one venue blocked or double-booked each other.
+                if ($courtNum < 1 || $courtNum > 999) {
+                    return $this->jsonError('Court numbers must be between 1 and 999.', 400);
+                }
+                if (in_array($courtNum, $existingNums, true)) {
+                    return $this->jsonError("{$courtName} already exists at this facility. Choose a different court number.", 409);
+                }
+                $court = $this->facilities->insertCourt([
+                    'facility_id' => $facility['id'],
+                    'name' => $courtName,
+                    'surface' => $surface,
+                    'type' => 'Indoor',
+                    'price' => $rate,
+                    'status' => 'available',
+                ]);
+                $this->facilities->setCourtAttributes((string)$court['id'], $attributes);
+                $court['attribute_slugs'] = $attributes;
+                if (empty($court)) {
+                    return $this->jsonError('Failed to add court. Please try again.', 500);
+                }
 
-        return $this->jsonSuccess(['court' => $court], "Court '{$courtName}' has been added to your facility inventory.");
+                return $this->jsonSuccess(['court' => $court], "Court '{$courtName}' has been added to your facility inventory.");
+            });
+        } catch (\DomainException $e) {
+            return $this->jsonError($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            $this->facilities->invalidateReadCache();
+            return $this->jsonError('Failed to add court. Please try again.', 500);
+        }
     }
 
     public function editCourt(LegacyInput $in, array $user): JsonResponse
@@ -121,7 +143,7 @@ final class OwnerPortalActions
         if ($rate > Payments::MAX_PAYABLE) {
             return $this->jsonError('That hourly rate is above the maximum allowed.', 400);
         }
-        $existing = $this->db->getCourtById($courtId);
+        $existing = $this->facilities->getCourtById($courtId);
         if ($existing === null) {
             return $this->jsonError('Court not found', 404);
         }
@@ -134,36 +156,50 @@ final class OwnerPortalActions
         }
         $courtName = 'Court ' . (int)$m[0];
 
-        $previousName = (string)($existing['name'] ?? '');
-        if (strcasecmp($previousName, $courtName) !== 0) {
-            foreach ($this->db->getCourtsByFacility($existing['facility_id']) as $other) {
-                if ((string)($other['id'] ?? '') !== $courtId && strcasecmp((string)($other['name'] ?? ''), $courtName) === 0) {
-                    return $this->jsonError("{$courtName} already exists at this facility. Choose a different court number.", 409);
-                }
-            }
-            // Reservations and Open Play sessions reference the court by its current name.
-            if ($this->db->countUpcomingCourtBookings($existing['facility_id'], $courtId, $previousName) > 0) {
-                return $this->jsonError("{$previousName} has upcoming bookings, so it can't be renamed right now.", 409);
-            }
-            if ($this->hostsOpenPlay($existing['facility_id'], $previousName)) {
-                return $this->jsonError("{$previousName} is hosting Open Play, so it can't be renamed right now.", 409);
-            }
-        }
         try {
-            $court = $this->db->updateCourt($courtId, ['name' => $courtName, 'surface' => $surface, 'price' => $rate]);
-            if ($court !== null) {
-                // Replaces the set, so unchecking every tag really clears them.
-                $this->db->setCourtAttributes($courtId, $attributes);
-                $court['attribute_slugs'] = $attributes;
-            }
+            return $this->db->transactional(function () use ($user, $courtId, $existing, $courtName, $surface, $rate, $attributes): JsonResponse {
+                $this->facilities->lockFacilityCourts($existing['facility_id']);
+                $current = $this->db->fetchAssociative('SELECT * FROM courts WHERE id = ? FOR UPDATE', [$courtId]);
+                if (!$current) {
+                    return $this->jsonError('Court not found', 404);
+                }
+                if ((string)$current['facility_id'] !== (string)$existing['facility_id'] || !$this->ownsCourt($user, $courtId)) {
+                    return $this->jsonError('Unauthorized: You do not own this court', 403);
+                }
+                $existing = $current;
+                $previousName = (string)($existing['name'] ?? '');
+                if (strcasecmp($previousName, $courtName) !== 0) {
+                    foreach ($this->facilities->getCourtsByFacility($existing['facility_id']) as $other) {
+                        if ((string)($other['id'] ?? '') !== $courtId && strcasecmp((string)($other['name'] ?? ''), $courtName) === 0) {
+                            return $this->jsonError("{$courtName} already exists at this facility. Choose a different court number.", 409);
+                        }
+                    }
+                    // Reservations and Open Play sessions reference the court by its current name.
+                    if ($this->facilities->countUpcomingCourtBookings($existing['facility_id'], $courtId, $previousName) > 0) {
+                        return $this->jsonError("{$previousName} has upcoming bookings, so it can't be renamed right now.", 409);
+                    }
+                    if ($this->hostsOpenPlay($existing['facility_id'], $previousName)) {
+                        return $this->jsonError("{$previousName} is hosting Open Play, so it can't be renamed right now.", 409);
+                    }
+                }
+                $court = $this->facilities->updateCourt($courtId, ['name' => $courtName, 'surface' => $surface, 'price' => $rate]);
+                if ($court !== null) {
+                    // Replaces the set, so unchecking every tag really clears them.
+                    $this->facilities->setCourtAttributes($courtId, $attributes);
+                    $court['attribute_slugs'] = $attributes;
+                }
+                if ($court === null) {
+                    return $this->jsonError('Court not found', 404);
+                }
+
+                return $this->jsonSuccess(['court' => $court], "Court '{$courtName}' updated successfully.");
+            });
+        } catch (\DomainException $e) {
+            return $this->jsonError($e->getMessage(), 409);
         } catch (\Throwable $e) {
+            $this->facilities->invalidateReadCache();
             return $this->jsonError('Failed to update court. Please try again.', 500);
         }
-        if ($court === null) {
-            return $this->jsonError('Court not found', 404);
-        }
-
-        return $this->jsonSuccess(['court' => $court], "Court '{$courtName}' updated successfully.");
     }
 
     public function toggleCourtStatus(LegacyInput $in, array $user): JsonResponse
@@ -177,7 +213,7 @@ final class OwnerPortalActions
         if (!$this->ownsCourt($user, $courtId)) {
             return $this->jsonError('Unauthorized: You do not own this court', 403);
         }
-        $court = $this->db->getCourtById($courtId);
+        $court = $this->facilities->getCourtById($courtId);
         if ($court === null) {
             return $this->jsonError('Court not found', 404);
         }
@@ -187,7 +223,7 @@ final class OwnerPortalActions
             return $this->jsonError("Court '{$label}' is currently hosting Open Play and cannot be disabled.", 400);
         }
         try {
-            $ok = $this->db->updateCourtStatus($courtId, $active ? 'AVAILABLE' : 'UNAVAILABLE');
+            $ok = $this->facilities->updateCourtStatus($courtId, $active ? 'AVAILABLE' : 'UNAVAILABLE');
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to update court status. Please try again.', 500);
         }
@@ -215,7 +251,10 @@ final class OwnerPortalActions
         if ($facility === null) {
             return $this->jsonError('No facility found for this account.', 400);
         }
-        $result = $this->db->endCourtSessionEarly((string)$facility['id'], $courtId, $courtName);
+        if ($courtId !== '' && (string)($this->facilities->getCourtById($courtId)['facility_id'] ?? '') !== (string)$facility['id']) {
+            return $this->jsonError('Court not found at this facility.', 403);
+        }
+        $result = $this->facilities->endCourtSessionEarly((string)$facility['id'], $courtId, $courtName);
         if (!$result['success']) {
             return $this->jsonError($result['message'], 404);
         }
@@ -233,7 +272,7 @@ final class OwnerPortalActions
         if (!$this->ownsCourt($user, $courtId)) {
             return $this->jsonError('Unauthorized: You do not own this court', 403);
         }
-        $court = $this->db->getCourtById($courtId);
+        $court = $this->facilities->getCourtById($courtId);
         if ($court === null) {
             return $this->jsonError('Court not found or could not be deleted.', 404);
         }
@@ -242,12 +281,12 @@ final class OwnerPortalActions
             return $this->jsonError("Court '{$label}' is currently hosting Open Play and cannot be deleted until the session is cancelled.", 400);
         }
         // Players hold paid slots on a court with upcoming reservations.
-        $upcoming = $this->db->countUpcomingCourtBookings($court['facility_id'], $courtId, $label);
+        $upcoming = $this->facilities->countUpcomingCourtBookings($court['facility_id'], $courtId, $label);
         if ($upcoming > 0) {
             return $this->jsonError("Court '{$label}' has {$upcoming} upcoming booking(s). Resolve them before deleting this court.", 409);
         }
         try {
-            $deleted = $this->db->deleteCourt($courtId);
+            $deleted = $this->facilities->deleteCourt($courtId);
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to delete court. Please try again.', 500);
         }
@@ -265,7 +304,7 @@ final class OwnerPortalActions
             return $this->jsonError('Session titles are limited to 150 characters.', 400);
         }
         // `matches.type` carries the court name (see joinMatch()).
-        $courtName = Database::normalizeCourtName(trim((string)$in->input('court_name', '')));
+        $courtName = Schedule::normalizeCourtName(trim((string)$in->input('court_name', '')));
         $bracket = trim((string)$in->input('bracket', 'All Levels'));
         if ($bracket === '' || mb_strlen($bracket) > 30) {
             $bracket = 'All Levels';
@@ -286,7 +325,7 @@ final class OwnerPortalActions
             return $this->jsonError('Please choose a start and end time.', 400);
         }
         $timeRange = "{$startTime} \u{2013} {$endTime}";
-        if ($this->db->parseTimeRange($timeRange) === null) {
+        if (Schedule::parseTimeRange($timeRange) === null) {
             return $this->jsonError('Please choose a valid time range.', 400);
         }
         // A "TBD" or unparseable date published a session that could never expire.
@@ -308,7 +347,7 @@ final class OwnerPortalActions
         $facilityId = $facility['id'];
 
         $court = null;
-        foreach ($this->db->getCourtsByFacility($facilityId) as $c) {
+        foreach ($this->facilities->getCourtsByFacility($facilityId) as $c) {
             if (strcasecmp((string)($c['name'] ?? ''), $courtName) === 0) {
                 $court = $c;
                 break;
@@ -320,23 +359,39 @@ final class OwnerPortalActions
         if (in_array(strtolower((string)($court['status'] ?? '')), ['maintenance', 'unavailable'], true)) {
             return $this->jsonError("{$courtName} is disabled. Enable it before hosting Open Play.", 409);
         }
-        if (($blocked = $this->db->bookingBlockReason($facilityId, (string)($court['id'] ?? ''), $courtName)) !== null) {
+        if (($blocked = $this->bookings->bookingBlockReason($facilityId, (string)($court['id'] ?? ''), $courtName, $timeRange)) !== null) {
+            return $this->jsonError($blocked, 409);
+        }
+        try {
+        $this->db->beginTransaction();
+        $this->openPlay->lockCourtSessionUsers($facilityId, $courtName);
+        $court = $this->facilities->lockCourtByName($facilityId, $courtName);
+        if ($court === null) {
+            $this->db->rollBack();
+            return $this->jsonError("{$courtName} is not a court at this facility.", 404);
+        }
+        if (in_array(strtolower((string)($court['status'] ?? '')), ['maintenance', 'unavailable'], true)) {
+            $this->db->rollBack();
+            return $this->jsonError("{$courtName} is disabled. Enable it before hosting Open Play.", 409);
+        }
+        if (($blocked = $this->bookings->bookingBlockReason($facilityId, (string)($court['id'] ?? ''), $courtName, $timeRange)) !== null) {
+            $this->db->rollBack();
             return $this->jsonError($blocked, 409);
         }
         // Publishing never replaces a session players have joined: that must be
         // cancelled explicitly first, which refunds and notifies them.
-        foreach ($this->db->getMatchesByFacility($facilityId) as $m) {
-            if (strcasecmp(trim((string)($m['type'] ?? '')), $courtName) !== 0 || Database::isMatchExpired($m)) {
+        foreach ($this->matches->getMatchesByFacility($facilityId, true) as $m) {
+            if (strcasecmp(trim((string)($m['type'] ?? '')), $courtName) !== 0 || Schedule::isMatchExpired($m)) {
                 continue;
             }
-            if ($this->db->countActiveMatchBookings((string)$m['id'], Database::getMatchTargetDate($m)) > 0) {
+            if ($this->matches->countActiveMatchBookings((string)$m['id'], \Picklers\Domain\Schedule::getMatchTargetDate($m), true) > 0) {
+                $this->db->rollBack();
                 return $this->jsonError("{$courtName} already has an Open Play session with players. Cancel it before hosting a new one.", 409);
             }
         }
-        try {
             // Clears this court's earlier sessions (ended, or nobody joined).
-            $this->db->cancelOpenPlaySessions('', $facilityId, $courtName);
-            $match = $this->db->insertMatch([
+            $this->openPlay->cancelOpenPlaySessions('', $facilityId, $courtName);
+            $match = $this->matches->insertMatch([
                 'facility_id' => $facilityId,
                 'facility_name' => $facility['name'] ?? '',
                 'location' => $facility['location'] ?? '',
@@ -351,8 +406,12 @@ final class OwnerPortalActions
                 'host' => $user['name'] ?? 'Facility Staff',
                 'title' => $title,
             ]);
-            $this->db->occupyCourt((int)$facilityId, $courtName, 'Hosted Open Play', $timeRange);
+            $this->facilities->occupyCourt((int)$facilityId, $courtName, 'Hosted Open Play', $timeRange);
+            $this->db->commit();
         } catch (\Throwable $e) {
+            if ($this->db->isTransactionActive()) {
+                $this->db->rollBack();
+            }
             error_log('[PICKLERS Owner] host_open_play failed: ' . $e->getMessage());
 
             return $this->jsonError('Failed to publish Open Play session. Please try again.', 500);
@@ -377,12 +436,12 @@ final class OwnerPortalActions
             return $this->jsonError('Facility not found', 403);
         }
         try {
-            $outcome = $this->db->cancelOpenPlaySessions($target, $facility['id'], $courtName);
+            $outcome = $this->openPlay->cancelOpenPlaySessions($target, $facility['id'], $courtName);
         } catch (\Throwable $e) {
             return $this->jsonError('Could not cancel this session. Nothing was changed — please try again.', 500);
         }
         if ($courtName !== '') {
-            $this->db->clearCourtSession($courtName, (int)$facility['id']);
+            $this->facilities->clearCourtSession($courtName, (int)$facility['id']);
         }
         if (!$outcome['deleted']) {
             return $this->jsonError('No active Open Play session was found to cancel.', 404);
@@ -398,7 +457,7 @@ final class OwnerPortalActions
 
     public function updateFacilitySettings(LegacyInput $in, array $user): JsonResponse
     {
-        $facility = $this->facility($in, $user);
+        $facility = $this->scope->ownedFacility($user, trim((string)$in->input('facility_id', '')));
         if ($facility === null) {
             return $this->jsonError('No facility context found. Please complete owner onboarding first.', 403);
         }
@@ -449,7 +508,12 @@ final class OwnerPortalActions
         }
 
         $logoDir = $this->publicDir . '/' . self::FACILITY_LOGO_DIR . '/';
-        if (!$this->db->updateFacility($facility['id'], $update)) {
+        try {
+            $updated = $this->facilities->updateFacility($facility['id'], $update);
+        } catch (\Throwable $e) {
+            $updated = false;
+        }
+        if (!$updated) {
             if ($storedLogo !== null) {
                 @unlink($logoDir . basename($storedLogo));
             }
@@ -461,7 +525,7 @@ final class OwnerPortalActions
             @unlink($logoDir . basename($previous));
         }
 
-        return $this->jsonSuccess(['facility' => $this->db->getFacility($facility['id'])], 'Facility profile & settings updated successfully!');
+        return $this->jsonSuccess(['facility' => $this->facilities->getFacility($facility['id'])], 'Facility profile & settings updated successfully!');
     }
 
     public function openPlayRoster(LegacyInput $in, array $user): JsonResponse
@@ -472,8 +536,11 @@ final class OwnerPortalActions
         if ($facility === null) {
             return $this->jsonError('No facility context found.', 403);
         }
+        if ($courtId !== '' && (string)($this->facilities->getCourtById($courtId)['facility_id'] ?? '') !== (string)$facility['id']) {
+            return $this->jsonError('Court not found at this facility.', 403);
+        }
 
-        return $this->jsonSuccess(['roster' => $this->db->getOpenPlayRoster($facility['id'], $courtName, $courtId), 'court_name' => $courtName]);
+        return $this->jsonSuccess(['roster' => $this->openPlay->getOpenPlayRoster($facility['id'], $courtName, $courtId), 'court_name' => $courtName]);
     }
 
     /** Older clients post here; api?action=create_tournament is current. Same service, same validation. */
@@ -483,19 +550,23 @@ final class OwnerPortalActions
         if ($facility === null) {
             return $this->jsonError('Complete your owner application before hosting a tournament.', 403);
         }
-        $created = $this->tournaments->create([
-            'facility_id' => (string)$facility['id'],
-            'owner_id' => (string)$user['id'],
-            'title' => trim((string)$in->input('title', '')),
-            'category' => (string)$in->input('category', $in->input('type', '')),
-            'format' => (string)$in->input('format', 'single_elimination'),
-            'pairing_mode' => (string)$in->input('pairing_mode', 'fixed'),
-            'max_teams' => $in->input('max_teams', 16),
-            'prize_pool' => (string)$in->input('prize_pool', ''),
-            'entry_fee' => (string)$in->input('entry_fee', ''),
-            'date' => (string)$in->input('date', ''),
-            'end_date' => (string)$in->input('end_date', ''),
-        ]);
+        try {
+            $created = $this->tournaments->create([
+                'facility_id' => (string)$facility['id'],
+                'owner_id' => (string)$user['id'],
+                'title' => trim((string)$in->input('title', '')),
+                'category' => (string)$in->input('category', $in->input('type', '')),
+                'format' => (string)$in->input('format', 'single_elimination'),
+                'pairing_mode' => (string)$in->input('pairing_mode', 'fixed'),
+                'max_teams' => $in->input('max_teams', 16),
+                'prize_pool' => (string)$in->input('prize_pool', ''),
+                'entry_fee' => (string)$in->input('entry_fee', ''),
+                'date' => (string)$in->input('date', ''),
+                'end_date' => (string)$in->input('end_date', ''),
+            ]);
+        } catch (TournamentBusyException $e) {
+            return $this->jsonError($e->getMessage(), 503);
+        }
         if ($created['error'] !== null) {
             return $this->jsonError($created['error'], 422);
         }
@@ -505,6 +576,10 @@ final class OwnerPortalActions
 
     public function addStaff(LegacyInput $in, array $user): JsonResponse
     {
+        $facility = $this->scope->ownedFacility($user, trim((string)$in->input('facility_id', '')));
+        if ($facility === null) {
+            return $this->jsonError('Unauthorized: Only the venue owner or administrator may manage staff.', 403);
+        }
         $name = trim((string)$in->input('name', ''));
         $email = trim((string)$in->input('email', ''));
         $role = (string)$in->input('role', 'Front Desk');
@@ -517,19 +592,22 @@ final class OwnerPortalActions
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return $this->jsonError('Please enter a valid email address', 400);
         }
-        $facility = $this->facility($in, $user);
-        if ($facility === null) {
-            return $this->jsonError('No facility to add this staff member to. Please complete your owner application first.', 403);
+        $player = $this->owners->getRegisteredStaffPlayer(trim((string)$in->input('user_id', '')));
+        if ($player === null || strcasecmp($email, (string)$player['email']) !== 0) {
+            return $this->jsonError('Please select a registered player from the search results.', 400);
         }
         try {
-            $staff = $this->db->insertStaff([
+            $staff = $this->owners->insertStaff([
                 'facility_id' => $facility['id'],
-                'name' => $name,
-                'email' => $email,
+                'user_id' => $player['id'],
+                'name' => $player['name'],
+                'email' => $player['email'],
                 'role' => $role,
                 'status' => 'Active',
                 'date_joined' => date('M Y'),
             ]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->jsonError($e->getMessage(), 400);
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to add staff member. Please try again.', 500);
         }
@@ -546,11 +624,11 @@ final class OwnerPortalActions
         if ($staffId === '') {
             return $this->jsonError('Missing staff ID', 400);
         }
-        if (empty($user['is_admin']) && !$this->db->verifyStaffOwner($staffId, (string)$user['id'])) {
+        if (empty($user['is_admin']) && !$this->owners->verifyStaffOwner($staffId, (string)$user['id'])) {
             return $this->jsonError('Unauthorized: You do not manage this staff member', 403);
         }
         try {
-            $ok = $this->db->deleteStaff($staffId);
+            $ok = $this->owners->deleteStaff($staffId);
         } catch (\Throwable $e) {
             return $this->jsonError('Failed to revoke staff access. Please try again.', 500);
         }
@@ -568,6 +646,10 @@ final class OwnerPortalActions
      */
     public function requestPayout(LegacyInput $in, array $user): JsonResponse
     {
+        $facility = $this->scope->ownedFacility($user, trim((string)$in->input('facility_id', '')));
+        if ($facility === null) {
+            return $this->jsonError('Only the facility owner or an administrator can request payouts.', 403);
+        }
         $amount = round((float)$in->input('amount', 0.0), 2);
         $method = trim((string)$in->input('method', ''));
         $accountName = trim((string)$in->input('account_name', ''));
@@ -584,11 +666,7 @@ final class OwnerPortalActions
         if (mb_strlen($accountName) > 120 || !preg_match('/^[0-9\s\-]{6,34}$/', $accountNumber)) {
             return $this->jsonError('Please enter a valid account name and account/mobile number.', 400);
         }
-        $facility = $this->facility($in, $user);
-        if ($facility === null) {
-            return $this->jsonError('No facility found for this account.', 400);
-        }
-        $payout = $this->db->createPayoutRequest((string)$user['id'], (string)$facility['id'], $amount, $method, "Disbursement to: {$accountName}, {$accountNumber}");
+        $payout = $this->owners->createPayoutRequest((string)$user['id'], (string)$facility['id'], $amount, $method, "Disbursement to: {$accountName}, {$accountNumber}");
         if (empty($payout['success'])) {
             return $this->jsonError((string)($payout['message'] ?? 'Payout request could not be submitted.'), 400);
         }
@@ -603,14 +681,14 @@ final class OwnerPortalActions
 
     private function ownsCourt(array $user, string $courtId): bool
     {
-        return !empty($user['is_admin']) || $this->db->verifyCourtOwner($courtId, (string)$user['id']);
+        return $this->scope->canManageCourt($user, $courtId);
     }
 
     /** An unexpired Open Play session on exactly this court ("Court 1" never matches "Court 10"). */
     private function hostsOpenPlay(int|string $facilityId, string $courtLabel): bool
     {
-        foreach ($this->db->getMatchesByFacility($facilityId) as $m) {
-            if (!Database::isMatchExpired($m) && strcasecmp(trim((string)($m['type'] ?? '')), $courtLabel) === 0) {
+        foreach ($this->matches->getMatchesByFacility($facilityId) as $m) {
+            if (!Schedule::isMatchExpired($m) && strcasecmp(trim((string)($m['type'] ?? '')), $courtLabel) === 0) {
                 return true;
             }
         }

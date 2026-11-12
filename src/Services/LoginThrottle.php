@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Services;
 
+use Picklers\Helpers\Format;
+
 /**
  * LoginThrottle — brute-force protection for the sign-in endpoint.
  *
@@ -155,13 +157,18 @@ final class LoginThrottle {
         return $minutes . ' minute' . ($minutes === 1 ? '' : 's');
     }
 
+    // Legacy hashes cannot reveal phone spellings; live upgrades must drain old counters first.
+    private function normalizeIdentifier(string $identifier): string {
+        return Format::phMobile($identifier) ?? strtolower(trim($identifier));
+    }
+
     private function key(string $identifier): string {
         $ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
-        return hash('sha256', strtolower(trim($identifier)) . '|' . $ip);
+        return hash('sha256', $this->normalizeIdentifier($identifier) . '|' . $ip);
     }
 
     private function accountKey(string $identifier): string {
-        return 'acct_' . hash('sha256', strtolower(trim($identifier)));
+        return 'acct_' . hash('sha256', $this->normalizeIdentifier($identifier));
     }
 
     private function read(): array {

@@ -1,0 +1,8 @@
+<script>
+  (function () {
+    let theme = 'dark';
+    try { theme = localStorage.getItem('picklers_theme') === 'light' ? 'light' : 'dark'; } catch (_) {}
+    document.documentElement.classList.toggle('light', theme === 'light');
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  })();
+</script>

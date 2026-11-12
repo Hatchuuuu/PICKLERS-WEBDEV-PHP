@@ -12,11 +12,11 @@ final class MatchRepository
     private readonly \Picklers\Domain\BookingRules $bookingRules;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\BookingRules $bookingRules = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\BookingRules $bookingRules,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->bookingRules = $bookingRules ?? \Picklers\Core\Database::get()->bookingRules();
+        $this->db = $db;
+        $this->bookingRules = $bookingRules;
     }
 
     public function getMatches(): array {
@@ -24,8 +24,8 @@ final class MatchRepository
         return $stmt->fetchAllAssociative();
     }
 
-    public function getMatchesByFacility(int|string $facilityId): array {
-        $stmt = $this->db->executeQuery("SELECT * FROM matches WHERE facility_id = ?", [$facilityId]);
+    public function getMatchesByFacility(int|string $facilityId, bool $lock = false): array {
+        $stmt = $this->db->executeQuery("SELECT * FROM matches WHERE facility_id = ? ORDER BY id" . ($lock ? ' FOR UPDATE' : ''), [$facilityId]);
         return $stmt->fetchAllAssociative();
     }
 
@@ -71,7 +71,16 @@ final class MatchRepository
      * must compare against max_players; current_players alone only tracks
      * approved seats and under-counts demand while requests await review.
      */
-    public function countActiveMatchBookings(string $matchId, ?string $targetDate = null): int {
+    public function countActiveMatchBookings(string $matchId, ?string $targetDate = null, bool $lock = false): int {
+        if ($lock) {
+            $sql = "SELECT id FROM bookings WHERE match_id = ? AND status IN ('pending', 'confirmed')";
+            $params = [$matchId];
+            if ($targetDate !== null && $targetDate !== '') {
+                $sql .= ' AND (booking_date = ? OR (booking_date IS NULL AND (date = ? OR date LIKE ? OR created_at LIKE ?)))';
+                $params = [...$params, $targetDate, $targetDate, "%$targetDate%", "$targetDate%"];
+            }
+            return count($this->db->fetchAllAssociative($sql . ' FOR UPDATE', $params));
+        }
         if ($targetDate !== null && $targetDate !== '') {
             return $this->bookingRules->countActiveMatchBookings($matchId, $targetDate);
         }

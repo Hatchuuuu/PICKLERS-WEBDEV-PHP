@@ -13,20 +13,20 @@ final class OwnerRepository
     private readonly \Picklers\Repositories\FacilityRepository $facilities;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\FacilityProvisioner $provisioner = null,
-        ?\Picklers\Repositories\FacilityRepository $facilities = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\FacilityProvisioner $provisioner,
+        \Picklers\Repositories\FacilityRepository $facilities,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->provisioner = $provisioner ?? new \Picklers\Domain\FacilityProvisioner($this->db, \Picklers\Core\Database::get()->notifier());
-        $this->facilities = $facilities ?? new \Picklers\Repositories\FacilityRepository($this->db);
+        $this->db = $db;
+        $this->provisioner = $provisioner;
+        $this->facilities = $facilities;
     }
 
     public function getStaffByFacility(int|string $facilityId): array {
         $stmt = $this->db->executeQuery("
             SELECT s.*, COALESCE(u.avatar_url, '') as avatar_url 
             FROM staff s 
-            LEFT JOIN users u ON ((s.user_id IS NOT NULL AND s.user_id != '' AND s.user_id = u.id) OR (LOWER(s.email) = LOWER(u.email) AND s.email != '')) 
+            LEFT JOIN users u ON s.user_id = u.id
             WHERE s.facility_id = ?
         ", [$facilityId]);
         return $stmt->fetchAllAssociative();
@@ -34,17 +34,15 @@ final class OwnerRepository
 
     public function getStaffFacilityIdsForUser(string $userId, string $email): array {
         $userId = trim($userId);
-        $email = strtolower(trim($email));
-        if ($userId === '' && $email === '') {
+        if ($userId === '') {
             return [];
         }
 
         $stmt = $this->db->executeQuery("
             SELECT DISTINCT facility_id 
             FROM staff 
-            WHERE (user_id IS NOT NULL AND user_id != '' AND user_id = ?) 
-               OR (email IS NOT NULL AND email != '' AND LOWER(email) = ?)
-        ", [$userId, $email]);
+            WHERE user_id = ?
+        ", [$userId]);
         return array_column($stmt->fetchAllAssociative(), 'facility_id');
     }
 
@@ -59,31 +57,69 @@ final class OwnerRepository
     }
 
     public function insertStaff(array $staffData): array {
-        $id = $staffData['id'] ?? ('stf_' . bin2hex(random_bytes(4)));
+        return $this->db->transactional(function () use ($staffData): array {
+            // Lock the venue even when no membership exists, so simultaneous grants serialize.
+            if (!$this->db->fetchOne('SELECT id FROM facilities WHERE id = ? FOR UPDATE', [$staffData['facility_id']])) {
+                throw new \InvalidArgumentException('Facility not found');
+            }
+            if (!empty($staffData['user_id'])) {
+                // Serialize grants with account deletion/status changes; never restore a stale selection.
+                $player = $this->db->fetchAssociative("SELECT name, email FROM users WHERE id = ? AND role = 'player' FOR UPDATE", [$staffData['user_id']]);
+                if ($player === false || mb_strlen((string)$player['name']) > 100) {
+                    throw new \InvalidArgumentException('Select an active player with a name of up to 100 characters.');
+                }
+                $staffData['name'] = $player['name'];
+                $staffData['email'] = $player['email'];
+                $existing = $this->db->fetchAssociative('SELECT * FROM staff WHERE facility_id = ? AND user_id = ? ORDER BY id LIMIT 1 FOR UPDATE', [$staffData['facility_id'], $staffData['user_id']]);
+                if ($existing !== false) {
+                    return $existing;
+                }
+            }
+            $id = $staffData['id'] ?? ('stf_' . bin2hex(random_bytes(4)));
 
-        $staff = [
-            'id' => $id,
-            'facility_id' => $staffData['facility_id'],
-            'name' => $staffData['name'] ?? $staffData['full_name'] ?? 'Staff Member',
-            'email' => $staffData['email'] ?? 'staff@facility.com',
-            'role' => $staffData['role'] ?? 'Front Desk',
-            'status' => $staffData['status'] ?? 'Active',
-            'date_joined' => $staffData['date_joined'] ?? date('M Y')
-        ];
+            $staff = [
+                'id' => $id,
+                'facility_id' => $staffData['facility_id'],
+                'user_id' => $staffData['user_id'] ?? null,
+                'name' => $staffData['name'] ?? $staffData['full_name'] ?? 'Staff Member',
+                'email' => $staffData['email'] ?? 'staff@facility.com',
+                'role' => $staffData['role'] ?? 'Front Desk',
+                'status' => $staffData['status'] ?? 'Active',
+                'date_joined' => $staffData['date_joined'] ?? date('M Y')
+            ];
 
-        $this->db->executeStatement(
-            "INSERT INTO staff (id, facility_id, name, email, role, status, date_joined) VALUES (?,?,?,?,?,?,?)",
-            [
-                $staff['id'], $staff['facility_id'], $staff['name'], $staff['email'],
-                $staff['role'], $staff['status'], $staff['date_joined']
-            ]
-        );
-        return $staff;
+            $this->db->executeStatement(
+                "INSERT INTO staff (id, facility_id, user_id, name, email, role, status, date_joined) VALUES (?,?,?,?,?,?,?,?)",
+                [
+                    $staff['id'], $staff['facility_id'], $staff['user_id'], $staff['name'], $staff['email'],
+                    $staff['role'], $staff['status'], $staff['date_joined']
+                ]
+            );
+            return $staff;
+        });
+    }
+
+    public function getRegisteredStaffPlayer(string $userId): ?array {
+        return $this->db->fetchAssociative("SELECT id, name, email FROM users WHERE id = ? AND role = 'player'", [$userId]) ?: null;
     }
 
     public function deleteStaff(string $staffId): bool {
-        $stmt = $this->db->executeQuery("DELETE FROM staff WHERE id = ?", [$staffId]);
-        return $stmt->rowCount() > 0;
+        return $this->db->transactional(function () use ($staffId): bool {
+            $facilityId = $this->db->fetchOne('SELECT facility_id FROM staff WHERE id = ?', [$staffId]);
+            if ($facilityId === false) {
+                return false;
+            }
+            $this->db->fetchOne('SELECT id FROM facilities WHERE id = ? FOR UPDATE', [$facilityId]);
+            $staff = $this->db->fetchAssociative('SELECT user_id FROM staff WHERE id = ? FOR UPDATE', [$staffId]);
+            if ($staff === false) {
+                return false;
+            }
+            // Legacy rows without a stable user identity must never be grouped by email.
+            if (empty($staff['user_id'])) {
+                return $this->db->executeStatement('DELETE FROM staff WHERE id = ?', [$staffId]) > 0;
+            }
+            return $this->db->executeStatement('DELETE FROM staff WHERE facility_id = ? AND user_id = ?', [$facilityId, $staff['user_id']]) > 0;
+        });
     }
 
     public function createOwnerApplication(array $appData): bool {
@@ -190,6 +226,32 @@ final class OwnerRepository
             [$facilityId]
         );
         $allTimeGross = (float)$s->fetchOne();
+
+        // Only collected credits for elapsed sessions can fund platform disbursements.
+        $collectionWhere = "b.facility_id = ? AND b.status IN ('confirmed','completed')
+               AND b.payment_method = 'Pickle Credits' AND b.price > 0
+               AND b.booking_date IS NOT NULL
+               AND (SELECT COALESCE(SUM(w.amount), 0) FROM wallet_transactions w
+                    WHERE w.booking_id = b.id AND w.user_id = b.user_id
+                      AND w.type = 'debit' AND w.entry_kind = 'booking_payment') >= b.price
+               AND NOT EXISTS (SELECT 1 FROM wallet_transactions r
+                    WHERE r.booking_id = b.id AND r.user_id = b.user_id AND r.type = 'credit')";
+        $collectedGross = (float)$this->db->fetchOne(
+            "SELECT COALESCE(SUM(b.price), 0) FROM bookings b WHERE {$collectionWhere}
+               AND b.end_min IS NOT NULL AND TIMESTAMPADD(MINUTE, b.end_min, b.booking_date) <= ?",
+            [$facilityId, date('Y-m-d H:i:s')]
+        );
+        // Older Open Play joins stored their time string without canonical minutes.
+        foreach ($this->db->fetchAllAssociative(
+            "SELECT b.price, b.booking_date, b.time FROM bookings b WHERE {$collectionWhere} AND b.end_min IS NULL AND b.booking_date <= ?",
+            [$facilityId, $today]
+        ) as $booking) {
+            $window = \Picklers\Domain\Schedule::parseTimeRange((string)$booking['time']);
+            if ($window !== null && strtotime($booking['booking_date'] . ' 00:00:00') + $window[1] * 60 <= time()) {
+                $collectedGross += (float)$booking['price'];
+            }
+        }
+        $collectedNet = round($collectedGross - round($collectedGross * $FEE_PCT, 2), 2);
 
         // Active bookings (pending + confirmed)
         $s = $this->db->executeQuery(
@@ -362,7 +424,7 @@ final class OwnerRepository
             'net'              => $allTimeNet,
             // Earlier payout requests are deducted from what is available.
             'payouts_requested'=> $payoutsRequested,
-            'available'        => max(0.0, round($allTimeNet * 0.80 - $payoutsRequested, 2)),
+            'available'        => max(0.0, round($collectedNet * 0.80 - $payoutsRequested, 2)),
             'ledger'           => $ledger,
             'daily_breakdown'  => $dailyBreakdown,
             'daily_breakdown_peak' => $breakdownPeak,
@@ -371,17 +433,12 @@ final class OwnerRepository
 
     /** Total already requested for payout (anything not rejected/cancelled) for one facility. */
     public function getPayoutRequestedTotal(int|string $facilityId): float {
-        try {
-            $s = $this->db->executeQuery(
-                "SELECT COALESCE(SUM(amount), 0) FROM payout_requests
-                  WHERE facility_id = ? AND status NOT IN ('rejected', 'cancelled', 'failed')",
-                [(string)$facilityId]
-            );
-            return (float)$s->fetchOne();
-        } catch (\Throwable $e) {
-            error_log('[DB Error] getPayoutRequestedTotal failed: ' . $e->getMessage());
-            return 0.0;
-        }
+        $s = $this->db->executeQuery(
+            "SELECT COALESCE(SUM(amount), 0) FROM payout_requests
+              WHERE facility_id = ? AND status NOT IN ('rejected', 'cancelled', 'failed')",
+            [(string)$facilityId]
+        );
+        return (float)$s->fetchOne();
     }
 
     /**
@@ -400,7 +457,7 @@ final class OwnerRepository
             return ['success' => false, 'message' => 'Payout amount must be greater than zero.'];
         }
 
-        $lockName = 'picklers_payout_' . $facilityId;
+        $lockName = hash('sha256', 'picklers_payout:' . $this->db->getDatabase() . ':' . $facilityId);
         $locked = false;
         $lock = $this->db->executeQuery('SELECT GET_LOCK(?, 5)', [$lockName]);
         $locked = (int)$lock->fetchOne() === 1;

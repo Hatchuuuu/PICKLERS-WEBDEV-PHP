@@ -92,7 +92,7 @@ final class PanelBuilder
                 'facility_options' => $this->ledger->facilityOptions(),
                 'payments' => BookingAdminService::PAYMENTS,
             ],
-            'users' => ['page' => $this->accounts->search($this->query($tab, $q)), 'counts' => $this->accounts->roleCounts()],
+            'users' => ['page' => $this->accounts->search($this->query($tab, $q)), 'counts' => $this->accounts->roleCounts(), 'facility_options' => $this->ledger->facilityOptions()],
             'moderation' => $view === 'content'
                 ? ['view' => 'content', 'page' => $this->moderation->searchContent($this->query($tab, $q, 'content')), 'open_count' => $this->moderation->openCount()]
                 : ['view' => 'cases', 'page' => $this->moderation->searchCases($this->query($tab, $q, 'cases')), 'open_count' => $this->moderation->openCount()],

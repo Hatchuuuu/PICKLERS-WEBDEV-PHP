@@ -6,12 +6,12 @@
     <div class="app-modal-box" style="max-width: 440px; border-radius: 24px; background: #0E1A2D; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 50px rgba(0,0,0,0.6);">
       <div class="modal-head" style="padding: 18px 22px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(0,217,139,0.14); border: 1px solid rgba(0,217,139,0.3); display: flex; align-items: center; justify-content: center; color: #00D98B;">
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(0,217,139,0.14); border: 1px solid rgba(0,217,139,0.3); display: flex; align-items: center; justify-content: center; color:var(--pk-accent-emerald-text);">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
           </div>
           <div>
             <h3 class="modal-title" style="font-size: 17px; font-weight: 800; color: #FFFFFF; margin: 0;">Confirm Reservation</h3>
-            <p style="font-size: 12px; color: #94A3B8; margin: 2px 0 0;">Review slot before proceeding to checkout</p>
+            <p style="font-size: 12px; color:var(--pk-text-muted); margin: 2px 0 0;">Review slot before proceeding to checkout</p>
           </div>
         </div>
         <button type="button" class="modal-close-btn" onclick="closeModal('confirmBookingModal')" aria-label="Close" style="width: 30px; height: 30px; min-width: 30px; min-height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #FFFFFF; font-size: 14px; cursor: pointer;">✕</button>
@@ -21,10 +21,10 @@
           <!-- Facility & Court Badge Row -->
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 14px;">
             <div style="flex: 1; min-width: 0;">
-              <div style="font-size: 10px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.5px;">FACILITY</div>
+              <div style="font-size: 10px; font-weight: 800; color:var(--pk-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">FACILITY</div>
               <div id="confirmBookFacilityName" style="font-size: 15px; font-weight: 800; color: #FFFFFF; margin-top: 2px; line-height: 1.35; word-break: break-word;">Pickleball Facility</div>
             </div>
-            <div id="confirmBookCourtName" style="font-size: 13px; font-weight: 800; color: #FFFFFF !important; background: none; border: none; padding: 0; margin: 0; white-space: nowrap; flex-shrink: 0; align-self: flex-start;">Court 1</div>
+            <div id="confirmBookCourtName" style="font-size: 13px; font-weight: 800; color: var(--pk-text-primary) !important; background: none; border: none; padding: 0; margin: 0; white-space: nowrap; flex-shrink: 0; align-self: flex-start;">Court 1</div>
           </div>
 
           <!-- Interactive Date & Time Slot Selection (Consistent with QuickBook Modal) -->
@@ -48,13 +48,13 @@
             <div class="qb-times-grid" style="margin-bottom: 6px;">
               <!-- START TIME Column -->
               <div class="qb-time-column" id="cbStartTimeCol" onwheel="handleConfirmTimeWheel(event, 'start')">
-                <div class="qb-section-title" style="color: var(--pk-status-success); justify-content:center;">
+                <div class="qb-section-title" style="color: var(--pk-accent-emerald-text); justify-content:center;">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                   <span>START TIME</span>
                 </div>
-                <div class="qb-time-slot-subtle" id="cbStartPrev" onclick="shiftConfirmStartTime(-1)">6:00 AM</div>
+                <button type="button" class="qb-time-slot-subtle" id="cbStartPrev" onclick="shiftConfirmStartTime(-1)">6:00 AM</button>
                 <button type="button" class="qb-time-slot-active-start" id="cbStartActive" onclick="shiftConfirmStartTime(1)">7:00 AM</button>
-                <div class="qb-time-slot-subtle" id="cbStartNext" onclick="shiftConfirmStartTime(1)">8:00 AM</div>
+                <button type="button" class="qb-time-slot-subtle" id="cbStartNext" onclick="shiftConfirmStartTime(1)">8:00 AM</button>
               </div>
 
               <!-- END TIME Column -->
@@ -63,16 +63,16 @@
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                   <span>END TIME</span>
                 </div>
-                <div class="qb-time-slot-subtle" id="cbEndPrev" onclick="shiftConfirmEndTime(-1)">11:00 AM</div>
+                <button type="button" class="qb-time-slot-subtle" id="cbEndPrev" onclick="shiftConfirmEndTime(-1)">11:00 AM</button>
                 <button type="button" class="qb-time-slot-active-end" id="cbEndActive" onclick="shiftConfirmEndTime(1)">12:00 PM</button>
-                <div class="qb-time-slot-subtle" id="cbEndNext" onclick="shiftConfirmEndTime(1)">1:00 PM</div>
+                <button type="button" class="qb-time-slot-subtle" id="cbEndNext" onclick="shiftConfirmEndTime(1)">1:00 PM</button>
               </div>
             </div>
 
             <!-- Summary Card -->
             <div class="qb-summary-card">
               <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:34px; height:34px; border-radius:50%; background: var(--pk-status-success-bg); color: var(--pk-status-success); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <div style="width:34px; height:34px; border-radius:50%; background: var(--pk-status-success-bg); color: var(--pk-accent-emerald-text); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
                 <div>
@@ -91,14 +91,14 @@
 
           <!-- Payment Breakdown -->
           <div style="margin-bottom: 20px;">
-            <div style="font-size: 10px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">PAYMENT BREAKDOWN</div>
+            <div style="font-size: 10px; font-weight: 800; color:var(--pk-text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">PAYMENT BREAKDOWN</div>
             
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #94A3B8; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color:var(--pk-text-muted); margin-bottom: 8px;">
               <span>Court Rental Fee</span>
               <span id="confirmBookCourtFee" style="font-size: 15px; font-weight: 900; color: #FFFFFF !important; font-variant-numeric: tabular-nums;">₱900</span>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #94A3B8; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color:var(--pk-text-muted); margin-bottom: 12px;">
               <span>Platform &amp; Service Fee (10%)</span>
               <span id="confirmBookPlatformFee" style="font-size: 15px; font-weight: 900; color: #FFFFFF !important; font-variant-numeric: tabular-nums;">₱90</span>
             </div>
@@ -150,7 +150,8 @@
         </div>
 
         <div class="qb-date-row" id="qbDatePillsContainer">
-          {% for d in upcoming_days(14) %}
+          {% set qbDays = upcoming_days(14) %}
+          {% for d in qbDays %}
                   {% set dFull = d.full %}{% set dDay = d.day %}{% set dSub = d.sub %}{% set dLabel = d.label %}{% set isActive = d.active %}            <button type="button" class="qb-date-pill {{ (isActive ? 'active' : '') }}" onclick="selectQuickBookDate(this, '{{ dFull }}', '{{ dLabel }}')">
               <span class="qb-date-day">{{ dDay }}</span>
               <span class="qb-date-sub">{{ dSub }}</span>
@@ -162,13 +163,13 @@
         <div class="qb-times-grid">
           <!-- START TIME Column -->
           <div class="qb-time-column" id="qbStartTimeCol" onwheel="handleTimeWheel(event, 'start')">
-            <div class="qb-section-title" style="color: var(--pk-status-success); justify-content:center;">
+            <div class="qb-section-title" style="color: var(--pk-accent-emerald-text); justify-content:center;">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               <span>START TIME</span>
             </div>
-            <div class="qb-time-slot-subtle" id="qbStartPrev" onclick="shiftStartTime(-1)">6:00 AM</div>
+            <button type="button" class="qb-time-slot-subtle" id="qbStartPrev" onclick="shiftStartTime(-1)">6:00 AM</button>
             <button type="button" class="qb-time-slot-active-start" id="qbStartActive" onclick="shiftStartTime(1)">7:00 AM</button>
-            <div class="qb-time-slot-subtle" id="qbStartNext" onclick="shiftStartTime(1)">8:00 AM</div>
+            <button type="button" class="qb-time-slot-subtle" id="qbStartNext" onclick="shiftStartTime(1)">8:00 AM</button>
           </div>
 
           <!-- END TIME Column -->
@@ -177,16 +178,16 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               <span>END TIME</span>
             </div>
-            <div class="qb-time-slot-subtle" id="qbEndPrev" onclick="shiftEndTime(-1)">11:00 AM</div>
+            <button type="button" class="qb-time-slot-subtle" id="qbEndPrev" onclick="shiftEndTime(-1)">11:00 AM</button>
             <button type="button" class="qb-time-slot-active-end" id="qbEndActive" onclick="shiftEndTime(1)">12:00 PM</button>
-            <div class="qb-time-slot-subtle" id="qbEndNext" onclick="shiftEndTime(1)">1:00 PM</div>
+            <button type="button" class="qb-time-slot-subtle" id="qbEndNext" onclick="shiftEndTime(1)">1:00 PM</button>
           </div>
         </div>
 
         <!-- Summary Card -->
         <div class="qb-summary-card">
           <div style="display:flex; align-items:center; gap:12px;">
-            <div style="width:34px; height:34px; border-radius:50%; background: var(--pk-status-success-bg); color: var(--pk-status-success); display:flex; align-items:center; justify-content:center;">
+            <div style="width:34px; height:34px; border-radius:50%; background: var(--pk-status-success-bg); color: var(--pk-accent-emerald-text); display:flex; align-items:center; justify-content:center;">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             </div>
             <div>
@@ -195,7 +196,7 @@
             </div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:12px; font-weight:800; color: #FFFFFF !important; font-variant-numeric:tabular-nums;" id="qbSummaryDateText">Thu Sep 10 2026</div>
+            <div style="font-size:12px; font-weight:800; color: #FFFFFF !important; font-variant-numeric:tabular-nums;" id="qbSummaryDateText">{{ qbDays[0].full }}</div>
             <div style="font-size:14px; font-weight:900; color: #FFFFFF !important; font-variant-numeric:tabular-nums;" id="qbSummaryTimeRange">7:00 AM – 12:00 PM</div>
           </div>
         </div>
@@ -233,7 +234,7 @@
           </div>
         </div>
 
-        <div class="qb-section-title" style="color: var(--pk-status-success); font-size:11px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <div class="qb-section-title" style="color: var(--pk-accent-emerald-text); font-size:11px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           <span>SELECT COURT TO BOOK</span>
         </div>
@@ -253,8 +254,8 @@
       <input type="hidden" id="qbSelectedCourtName" value="Court 2">
       <input type="hidden" id="qbSelectedCourtSurface" value="Hard">
       <input type="hidden" id="qbSelectedCourtType" value="Indoor">
-      <input type="hidden" id="qbSelectedDate" value="Thu Sep 10 2026">
-      <input type="hidden" id="qbSelectedDateFull" value="Thu Sep 10 2026">
+      <input type="hidden" id="qbSelectedDate" value="{{ qbDays[0].full }}">
+      <input type="hidden" id="qbSelectedDateFull" value="{{ qbDays[0].full }}">
       <input type="hidden" id="qbSelectedStartIdx" value="1">
       <input type="hidden" id="qbSelectedEndIdx" value="6">
       <input type="hidden" id="qbBaseHourlyRate" value="180">
@@ -267,18 +268,18 @@
       <!-- Top Modal Header with Close Button -->
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <div style="display:flex; align-items:center; gap:6px;">
-          <span style="font-size:10px; font-weight:800; background:rgba(0,217,139,0.12); color:#00D98B; border:1px solid rgba(0,217,139,0.3); padding:3px 10px; border-radius:6px; letter-spacing:0.5px;">✓ REQUEST SUBMITTED</span>
+          <span style="font-size:10px; font-weight:800; background:rgba(0,217,139,0.12); color:var(--pk-accent-emerald-text); border:1px solid rgba(0,217,139,0.3); padding:3px 10px; border-radius:6px; letter-spacing:0.5px;">✓ REQUEST SUBMITTED</span>
         </div>
         <button type="button" class="modal-close-btn" onclick="closeBookingReceiptAndRedirect()" aria-label="Close" style="width:30px; height:30px; min-width:30px; min-height:30px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; font-size:14px; cursor:pointer; transition:all 0.2s;">✕</button>
       </div>
 
       <!-- Success Icon & Status Hero -->
       <div style="text-align:center; margin-bottom:14px;">
-        <div class="receipt-success-badge" style="width:44px; height:44px; border-radius:50%; background:rgba(0,217,139,0.14); border:1px solid rgba(0,217,139,0.35); display:inline-flex; align-items:center; justify-content:center; color:#00D98B; margin-bottom:8px; box-shadow:0 0 18px rgba(0,217,139,0.3);">
+        <div class="receipt-success-badge" style="width:44px; height:44px; border-radius:50%; background:rgba(0,217,139,0.14); border:1px solid rgba(0,217,139,0.35); display:inline-flex; align-items:center; justify-content:center; color:var(--pk-accent-emerald-text); margin-bottom:8px; box-shadow:0 0 18px rgba(0,217,139,0.3);">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <h3 style="font-size:18px; font-weight:800; margin:0 0 3px; color:#FFFFFF; letter-spacing:-0.01em;">Reservation Request Sent</h3>
-        <div style="font-size:11.5px; color:#94A3B8; margin-bottom:6px;">Awaiting the facility's confirmation — we'll notify you the moment it's approved.</div>
+        <div style="font-size:11.5px; color:var(--pk-text-muted); margin-bottom:6px;">Awaiting the facility's confirmation — we'll notify you the moment it's approved.</div>
         <div style="font-size:24px; font-weight:900; color:#FFFFFF; text-shadow:0 0 16px rgba(255,255,255,0.2);" id="receiptAmountPaid">₱518.00</div>
       </div>
 
@@ -290,7 +291,7 @@
             <div class="receipt-label">Booking Reference</div>
             <div class="receipt-code-badge" id="receiptRefCode">#PKL-8F92A1</div>
           </div>
-          <div style="background:rgba(255,184,0,0.14); color:#FFB800; font-size:10px; font-weight:700; padding:4px 10px; border-radius:6px; border:1px solid rgba(255,184,0,0.3); letter-spacing:0.3px;">
+          <div style="background:rgba(255,184,0,0.14); color:var(--accent-warning-text); font-size:10px; font-weight:700; padding:4px 10px; border-radius:6px; border:1px solid rgba(255,184,0,0.3); letter-spacing:0.3px;">
             ⏳ PENDING CONFIRMATION
           </div>
         </div>
@@ -339,11 +340,11 @@
     <div class="app-modal-box" style="text-align:center; max-width:420px; border-radius:24px; background:#0E1A2D; border:1px solid rgba(255,255,255,0.12); box-shadow:0 24px 50px rgba(0,0,0,0.6);">
       <div class="modal-head" style="padding:18px 22px 12px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
         <h3 class="modal-title" style="font-size:17px; font-weight:800; color:#FFFFFF; margin:0;">Venue Check-In Pass</h3>
-        <button type="button" class="modal-close-btn" onclick="closeModal('qrPassModal')" style="width:32px; height:32px; min-width:32px; min-height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; font-size:15px; cursor:pointer; flex-shrink:0;">&#10005;</button>
+        <button type="button" class="modal-close-btn" onclick="closeModal('qrPassModal')" style="width:32px; height:32px; min-width:32px; min-height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#FFFFFF; font-size:15px; cursor:pointer; flex-shrink:0;" aria-label="Close">&#10005;</button>
       </div>
       <div class="modal-body" style="text-align:center; padding:22px;">
         <div style="margin-bottom: 14px;">
-          <span id="qrPassTypeBadge" style="display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:800; padding:4px 12px; border-radius:6px; letter-spacing:0.5px; text-transform:uppercase; background:rgba(0,217,139,0.12); color:#00D98B; border:1px solid rgba(0,217,139,0.3);">
+          <span id="qrPassTypeBadge" style="display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:800; padding:4px 12px; border-radius:6px; letter-spacing:0.5px; text-transform:uppercase; background:rgba(0,217,139,0.12); color:var(--pk-accent-emerald-text); border:1px solid rgba(0,217,139,0.3);">
             ✓ VERIFIED ACCESS PASS
           </span>
         </div>
@@ -355,7 +356,7 @@
         <div id="qrPassCode" style="font-family:monospace; font-size:18px; font-weight:900; color:#FFFFFF; letter-spacing:2px; margin-bottom:6px;">
           #PKL-8F92A1
         </div>
-        <div id="qrPassDetails" style="font-size:12.5px; color:#94A3B8; line-height:1.45;">
+        <div id="qrPassDetails" style="font-size:12.5px; color:var(--pk-text-muted); line-height:1.45;">
           Present this digital QR pass at the facility reception for instant express entry.
         </div>
       </div>
@@ -368,12 +369,12 @@
       <!-- Header -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="width: 38px; height: 38px; border-radius: 10px; background: var(--pk-status-success-bg); display: flex; align-items: center; justify-content: center; color: var(--pk-status-success); flex-shrink: 0;">
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: var(--pk-status-success-bg); display: flex; align-items: center; justify-content: center; color: var(--pk-accent-emerald-text); flex-shrink: 0;">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
           </div>
           <div>
             <h3 style="font-family: 'Montserrat', var(--font-heading), -apple-system, BlinkMacSystemFont, sans-serif; font-size: 18px; font-weight: 800; color: var(--pk-text-primary); margin: 0 0 2px; letter-spacing: -0.015em;">Top Up Credits</h3>
-            <p style="font-size: 12px; color: var(--pk-text-muted); margin: 0;">Add funds to your wallet</p>
+            <p style="font-size: 12px; color: var(--pk-text-muted); margin: 0;">Real-money top-ups are currently unavailable.</p>
           </div>
         </div>
         <button type="button" class="modal-close-btn" onclick="closeModal('topUpModal')" aria-label="Close" style="width: 30px; height: 30px; min-width: 30px; min-height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: var(--pk-text-muted); cursor: pointer; padding: 0;">
@@ -381,6 +382,7 @@
         </button>
       </div>
 
+      <p style="font-size: 13px; color: var(--pk-text-primary);">This form supports development/test simulations only when enabled. No real payment is collected. For booking payment options, contact the facility.</p>
       <!-- Select Amount Section -->
       <div style="margin-bottom: 14px;">
         <div style="font-size: 13px; font-weight: 700; color: var(--pk-text-primary); margin-bottom: 8px;">Select Amount</div>
@@ -462,8 +464,8 @@
       <input type="hidden" id="topUpSelectedMethod" value="GCash">
 
       <!-- Pay Button in Vibrant Green (#00D98B) with Pure White Text -->
-      <button type="button" id="topUpSubmitBtn" class="topup-pay-blue-btn" onclick="submitTopUp()" style="background: var(--pk-status-success); color: var(--pk-bg-card) !important; font-weight: 900; padding: 13px 16px; font-size: 15px; border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35);">
-        <span id="topUpPayBtnText" style="color: var(--pk-bg-card) !important;">Pay ₱1,100</span>
+      <button type="button" id="topUpSubmitBtn" class="topup-pay-blue-btn" onclick="submitTopUp()" style="background: var(--pk-status-success); color: var(--on-accent) !important; font-weight: 900; padding: 13px 16px; font-size: 15px; border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 217, 139, 0.35);">
+        <span id="topUpPayBtnText" style="color: var(--on-accent) !important;">Request Top-Up</span>
       </button>
 
     </div>
@@ -478,14 +480,13 @@
         </div>
         <h3 class="confirm-modal-title">Sign Out?</h3>
         <p class="confirm-modal-desc">You will need to sign in again to book courts and access your wallet.</p>
-        <div style="display:flex; gap:12px;">
+        <form method="post" action="{{ path('logout') }}" class="confirm-modal-actions">
+          <input type="hidden" name="csrf_token" value="{{ csrfToken }}">
           <button type="button" onclick="closeModal('logoutModal')" class="btn-modal-cancel">
             Cancel
           </button>
-          <a href="auth.php?logout=1" class="btn-modal-danger">
-            Sign Out
-          </a>
-        </div>
+          <button type="submit" class="btn-modal-danger">Sign Out</button>
+        </form>
       </div>
     </div>
   </div>
@@ -498,7 +499,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--pk-status-success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
           <h3 class="modal-title">Filter Facilities</h3>
         </div>
-        <button type="button" class="modal-close-btn" onclick="closeModal('filterModal')">✕</button>
+        <button type="button" class="modal-close-btn" onclick="closeModal('filterModal')" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
         <!-- Segmented Control: Court Type -->
@@ -520,7 +521,7 @@
             <label class="form-label" style="margin-bottom:0; display:flex; align-items:center; gap:6px;">
               <span>💵 Maximum Price</span>
             </label>
-            <span id="priceRangeValue" style="font-size:14px; font-weight:800; color: var(--pk-status-success); font-family:'Montserrat', var(--pk-font-price), sans-serif; background: var(--pk-status-success-bg); padding:3px 10px; border-radius:8px; border:1px solid var(--pk-status-success);">₱200 – ₱2,000+</span>
+            <span id="priceRangeValue" style="font-size:14px; font-weight:800; color: var(--pk-accent-emerald-text); font-family:'Montserrat', var(--pk-font-price), sans-serif; background: var(--pk-status-success-bg); padding:3px 10px; border-radius:8px; border:1px solid var(--pk-status-success);">₱200 – ₱2,000+</span>
           </div>
           <div style="position:relative; padding:6px 0 2px;">
             <input type="range" class="price-range-slider" id="filterPriceRange" min="200" max="2000" step="50" value="2000" oninput="updatePriceFilterDisplay(this.value)">
@@ -607,10 +608,10 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--pk-status-success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
           <h3 class="modal-title">Venue Navigation</h3>
         </div>
-        <button type="button" class="modal-close-btn" onclick="closeModal('navigationModal')">✕</button>
+        <button type="button" class="modal-close-btn" onclick="closeModal('navigationModal')" aria-label="Close">✕</button>
       </div>
       <div class="modal-body" style="text-align:center;">
-        <div style="width:52px; height:52px; border-radius:16px; background: var(--pk-status-success-bg); color: var(--pk-status-success); display:inline-flex; align-items:center; justify-content:center; margin-bottom:14px;">
+        <div style="width:52px; height:52px; border-radius:16px; background: var(--pk-status-success-bg); color: var(--pk-accent-emerald-text); display:inline-flex; align-items:center; justify-content:center; margin-bottom:14px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
         </div>
         <h4 style="font-size:18px; font-weight:800; color: var(--pk-text-primary); margin:0 0 6px;" id="navFacilityName">South Metro Dinkers</h4>
@@ -620,7 +621,7 @@
           <a id="navGoogleMapsLink" href="#" target="_blank" rel="noopener noreferrer" style="display:flex; align-items:center; justify-content:center; gap:10px; padding:12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:12px; color: var(--pk-text-primary); text-decoration:none; font-size:13px; font-weight:700; transition:all 0.2s;">
             <span>🗺️ Open in Google Maps</span>
           </a>
-          <a id="navWazeLink" href="#" target="_blank" rel="noopener noreferrer" style="display:flex; align-items:center; justify-content:center; gap:10px; padding:12px; background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); border-radius:12px; color: var(--pk-status-success); text-decoration:none; font-size:13px; font-weight:800; transition:all 0.2s;">
+          <a id="navWazeLink" href="#" target="_blank" rel="noopener noreferrer" style="display:flex; align-items:center; justify-content:center; gap:10px; padding:12px; background: var(--pk-status-success-bg); border:1px solid var(--pk-status-success); border-radius:12px; color: var(--pk-accent-emerald-text); text-decoration:none; font-size:13px; font-weight:800; transition:all 0.2s;">
             <span>🚗 Open in Waze</span>
           </a>
         </div>
@@ -638,7 +639,7 @@
         <h3 class="confirm-modal-title">Delete Your Account?</h3>
         <p class="confirm-modal-desc">This deactivates your account and signs you out. Upcoming bookings are cancelled under the normal refund policy, and you will no longer be able to sign in.</p>
         <div style="margin-bottom:20px; text-align:left;">
-          <label class="form-label">Type "DELETE" to confirm</label>
+          <label for="deleteAccountConfirmInput" class="form-label">Type "DELETE" to confirm</label>
           <input type="text" id="deleteAccountConfirmInput" class="form-input" style="padding-left:14px;" placeholder="DELETE" autocomplete="off">
         </div>
         <div style="display:flex; gap:12px;">
@@ -658,15 +659,15 @@
     <div class="app-modal-box" style="max-width:440px;">
       <div class="modal-head">
         <h3 class="modal-title">Edit Account Details</h3>
-        <button type="button" class="modal-close-btn" onclick="closeModal('editAccountModal')">✕</button>
+        <button type="button" class="modal-close-btn" onclick="closeModal('editAccountModal')" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label class="form-label">Full Name</label>
+          <label for="modalProfileNameInput" class="form-label" style="color:var(--pk-text-muted);">Full Name</label>
           <input type="text" id="modalProfileNameInput" class="form-input" style="padding-left:14px;" value="{{ (currentUser.name ?? '') }}" placeholder="Your full name">
         </div>
         <div class="form-group">
-          <label class="form-label">Phone Number</label>
+          <label for="modalProfilePhoneInput" class="form-label" style="color:var(--pk-text-muted);">Phone Number</label>
           <div style="position:relative; display:flex; align-items:center;">
             <input type="tel" id="modalProfilePhoneInput" class="form-input" style="padding-left:14px; width:100%; box-sizing:border-box;" value="{{ (currentUser.phone ?? '') }}" placeholder="+63 9xx xxx xxxx" maxlength="16" onkeydown="return isPhoneKey(event)" oninput="formatPHPhoneInput(this)">
           </div>
@@ -679,61 +680,122 @@
   </div>
 
   <!-- Help & Support Modal -->
-  <div class="app-modal-overlay" id="supportModal">
-    <div class="app-modal-box" style="max-width:440px;">
+  <div class="app-modal-overlay info-dialog-overlay" id="supportModal" role="dialog" aria-modal="true" aria-labelledby="supportModalTitle" aria-describedby="supportModalSummary">
+    <div class="app-modal-box info-dialog">
       <div class="modal-head">
-        <h3 class="modal-title">Help & Customer Support</h3>
-        <button type="button" class="modal-close-btn" onclick="closeModal('supportModal')">✕</button>
+        <h3 class="modal-title" id="supportModalTitle">Help &amp; Support</h3>
+        <button type="button" class="modal-close-btn" aria-label="Close" onclick="closeModal('supportModal')">✕</button>
       </div>
-      <div class="modal-body" style="font-size:13px; color:rgba(255,255,255,0.75); line-height:1.6;">
-        <p style="margin-top:0;">Need assistance with court bookings, Pickle Credits, or reporting an issue?</p>
-        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px; margin-bottom:16px;">
-          <div style="font-weight:700; color: var(--pk-text-primary); margin-bottom:4px;">📧 Support Email</div>
-          <div style="color: var(--pk-status-success);">support@picklers.ph</div>
-          <div style="font-weight:700; color: var(--pk-text-primary); margin:10px 0 4px;">💬 Hotlines</div>
-          <div>+63 (02) 8888-PICK (7425)</div>
-          <div style="font-size:11px; color: var(--pk-text-muted); margin-top:4px;">Available Monday to Sunday, 7:00 AM – 10:00 PM PHT</div>
-        </div>
-        <button type="button" class="btn-auth-submit" onclick="closeModal('supportModal')">
-          <span>Close</span>
-        </button>
+      <div class="modal-body info-dialog-body">
+        <p class="info-dialog-intro" id="supportModalSummary">Find the next step for a booking, a payment question, or a problem using PICKLERS.</p>
+        <section>
+          <h4>Check your booking first</h4>
+          <p>Open <a href="{{ url_to('app.php?tab=bookings') }}">My Bookings</a> to check your request status, scheduled time, booking reference, and available actions. Court reservations and Open Play requests require facility owner approval; a pending request is not a confirmed reservation.</p>
+        </section>
+        <section>
+          <h4>Payments and refunds</h4>
+          <p>Check your Pickle Credits balance and transaction history in <a href="{{ url_to('app.php?tab=wallet') }}">Wallet</a>. Real-money top-ups are currently unavailable. For GCash, Maya, or cash arrangements made outside the app, contact the facility directly. Selecting a payment method in PICKLERS is not proof of payment.</p>
+          <p>Before cancelling, read the refund information shown with your booking. The Terms of Service explain the pending and confirmed booking rules.</p>
+        </section>
+        <section>
+          <h4>If something is not working</h4>
+          <p>Check your internet connection and reopen the affected page. Before retrying a booking or payment-related action, check My Bookings and Wallet to avoid sending a duplicate request.</p>
+          <p>When asking for help, include the booking reference, facility, date and time, what you expected, and the message shown. Never share your password, verification codes, or full payment credentials.</p>
+        </section>
+        <section>
+          <h4>Getting help from a person</h4>
+          <p>Ask the facility about court access, schedules, booking approval, or external payments. For account access or a technical issue, contact the person or organization running this installation.</p>
+          <p class="info-dialog-note">No monitored support email or hotline is configured for this installation. This dialog does not submit a support ticket.</p>
+        </section>
+      </div>
+      <div class="info-dialog-footer">
+        <button type="button" class="btn-view-courts info-dialog-close" onclick="closeModal('supportModal')">Close</button>
       </div>
     </div>
   </div>
 
   <!-- Privacy Policy Modal -->
-  <div class="app-modal-overlay" id="privacyModal">
-    <div class="app-modal-box" style="max-width:460px;">
+  <div class="app-modal-overlay info-dialog-overlay" id="privacyModal" role="dialog" aria-modal="true" aria-labelledby="privacyModalTitle" aria-describedby="privacyModalSummary">
+    <div class="app-modal-box info-dialog">
       <div class="modal-head">
-        <h3 class="modal-title">Privacy Policy</h3>
-        <button type="button" class="modal-close-btn" onclick="closeModal('privacyModal')">✕</button>
+        <h3 class="modal-title" id="privacyModalTitle">Privacy Policy</h3>
+        <button type="button" class="modal-close-btn" aria-label="Close" onclick="closeModal('privacyModal')">✕</button>
       </div>
-      <div class="modal-body" style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.6; max-height:360px; overflow-y:auto;">
-        <p><strong style="color: var(--pk-text-primary);">1. Data Collection:</strong> We collect your name, email, phone number, and booking logs to provide seamless court reservations.</p>
-        <p><strong style="color: var(--pk-text-primary);">2. Location & Notifications:</strong> Location is used solely to discover pickleball courts nearby. Notification permissions are used for match updates and schedule alerts.</p>
-        <p><strong style="color: var(--pk-text-primary);">3. Payment Security:</strong> Financial transactions are processed via secure GCash, Maya, and bank gateways with end-to-end tokenization. PICKLERS never stores CVV or bank credentials.</p>
-        <p><strong style="color: var(--pk-text-primary);">4. Compliance:</strong> PICKLERS complies with the Philippine Data Privacy Act of 2012 (RA 10173).</p>
+      <div class="modal-body info-dialog-body">
+        <p class="info-dialog-intro" id="privacyModalSummary">This notice explains how the current PICKLERS installation uses information when you create an account, book a court, or join an open play session.</p>
+        <section>
+          <h4>Information used by the app</h4>
+          <p>Your profile can include your name, email address, phone number, profile picture, and playing level. The app stores account and booking records, Pickle Credits transactions, notifications, favorites, and community posts or messages you submit. Passwords are stored as password hashes.</p>
+          <p>Facility applicants also provide business details, a facility address, and verification documents for application review.</p>
+        </section>
+        <section>
+          <h4>Why it is used and who can see it</h4>
+          <p>Information supports sign-in, account management, reservations, facility operations, wallet records, and support conversations. Relevant booking information is available to facility operators and authorized staff. Authorized administrators can review operational records and facility applications.</p>
+          <p>Messages you send are visible to the participants in the conversation. Share only information you intend others to see.</p>
+        </section>
+        <section>
+          <h4>Location, browser storage, and external services</h4>
+          <p>If you allow location access, the app uses your coordinates to estimate travel times and identify your area. Reverse-geocoding requests send coordinates to OpenStreetMap's Nominatim service. Facility coordinates supplied during an application are stored with that application.</p>
+          <p>Browser storage remembers preferences such as your theme, and a session cookie keeps you signed in. Browser notifications depend on your permission. Pages also request typefaces from Google Fonts; external services receive the connection information needed to serve those requests.</p>
+          <p>Displaying a booking pass requests a QR code from QR Server using the booking reference, facility name, and court name. Opening a directions link sends the destination to your chosen map service.</p>
+        </section>
+        <section>
+          <h4>Payments and account deletion</h4>
+          <p>PICKLERS records the payment method selected for a booking and its Pickle Credits transactions. External payment arrangements are handled with the facility; this installation does not process real-money top-ups through a payment gateway.</p>
+          <p>You can edit your profile in Settings. The available Delete Account action deactivates your account and replaces its sign-in email; it does not erase all stored records. Booking, financial, and other linked records remain. Account deletion follows the same cancellation rules for eligible active bookings and is restricted for administrator and facility owner accounts.</p>
+        </section>
+        <section>
+          <h4>Privacy questions and retention</h4>
+          <p>Contact the person or organization running this installation to ask about access, corrections, deletion, or retained information. An operator privacy contact and a published retention schedule have not been configured for this installation.</p>
+        </section>
       </div>
-      <div style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.08); text-align:right;">
-        <button type="button" class="btn-view-courts" style="background: var(--pk-status-success); color: var(--pk-bg-card); font-weight:800; padding:8px 20px; font-size:13px;" onclick="closeModal('privacyModal')">Got It</button>
+      <div class="info-dialog-footer">
+        <button type="button" class="btn-view-courts info-dialog-close" onclick="closeModal('privacyModal')">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- Terms of Service (EULA) Modal -->
-  <div class="app-modal-overlay" id="termsModal">
-    <div class="app-modal-box" style="max-width:460px;">
+  <!-- Terms of Service Modal -->
+  <div class="app-modal-overlay info-dialog-overlay" id="termsModal" role="dialog" aria-modal="true" aria-labelledby="termsModalTitle" aria-describedby="termsModalSummary">
+    <div class="app-modal-box info-dialog">
       <div class="modal-head">
-        <h3 class="modal-title">Terms of Service (EULA)</h3>
-        <button type="button" class="modal-close-btn" onclick="closeModal('termsModal')">✕</button>
+        <h3 class="modal-title" id="termsModalTitle">Terms of Service</h3>
+        <button type="button" class="modal-close-btn" aria-label="Close" onclick="closeModal('termsModal')">✕</button>
       </div>
-      <div class="modal-body" style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.6; max-height:360px; overflow-y:auto;">
-        <p><strong style="color: var(--pk-text-primary);">1. Court Rules:</strong> All players agree to follow court etiquette, arrive on time, and respect host venue guidelines.</p>
-        <p><strong style="color: var(--pk-text-primary);">2. Booking & Cancellation:</strong> Cancellations made at least 6 hours prior to game time are eligible for 100% Pickle Credits refund to your wallet.</p>
-        <p><strong style="color: var(--pk-text-primary);">3. Sportsmanship:</strong> Respectful conduct is required across all community chat channels and open play games.</p>
+      <div class="modal-body info-dialog-body">
+        <p class="info-dialog-intro" id="termsModalSummary">These terms describe account use, booking responsibilities, and the payment and cancellation rules implemented in this PICKLERS installation.</p>
+        <section>
+          <h4>Your account and conduct</h4>
+          <p>Provide accurate account and booking information, keep your sign-in details private, and use only an account you are authorized to access. Treat players, facility staff, and other users respectfully. Do not send abusive content or interfere with another person's account or reservation.</p>
+        </section>
+        <section>
+          <h4>Booking requests and venue rules</h4>
+          <p>Court reservations and Open Play requests are subject to facility owner approval and availability. Check the status in My Bookings before travelling; submitting a request does not guarantee a confirmed reservation or seat.</p>
+          <p>Review the facility, date, time, price, and payment method before submitting. Arrive on time, follow the host venue's safety and equipment rules, and respect court etiquette.</p>
+        </section>
+        <section>
+          <h4>Payments</h4>
+          <p>Pickle Credits bookings use your available wallet balance. Real-money top-ups are currently unavailable. Selecting an external payment method does not confirm payment: GCash, Maya, and cash arrangements must be made directly with the facility.</p>
+        </section>
+        <section>
+          <h4>Cancellations and Pickle Credits refunds</h4>
+          <ul>
+            <li><strong>Pending Pickle Credits bookings:</strong> you may withdraw an unapproved request for a full refund of the amount charged, including requests made within 24 hours of play.</li>
+            <li><strong>Confirmed Pickle Credits bookings:</strong> a full refund applies only when cancelled at least 24 hours before the scheduled start. If cancelled within 24 hours, no refund applies.</li>
+            <li><strong>After the start:</strong> Confirmed bookings cannot be cancelled after play starts. Pending requests may still be withdrawn.</li>
+            <li><strong>Open Play:</strong> the same pending and confirmed rules apply to your booked session date, including a selected occurrence of an everyday session.</li>
+            <li><strong>Free sessions:</strong> there is nothing to refund when no Pickle Credits were charged.</li>
+          </ul>
+          <p>External payments are not refunded in-app; contact the facility about any payment or refund arranged outside PICKLERS. The cancellation dialog shows the applicable information before you confirm.</p>
+        </section>
+        <section>
+          <h4>Account closure and assistance</h4>
+          <p>Account deletion does not erase booking or financial history or change the cancellation policy. For a venue issue, contact the facility. For an account or technical issue, contact the installation operator using the guidance in Help &amp; Support.</p>
+          <p class="info-dialog-note">Closing this dialog only returns you to Settings; it does not record a new agreement or change a booking.</p>
+        </section>
       </div>
-      <div style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.08); text-align:right;">
-        <button type="button" class="btn-view-courts" style="background: var(--pk-status-success); color: var(--pk-bg-card); font-weight:800; padding:8px 20px; font-size:13px;" onclick="closeModal('termsModal')">I Agree</button>
+      <div class="info-dialog-footer">
+        <button type="button" class="btn-view-courts info-dialog-close" onclick="closeModal('termsModal')">Close</button>
       </div>
     </div>
   </div>
@@ -748,10 +810,10 @@
           </div>
           <div>
             <h3 class="modal-title" style="font-size:18px; font-weight:800; color: #FFFFFF; margin:0; letter-spacing:-0.02em;">Change Password</h3>
-            <p style="font-size:12px; color: #94A3B8; margin:2px 0 0; font-weight:500;">Update your account security settings</p>
+            <p style="font-size:12px; color:var(--pk-text-muted); margin:2px 0 0; font-weight:500;">Update your account security settings</p>
           </div>
         </div>
-        <button type="button" class="modal-close-btn" onclick="closeModal('passwordModal')" style="width:34px; height:34px; min-width:34px; min-height:34px; border-radius:50%; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.8); display:inline-flex; align-items:center; justify-content:center; padding:0; cursor:pointer; font-size:14px; font-weight:700; transition:all 0.2s ease;">✕</button>
+        <button type="button" class="modal-close-btn" onclick="closeModal('passwordModal')" style="width:34px; height:34px; min-width:34px; min-height:34px; border-radius:50%; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.8); display:inline-flex; align-items:center; justify-content:center; padding:0; cursor:pointer; font-size:14px; font-weight:700; transition:all 0.2s ease;" aria-label="Close">✕</button>
       </div>
       <form id="changePasswordForm" autocomplete="off" onsubmit="event.preventDefault(); submitPasswordChange();">
         <div class="modal-body" style="padding: 24px; display:flex; flex-direction:column; gap:18px;">
@@ -760,10 +822,10 @@
 
           <!-- Current Password -->
           <div class="form-group" style="margin:0;">
-            <label class="form-label" style="font-size:11px; font-weight:800; color: #94A3B8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">Current Password</label>
+            <label for="currentPassInput" class="form-label" style="font-size:11px; font-weight:800; color:var(--pk-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">Current Password</label>
             <div style="position:relative; display:flex; align-items:center; border-radius:14px;">
               <input type="password" id="currentPassInput" name="current_password" class="form-input" style="padding-left:16px; padding-right:44px; background:rgba(255,255,255,0.05); border:1.5px solid rgba(255,255,255,0.12); border-radius:14px !important; outline:none !important; font-size:14px; color:#FFFFFF;" placeholder="Enter current password" autocomplete="current-password">
-              <button type="button" onclick="togglePasswordVisibility('currentPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color: #94A3B8; cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
+              <button type="button" onclick="togglePasswordVisibility('currentPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color:var(--pk-text-muted); cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
             </div>
@@ -771,10 +833,10 @@
 
           <!-- New Password -->
           <div class="form-group" style="margin:0;">
-            <label class="form-label" style="font-size:11px; font-weight:800; color: #94A3B8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">New Password</label>
+            <label for="newPassInput" class="form-label" style="font-size:11px; font-weight:800; color:var(--pk-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">New Password</label>
             <div style="position:relative; display:flex; align-items:center; border-radius:14px;">
               <input type="password" id="newPassInput" name="new_password" class="form-input" style="padding-left:16px; padding-right:44px; background:rgba(255,255,255,0.05); border:1.5px solid rgba(255,255,255,0.12); border-radius:14px !important; outline:none !important; font-size:14px; color:#FFFFFF;" placeholder="Min. 8 characters, 1 number" autocomplete="new-password">
-              <button type="button" onclick="togglePasswordVisibility('newPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color: #94A3B8; cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
+              <button type="button" onclick="togglePasswordVisibility('newPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color:var(--pk-text-muted); cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
             </div>
@@ -782,23 +844,23 @@
 
           <!-- Confirm New Password -->
           <div class="form-group" style="margin:0;">
-            <label class="form-label" style="font-size:11px; font-weight:800; color: #94A3B8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">Confirm New Password</label>
+            <label for="confirmPassInput" class="form-label" style="font-size:11px; font-weight:800; color:var(--pk-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:block;">Confirm New Password</label>
             <div style="position:relative; display:flex; align-items:center; border-radius:14px;">
               <input type="password" id="confirmPassInput" name="confirm_password" class="form-input" style="padding-left:16px; padding-right:44px; background:rgba(255,255,255,0.05); border:1.5px solid rgba(255,255,255,0.12); border-radius:14px !important; outline:none !important; font-size:14px; color:#FFFFFF;" placeholder="Re-enter new password" autocomplete="new-password">
-              <button type="button" onclick="togglePasswordVisibility('confirmPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color: #94A3B8; cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
+              <button type="button" onclick="togglePasswordVisibility('confirmPassInput', this)" style="position:absolute; right:14px; background:none; border:none; color:var(--pk-text-muted); cursor:pointer; padding:4px; display:flex; align-items:center;" title="Toggle password visibility">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
             </div>
           </div>
 
           <!-- Security Hint -->
-          <div style="background:rgba(0, 217, 139, 0.06); border:1px solid rgba(0, 217, 139, 0.18); border-radius:14px; padding:12px 16px; font-size:12.5px; color: #94A3B8; display:flex; align-items:center; gap:10px;">
+          <div style="background:rgba(0, 217, 139, 0.06); border:1px solid rgba(0, 217, 139, 0.18); border-radius:14px; padding:12px 16px; font-size:12.5px; color:var(--pk-text-muted); display:flex; align-items:center; gap:10px;">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00D98B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            <span>Password must be at least 6 characters.</span>
+            <span>Password must be at least 8 characters and include a number.</span>
           </div>
 
-          <button type="submit" class="btn-auth-submit" style="background: #00D98B; color: #0A121F !important; font-size:15px; font-weight:800; border-radius:14px; padding:14px; margin-top:6px; border:none; cursor:pointer; box-shadow: 0 4px 20px rgba(0,217,139,0.3); transition: all 0.2s ease;">
-            <span style="color:#0A121F !important;">Update Password</span>
+          <button type="submit" class="btn-auth-submit" style="background: #00D98B; color:var(--on-accent) !important; font-size:15px; font-weight:800; border-radius:14px; padding:14px; margin-top:6px; border:none; cursor:pointer; box-shadow: 0 4px 20px rgba(0,217,139,0.3); transition: all 0.2s ease;">
+            <span style="color:var(--on-accent) !important;">Update Password</span>
           </button>
         </div>
       </form>
@@ -881,3 +943,37 @@
 
   <!-- Floating Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Facility HUD Splash Transition Modal (Switch to Owner View) -->
+  <div id="ownerSwitchHudOverlay" class="facility-hud-overlay" style="display:none;" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Switching to Court Owner Portal">
+    <div class="facility-hud-card">
+      <div class="hud-top-badge">
+        <span class="hud-pulse-dot"></span>
+        <span>SWITCHING TO OWNER VIEW</span>
+      </div>
+
+      <div class="hud-avatar-container">
+        <div class="hud-spinner-ring"></div>
+        <div class="hud-avatar-inner">
+          {% set facImg = ((ownerFacility.image ?? ''))|trim %}
+          {% set facName = (ownerFacility.name ?? 'Court Owner Portal') %}
+          {% set facInitial = (((facName)|trim)|slice(0, 1))|upper ?: 'O' %}
+          {% if facImg != '' %}
+            <img src="{{ facImg }}" alt="{{ facName }}" class="hud-avatar-img">
+          {% else %}
+            <span class="hud-avatar-initial">{{ facInitial }}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="hud-facility-title">{{ facName }}</div>
+      <div class="hud-facility-subtitle">{{ (ownerFacility.location ?? 'Dumaguete City, Philippines') }}</div>
+
+      <div class="hud-progress-wrap">
+        <div class="hud-progress-track">
+          <div class="hud-progress-bar" id="hudProgressBar"></div>
+        </div>
+        <div class="hud-status-text" id="hudStatusText">Authenticating facility credentials...</div>
+      </div>
+    </div>
+  </div>

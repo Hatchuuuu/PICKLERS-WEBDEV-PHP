@@ -3,15 +3,18 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-/**
- * Minimal zero-dependency test harness.
- *
- * This project is deliberately dependency-free (see public/index.php — it ships
- * its own autoloader and .env parser). Rather than pull in a vendor/ tree just
- * for assertions, this provides the small slice of PHPUnit's API the suite
- * actually needs. Run everything with:  php tests/run.php
- */
+/** Small assertion harness for service tests against the real Symfony container. */
 abstract class TestCase {
+
+    private static ?\Picklers\Kernel $kernel = null;
+
+    protected function service(string $class): object {
+        if (self::$kernel === null) {
+            self::$kernel = new \Picklers\Kernel('test', false);
+            self::$kernel->boot();
+        }
+        return self::$kernel->getContainer()->get('test.service_container')->get($class);
+    }
 
     private int $passed = 0;
     /** @var array<int,string> */

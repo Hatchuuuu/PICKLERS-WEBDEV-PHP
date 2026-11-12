@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Service;
 
-use Picklers\Core\Database;
+use Doctrine\DBAL\Connection;
+use Picklers\Domain\Schedule;
 use Picklers\Helpers\Format;
 use Picklers\Admin\Security\PlatformSession;
 use Picklers\Services\AuthService;
@@ -14,7 +15,7 @@ use Picklers\Web\Http\ApiError;
 /**
  * Section 3 — the signed-in player's own account and notifications. Moved from
  * the legacy ApiController unchanged in behaviour; persistence stays in the
- * legacy services and Database.
+ * services and repositories.
  */
 final class AccountService
 {
@@ -25,8 +26,8 @@ final class AccountService
         private readonly AuthService $auth,
         private readonly NotificationRepository $notifications,
         private readonly BookingRepository $bookings,
-        private readonly Database $db,
         private readonly PlatformSession $session,
+        private readonly Connection $db,
     ) {
     }
 
@@ -39,6 +40,11 @@ final class AccountService
     public function markAllRead(string $userId): void
     {
         $this->notifications->markAllAsRead($userId);
+    }
+
+    public function markNotificationRead(string $userId, string $notificationId): void
+    {
+        $this->db->executeStatement('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [$notificationId, $userId]);
     }
 
     public function deleteNotification(string $userId, string $notificationId): void
@@ -61,7 +67,7 @@ final class AccountService
             throw new ApiError($result['error'] ?? 'Failed to update password.');
         }
         // Keep THIS session; every other session is signed out.
-        $this->session->markAuthenticatedNow();
+        $this->session->markAuthenticatedNow(passwordHash: (string)$result['user']['password_hash']);
     }
 
     /**
@@ -98,7 +104,10 @@ final class AccountService
             }
         }
 
-        $fields = array_filter(['name' => $name, 'phone' => $phone, 'level' => $level], static fn ($v) => !empty($v));
+        $fields = array_filter(['name' => $name, 'level' => $level], static fn ($v) => !empty($v));
+        if (array_key_exists('phone', $input)) {
+            $fields['phone'] = $phone;
+        }
         if ($email !== '' && $email !== ($user['email'] ?? '')) {
             if (strlen($email) > 120 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 throw new ApiError('Please enter a valid email address');
@@ -123,7 +132,14 @@ final class AccountService
             $fields['avatar_url'] = $avatar;
         }
 
-        return $this->auth->updateUser((string)$user['id'], $fields);
+        try {
+            return $this->auth->updateUser((string)$user['id'], $fields);
+        } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException $e) {
+            if (\Picklers\Repositories\UserRepository::isPhoneConflict($e)) {
+                throw new ApiError('This mobile number is already linked to another account.');
+            }
+            throw new ApiError('An account with this email address already exists');
+        }
     }
 
     /**
@@ -173,18 +189,37 @@ final class AccountService
         }
 
         $id = (string)$user['id'];
-        foreach ($this->bookings->getBookings($id) as $held) {
-            if (in_array((string)($held['status'] ?? ''), ['pending', 'confirmed'], true) && !$this->db->isBookingPast($held)) {
-                $this->bookings->cancelBooking((string)$held['id'], $id);
+        $this->db->beginTransaction();
+        try {
+            $current = $this->db->fetchAssociative('SELECT role, is_admin, is_owner FROM users WHERE id = ? FOR UPDATE', [$id]);
+            if (!$current || !empty($current['is_admin']) || !empty($current['is_owner']) || in_array($current['role'], ['deleted', 'deactivated'], true)) {
+                throw new ApiError('This account cannot be deleted from the app.', 403);
             }
+            foreach ($this->bookings->getBookings($id) as $held) {
+                if (in_array((string)($held['status'] ?? ''), ['pending', 'confirmed'], true) && !Schedule::isBookingPast($held)) {
+                    $result = $this->bookings->cancelBooking((string)$held['id'], $id);
+                    if (empty($result['success'])) {
+                        throw new ApiError((string)($result['message'] ?? 'Could not cancel an active booking.'));
+                    }
+                }
+            }
+            $this->auth->updateUser($id, [
+                'role' => 'deleted',
+                'email' => 'deleted_' . $id . '@picklers.invalid',
+                'is_admin' => 0,
+                'is_owner' => 0,
+                'verification_status' => 'unverified',
+            ]);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->isTransactionActive()) {
+                $this->db->rollBack();
+            }
+            if ($e instanceof ApiError) {
+                throw $e;
+            }
+            throw new ApiError('Account deletion failed. Nothing was changed. Please try again.');
         }
-        $this->auth->updateUser($id, [
-            'role' => 'deleted',
-            'email' => 'deleted_' . $id . '@picklers.invalid',
-            'is_admin' => 0,
-            'is_owner' => 0,
-            'verification_status' => 'unverified',
-        ]);
         $this->session->destroy();
     }
 }

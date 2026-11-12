@@ -31,7 +31,35 @@ final class ModerationService
         private readonly Connection $db,
         private readonly Notifier $notifier,
         private readonly AuditLog $audit,
+        private readonly \Picklers\Repositories\CommunityRepository $community,
     ) {
+    }
+
+    public function updatePost(AdminUser $actor, string $id, string $content): array
+    {
+        $content = trim($content);
+        if ($content === '' || mb_strlen($content) > 2000) {
+            throw AdminActionException::invalid('Enter a post of 1 to 2,000 characters.', 'content');
+        }
+        return $this->db->transactional(function () use ($actor, $id, $content): array {
+            if (!$this->community->updateFeedPost($id, $actor->id(), $content, true)) {
+                throw AdminActionException::notFound('Post');
+            }
+            $this->audit->record('post.update', 'post', $id, ['content' => $content]);
+            return ['message' => 'Post updated.'];
+        });
+    }
+
+    public function deletePost(AdminUser $actor, string $id, string $confirm): array
+    {
+        if ($confirm !== 'DELETE') throw AdminActionException::invalid('Type DELETE to confirm.', 'confirm_text');
+        return $this->db->transactional(function () use ($actor, $id): array {
+            if (!$this->community->deleteFeedPost($id, $actor->id(), true)) {
+                throw AdminActionException::notFound('Post');
+            }
+            $this->audit->record('post.delete', 'post', $id);
+            return ['message' => 'Post deleted. Moderation history has been retained.'];
+        });
     }
 
     /** @return Page<array<string,mixed>> */

@@ -2,6 +2,8 @@
   // Every fetch in owner.js builds its URL from this, so the portal works the
   // same at a domain root and under an XAMPP subdirectory.
   window.PICKLERS_BASE_URL = {{ app.request.baseUrl|json_encode(constant('JSON_HEX_TAG') b-or constant('JSON_HEX_APOS') b-or constant('JSON_HEX_QUOT'))|raw }};
+  window.PICKLERS_FACILITY_ID = {{ currentFacility.id|json_encode|raw }};
+  window.PICKLERS_CAN_REVIEW_REQUESTS = {{ canManageFacility|json_encode|raw }};
 </script>
 <script src="{{ asset('assets/js/ux-core.js') }}"></script>
 <script src="{{ asset('assets/js/owner.js') }}"></script>

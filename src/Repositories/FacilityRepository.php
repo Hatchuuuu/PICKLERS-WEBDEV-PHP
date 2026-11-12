@@ -9,21 +9,23 @@ namespace Picklers\Repositories;
  */
 final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterface
 {
+    use \Picklers\Domain\SharedTransaction;
+
     private readonly \Doctrine\DBAL\Connection $db;
     private readonly \Picklers\Domain\Notifier $notifier;
     private readonly \Picklers\Persistence\SchemaInstaller $schema;
     private readonly \Picklers\Repositories\MatchRepository $matches;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\Notifier $notifier = null,
-        ?\Picklers\Persistence\SchemaInstaller $schema = null,
-        ?\Picklers\Repositories\MatchRepository $matches = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\Notifier $notifier,
+        \Picklers\Persistence\SchemaInstaller $schema,
+        \Picklers\Repositories\MatchRepository $matches,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->notifier = $notifier ?? \Picklers\Core\Database::get()->notifier();
-        $this->schema = $schema ?? new \Picklers\Persistence\SchemaInstaller($this->db);
-        $this->matches = $matches ?? new \Picklers\Repositories\MatchRepository($this->db);
+        $this->db = $db;
+        $this->notifier = $notifier;
+        $this->schema = $schema;
+        $this->matches = $matches;
     }
 
     /**
@@ -154,10 +156,7 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
      * @param string[] $slugs
      */
     public function setCourtAttributes(string $courtId, array $slugs): void {
-        $this->invalidateReadCache();
-        $this->notifier->bumpSync('courts', 'facilities'); // attribute chips render on Discover's facility card
-
-        $this->db->beginTransaction();
+        $owns = $this->beginOwnTransaction();
         try {
             $this->db->executeStatement("DELETE FROM court_attribute_map WHERE court_id = ?", [$courtId]);
 
@@ -171,12 +170,15 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
                     $this->db->executeStatement($insSql, [$courtId, $attrId]);
                 }
             }
-            $this->db->commit();
-        } catch (\Throwable $e) {
-            if ($this->db->isTransactionActive()) {
-                $this->db->rollBack();
+            $this->notifier->bumpSync('courts', 'facilities');
+            if ($owns) {
+                $this->db->commit();
             }
+        } catch (\Throwable $e) {
+            $this->rollBackOwn($owns);
             throw $e;
+        } finally {
+            $this->invalidateReadCache();
         }
     }
 
@@ -347,15 +349,15 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
         $todayStr = date('Y-m-d');
         $nowMin = ((int)date('G') * 60) + (int)date('i');
 
-        // Fetch active confirmed bookings for this facility today (excluding pending requests)
+        // Yesterday's overnight sessions can still occupy the court today.
         $activeBookingsToday = [];
         $bStmt = $this->db->executeQuery(
             "SELECT b.*, u.name as user_name, u.avatar_url as user_avatar FROM bookings b
              LEFT JOIN users u ON b.user_id = u.id
-             WHERE b.facility_id = ? AND b.booking_date = ?
+             WHERE b.facility_id = ? AND b.booking_date BETWEEN ? AND ?
                AND b.status IN ('confirmed', 'completed', 'upcoming')
                AND (b.ended_early = 0 OR b.ended_early IS NULL)",
-            [$facilityId, $todayStr]
+            [$facilityId, date('Y-m-d', strtotime('-1 day')), $todayStr]
         );
         $activeBookingsToday = $bStmt->fetchAllAssociative();
 
@@ -400,6 +402,11 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
                     }
 
                     if ($sMin !== null && $eMin !== null) {
+                        if ((string)$b['booking_date'] !== $todayStr) {
+                            $sMin -= 1440;
+                            $eMin -= 1440;
+                            if ($eMin <= 0) continue;
+                        }
                         if ($nowMin >= $sMin && $nowMin < $eMin) {
                             $currentBooking = $b;
                             $currentBooking['_start_min'] = $sMin;
@@ -579,7 +586,7 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
         $todayStr = date('Y-m-d');
         $nowMin = ((int)date('G') * 60) + (int)date('i');
 
-        $findActive = function (array $rows) use ($nowMin): ?array {
+        $findActive = function (array $rows) use ($nowMin, $todayStr): ?array {
             foreach ($rows as $row) {
                 $sMin = isset($row['start_min']) && $row['start_min'] !== null ? (int)$row['start_min'] : null;
                 $eMin = isset($row['end_min']) && $row['end_min'] !== null ? (int)$row['end_min'] : null;
@@ -590,6 +597,10 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
                         $eMin = $range[1];
                     }
                 }
+                if ($sMin !== null && $eMin !== null && (string)$row['booking_date'] !== $todayStr) {
+                    $sMin -= 1440;
+                    $eMin -= 1440;
+                }
                 if ($sMin !== null && $eMin !== null && $nowMin >= $sMin && $nowMin < $eMin) {
                     return $row;
                 }
@@ -598,14 +609,23 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
         };
 
         try {
+            if ($courtId !== '') {
+                $court = $this->getCourtById($courtId);
+                if ($court === null || (string)$court['facility_id'] !== (string)$facilityId) {
+                    return ['success' => false, 'message' => 'No active session found for this court right now.'];
+                }
+                $courtName = (string)$court['name'];
+            }
+            $courtMatch = $courtId === '' ? 'court_name = ?' : "(court_id = ? OR ((court_id IS NULL OR court_id = '') AND court_name = ?))";
+            $courtParams = $courtId === '' ? [$courtName] : [$courtId, $courtName];
             $this->db->beginTransaction();
             $stmt = $this->db->executeQuery(
                 "SELECT * FROM bookings
-                 WHERE facility_id = ? AND booking_date = ? AND status IN ('pending', 'confirmed')
+                 WHERE facility_id = ? AND booking_date BETWEEN ? AND ? AND status IN ('pending', 'confirmed')
                    AND (ended_early = 0 OR ended_early IS NULL)
-                   AND (court_id = ? OR court_name = ?)
+                   AND {$courtMatch}
                  FOR UPDATE",
-                [$facilityId, $todayStr, $courtId, $courtName]
+                [$facilityId, date('Y-m-d', strtotime('-1 day')), $todayStr, ...$courtParams]
             );
             $target = $findActive($stmt->fetchAllAssociative());
 
@@ -632,59 +652,109 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
         ];
     }
 
-    public function insertCourt(array $courtData): array {
+    /** Court writers lock the venue before its courts; booking writers never take this venue lock. */
+    public function lockFacilityCourts(int|string $facilityId): void {
+        if (!$this->inTransaction()) {
+            throw new \LogicException('Court writes require a transaction.');
+        }
+        if (!$this->db->fetchOne('SELECT id FROM facilities WHERE id = ? FOR UPDATE', [$facilityId])) {
+            throw new \DomainException('Facility no longer exists.');
+        }
         $this->invalidateReadCache();
-        // 'facilities' too: Discover's facility card shows courts_count and
-        // a min-max price range derived from the court list, so a new court
-        // changes what that card should say without the facility row itself
-        // changing.
-        $this->notifier->bumpSync('courts', 'facilities');
-        $id = $courtData['id'] ?? ('crt_' . bin2hex(random_bytes(4)));
+    }
 
-        $court = [
-            'id' => $id,
-            'facility_id' => $courtData['facility_id'],
-            'name' => \Picklers\Domain\Schedule::normalizeCourtName((string)($courtData['name'] ?? '')),
-            'surface' => $courtData['surface'] ?? 'Hard Court',
-            'type' => $courtData['type'] ?? 'Indoor',
-            'price' => $courtData['price'] ?? 450.00,
-            'status' => \Picklers\Domain\Schedule::normalizeCourtStatus((string)($courtData['status'] ?? 'available')),
-            'occupied_by' => $courtData['occupied_by'] ?? null,
-            'occupied_until' => $courtData['occupied_until'] ?? null
-        ];
+    private function assertCourtNameAvailable(int|string $facilityId, string $name, string $exceptId = ''): void {
+        foreach ($this->db->fetchAllAssociative('SELECT id, name FROM courts WHERE facility_id = ? FOR UPDATE', [$facilityId]) as $court) {
+            if ((string)$court['id'] !== $exceptId && strcasecmp(\Picklers\Domain\Schedule::normalizeCourtName((string)$court['name']), $name) === 0) {
+                throw new \DomainException("{$name} already exists at this facility. Choose a different court number.");
+            }
+        }
+    }
 
-        $this->db->executeStatement(
-            "INSERT INTO courts (id, facility_id, name, surface, type, price, status, occupied_by, occupied_until) VALUES (?,?,?,?,?,?,?,?,?)",
-            [
-                $court['id'], $court['facility_id'], $court['name'], $court['surface'],
-                $court['type'], $court['price'], $court['status'], $court['occupied_by'], $court['occupied_until']
-            ]
-        );
-        return $court;
+    public function insertCourt(array $courtData): array {
+        $owns = $this->beginOwnTransaction();
+        try {
+            $this->lockFacilityCourts($courtData['facility_id']);
+            $id = $courtData['id'] ?? ('crt_' . bin2hex(random_bytes(4)));
+
+            $court = [
+                'id' => $id,
+                'facility_id' => $courtData['facility_id'],
+                'name' => \Picklers\Domain\Schedule::normalizeCourtName((string)($courtData['name'] ?? '')),
+                'surface' => $courtData['surface'] ?? 'Hard Court',
+                'type' => $courtData['type'] ?? 'Indoor',
+                'price' => $courtData['price'] ?? 450.00,
+                'status' => \Picklers\Domain\Schedule::normalizeCourtStatus((string)($courtData['status'] ?? 'available')),
+                'occupied_by' => $courtData['occupied_by'] ?? null,
+                'occupied_until' => $courtData['occupied_until'] ?? null
+            ];
+
+            $this->assertCourtNameAvailable($court['facility_id'], $court['name']);
+            $this->db->executeStatement(
+                "INSERT INTO courts (id, facility_id, name, surface, type, price, status, occupied_by, occupied_until) VALUES (?,?,?,?,?,?,?,?,?)",
+                [
+                    $court['id'], $court['facility_id'], $court['name'], $court['surface'],
+                    $court['type'], $court['price'], $court['status'], $court['occupied_by'], $court['occupied_until']
+                ]
+            );
+            $this->notifier->bumpSync('courts', 'facilities');
+            if ($owns) {
+                $this->db->commit();
+            }
+            return $court;
+        } catch (\Throwable $e) {
+            $this->rollBackOwn($owns);
+            throw $e;
+        } finally {
+            $this->invalidateReadCache();
+        }
     }
 
     public function updateCourt(string $courtId, array $fields): ?array {
-        $this->invalidateReadCache();
-        $this->notifier->bumpSync('courts', 'facilities'); // price/name changes affect the Discover card too
-        $allowed = ['name', 'surface', 'type', 'price'];
-        $updates = array_intersect_key($fields, array_flip($allowed));
-        if (isset($updates['name'])) {
-            $updates['name'] = \Picklers\Domain\Schedule::normalizeCourtName((string)$updates['name']);
+        $existing = $this->getCourtById($courtId);
+        if ($existing === null) {
+            return null;
         }
-
-        if (!empty($updates)) {
-            $setParts = [];
-            $params = [];
-            foreach ($updates as $col => $val) {
-                $setParts[] = "{$col} = ?";
-                $params[] = $val;
+        $owns = $this->beginOwnTransaction();
+        try {
+            $this->lockFacilityCourts($existing['facility_id']);
+            $current = $this->db->fetchAssociative('SELECT * FROM courts WHERE id = ? FOR UPDATE', [$courtId]);
+            if (!$current || (string)$current['facility_id'] !== (string)$existing['facility_id']) {
+                if ($owns) {
+                    $this->db->commit();
+                }
+                return null;
             }
-            $params[] = $courtId;
-            $stmt = $this->db->executeQuery("UPDATE courts SET " . implode(', ', $setParts) . " WHERE id = ?", $params);
+            $allowed = ['name', 'surface', 'type', 'price'];
+            $updates = array_intersect_key($fields, array_flip($allowed));
+            if (isset($updates['name'])) {
+                $updates['name'] = \Picklers\Domain\Schedule::normalizeCourtName((string)$updates['name']);
+                $this->assertCourtNameAvailable($current['facility_id'], $updates['name'], $courtId);
+            }
+
+            if (!empty($updates)) {
+                $setParts = [];
+                $params = [];
+                foreach ($updates as $col => $val) {
+                    $setParts[] = "{$col} = ?";
+                    $params[] = $val;
+                }
+                $params[] = $courtId;
+                $stmt = $this->db->executeQuery("UPDATE courts SET " . implode(', ', $setParts) . " WHERE id = ?", $params);
+            }
+            $stmt = $this->db->executeQuery("SELECT * FROM courts WHERE id = ?", [$courtId]);
+            $row = $stmt->fetchAssociative();
+            $this->notifier->bumpSync('courts', 'facilities');
+            if ($owns) {
+                $this->db->commit();
+            }
+            return $row ?: null;
+        } catch (\Throwable $e) {
+            $this->rollBackOwn($owns);
+            throw $e;
+        } finally {
+            $this->invalidateReadCache();
         }
-        $stmt = $this->db->executeQuery("SELECT * FROM courts WHERE id = ?", [$courtId]);
-        $row = $stmt->fetchAssociative();
-        return $row ?: null;
     }
 
     public function getCourtById(string $courtId): ?array {
@@ -692,15 +762,19 @@ final class FacilityRepository implements \Symfony\Contracts\Service\ResetInterf
         return $stmt->fetchAssociative() ?: null;
     }
 
+    public function lockCourtByName(int|string $facilityId, string $courtName): ?array {
+        return $this->db->fetchAssociative('SELECT * FROM courts WHERE facility_id = ? AND name = ? LIMIT 1 FOR UPDATE', [$facilityId, $courtName]) ?: null;
+    }
+
     /** Pending/confirmed bookings on one court that haven't been played yet. */
     public function countUpcomingCourtBookings(int|string $facilityId, string $courtId, string $courtName): int {
-        $today = date('Y-m-d');
+        $yesterday = date('Y-m-d', strtotime('-1 day'));
         $stmt = $this->db->executeQuery(
             "SELECT * FROM bookings
               WHERE facility_id = ? AND status IN ('pending', 'confirmed')
                 AND (booking_date IS NULL OR booking_date >= ?)
                 AND (court_id = ? OR court_name = ?)",
-            [$facilityId, $today, $courtId, $courtName]
+            [$facilityId, $yesterday, $courtId, $courtName]
         );
         $rows = $stmt->fetchAllAssociative();
         $count = 0;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Picklers\Web\Security;
 
 use Picklers\Admin\Security\PlatformSession;
-use Picklers\Core\Database;
+use Picklers\Repositories\UserRepository;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
@@ -25,7 +25,7 @@ final class SessionAuthenticator extends AbstractAuthenticator
     public function __construct(
         private readonly PlatformSession $session,
         private readonly ImpersonationGate $impersonation,
-        private readonly Database $db,
+        private readonly UserRepository $users,
     ) {
     }
 
@@ -48,14 +48,13 @@ final class SessionAuthenticator extends AbstractAuthenticator
         }
         $this->session->touch();
 
-        $row = $this->db->getUserById($id);
+        $row = $this->users->getUserById($id);
         // A deactivated or removed account must not keep acting through an old session.
         if (!$row || ($row['role'] ?? '') === 'deleted') {
             return $this->end();
         }
         // A password change signs out every session that authenticated before it.
-        if (!empty($row['password_changed_at']) && !$impersonating
-            && $this->session->authenticatedAt() < (int)strtotime((string)$row['password_changed_at'])) {
+        if (!$impersonating && $this->session->passwordChanged($id, $row['password_changed_at'] ?? null)) {
             return $this->end();
         }
 

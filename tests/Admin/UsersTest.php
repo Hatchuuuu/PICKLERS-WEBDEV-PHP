@@ -6,6 +6,19 @@ namespace Picklers\Tests\Admin;
 /** R05 — users & roles: privilege boundaries, last-admin protection, lifecycle integrity. */
 final class UsersTest extends AdminWebTestCase
 {
+    public function testIdentityReviewRequestsCanBeFoundFromTheVerificationFilter(): void
+    {
+        self::pdo()->exec("UPDATE users SET verification_status = 'pending_review' WHERE id = 'usr_fx_p2'");
+        $this->signIn('usr_fx_admin');
+        $this->client->request('GET', '/admin?tab=users&verification=pending_review');
+        self::assertResponseIsSuccessful();
+        $page = $this->client->getCrawler();
+        self::assertCount(1, $page->filter('select[name="verification"] option[value="pending_review"][selected]'));
+        self::assertStringContainsString('Pedro Player', $page->filter('tbody')->text());
+        self::assertStringNotContainsString('Paula Player', $page->filter('tbody')->text());
+        self::assertCount(1, $page->filter('select[name="verification"] option[value="pending"]'), 'Legacy pending remains discoverable.');
+    }
+
     public function testOrdinaryAdminCannotEscalate(): void
     {
         $this->signIn('usr_fx_admin');

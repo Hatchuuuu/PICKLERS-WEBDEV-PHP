@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Verifies the legacy schema bootstrap in a disposable database:
+ * Verifies the Symfony schema installer in a disposable database:
  *
  *   1. fresh       — no database, no stamp: every table and the dev seed appear;
  *   2. stale stamp — empty database but a directory stamp claiming the current
@@ -21,13 +21,8 @@ $root   = dirname(__DIR__);
 $dbName = 'picklers_test_boot';
 $state  = $root . '/database/.test-state/boot-probe';
 
-$env = [];
-foreach (file($root . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-    $line = trim($line);
-    if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
-    [$k, $v] = array_map('trim', explode('=', $line, 2));
-    $env[$k] = trim($v, "\"'");
-}
+require $root . '/config/bootstrap.php';
+$env = $_ENV;
 $server = new PDO(
     sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $env['DB_HOST'] ?? '127.0.0.1', (int)($env['DB_PORT'] ?? 3306)),
     $env['DB_USERNAME'] ?? 'root', $env['DB_PASSWORD'] ?? '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
@@ -43,17 +38,24 @@ $resetState = static function () use ($state): void {
     }
 };
 
-/** Boot the legacy Database in a child process and report what it sees. */
+/** Install through the console, then inspect the same Doctrine connection. */
 $probe = static function () use ($root, $state, $dbName): array {
+    $out = [];
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/bin/console')
+        . ' picklers:schema:install --env=dev --database=' . $dbName
+        . ' ' . escapeshellarg('--data-path=' . $state) . ' 2>&1', $out, $status);
+    if ($status !== 0) {
+        return ['error' => implode("\n", $out)];
+    }
     $code = '<?php' . "\n" . sprintf(
         'define("ROOT_PATH", %s); define("APP_PATH", ROOT_PATH . "/src"); define("CONFIG_PATH", ROOT_PATH . "/config"); define("DATA_PATH", %s);' . "\n"
         . '$_ENV["APP_ENV"] = "development"; $_ENV["DB_DATABASE"] = %s;' . "\n"
-        . 'foreach (file(ROOT_PATH . "/.env", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $l) { $l = trim($l); if ($l === "" || $l[0] === "#" || !str_contains($l, "=")) continue; [$k, $v] = array_map("trim", explode("=", $l, 2)); if (!isset($_ENV[$k])) $_ENV[$k] = trim($v, "\"\'"); }' . "\n"
-        . 'require ROOT_PATH . "/vendor/autoload.php";' . "\n"
-        . '$db = Picklers\Core\Database::get(); $pdo = (new ReflectionProperty($db, "pdo"))->getValue($db);' . "\n"
+        . 'require ROOT_PATH . "/config/bootstrap.php";' . "\n"
+        . '$kernel = new Picklers\Kernel("dev", false); $kernel->boot(); $pdo = $kernel->getContainer()->get("doctrine")->getConnection()->getNativeConnection();' . "\n"
         . '$t = $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()")->fetchColumn();' . "\n"
         . '$f = $pdo->query("SELECT COUNT(*) FROM facilities")->fetchColumn(); $u = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();' . "\n"
-        . 'echo json_encode(["mysql" => $db->isUsingMySQL(), "tables" => (int)$t, "facilities" => (int)$f, "users" => (int)$u]);' . "\n",
+        . '$collation = $pdo->query("SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE()")->fetchColumn();' . "\n"
+        . 'echo json_encode(["mysql" => $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === "mysql", "collation" => $collation, "tables" => (int)$t, "facilities" => (int)$f, "users" => (int)$u]);' . "\n",
         var_export($root, true), var_export($state, true), var_export($dbName, true)
     );
     $script = sys_get_temp_dir() . '/picklers_boot_probe_' . getmypid() . '.php';
@@ -77,6 +79,7 @@ echo "Schema bootstrap verification (database: {$dbName})\n";
 $server->exec("DROP DATABASE IF EXISTS `{$dbName}`");
 $resetState();
 $seen = $probe();
+$check('fresh: database uses utf8mb4_unicode_ci', ($seen['collation'] ?? '') === 'utf8mb4_unicode_ci', $seen);
 $check('fresh: all required tables created', ($seen['tables'] ?? 0) >= $required, $seen);
 $check('fresh: dev seed populated facilities and users', ($seen['facilities'] ?? 0) > 0 && ($seen['users'] ?? 0) > 1, $seen);
 

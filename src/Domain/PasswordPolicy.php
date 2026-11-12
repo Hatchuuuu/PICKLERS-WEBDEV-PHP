@@ -11,6 +11,9 @@ final class PasswordPolicy
     /** An error message, or null when the password is acceptable. */
     public static function error(string $password): ?string
     {
+        if (strlen($password) > 72 || str_contains($password, "\0")) {
+            return 'Password must be at most 72 bytes and contain no null characters.';
+        }
         if (strlen($password) < self::MIN_LENGTH) {
             return 'Password must be at least ' . self::MIN_LENGTH . ' characters long.';
         }

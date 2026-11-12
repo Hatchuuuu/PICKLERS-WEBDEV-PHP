@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Picklers\Web\Controller;
 
 use Picklers\Admin\Http\ActionInput;
+use Picklers\Web\Http\ApiError;
 use Picklers\Web\Security\SessionUser;
 use Picklers\Web\Service\AccountService;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -40,8 +41,15 @@ final class AccountController extends AbstractWebController
     public function changePassword(Request $request): JsonResponse
     {
         $user = $this->guardMutation($request, 'change_password', 'Unauthorized: Please log in to change your password.', true, true);
-        $in = new ActionInput($request);
-        $this->account->changePassword($user->id(), $in->string('current_password'), $in->string('new_password'), $in->string('confirm_password'));
+        $passwords = (new ActionInput($request))->all();
+        foreach (['current_password', 'new_password', 'confirm_password'] as $field) {
+            $value = $passwords[$field] ?? '';
+            if (!is_scalar($value)) {
+                throw new ApiError('Password fields must be text.');
+            }
+            $passwords[$field] = (string)$value;
+        }
+        $this->account->changePassword($user->id(), $passwords['current_password'], $passwords['new_password'], $passwords['confirm_password']);
 
         return $this->legacyJson(['success' => true, 'message' => 'Password updated successfully!']);
     }
@@ -53,7 +61,9 @@ final class AccountController extends AbstractWebController
         $in = new ActionInput($request);
         $fields = [];
         foreach (['name', 'email', 'phone', 'level', 'avatar_url'] as $key) {
-            $fields[$key] = $in->string($key);
+            if ($in->has($key)) {
+                $fields[$key] = $in->string($key);
+            }
         }
         $updated = $this->account->updateProfile($user->row(), $fields);
 
@@ -86,6 +96,7 @@ final class AccountController extends AbstractWebController
     #[Route('/logout', name: 'web_logout', methods: ['GET', 'POST'])]
     public function logout(Request $request): JsonResponse
     {
+        if (!$this->validCsrf($request)) throw new ApiError('CSRF security verification failed.', 403);
         if ($request->isMethod('POST')) {
             $this->guardMutation($request, 'logout', null); // a posted sign-out needs the CSRF token, as before
         }
@@ -98,9 +109,17 @@ final class AccountController extends AbstractWebController
     public function markNotificationsRead(Request $request): JsonResponse
     {
         $user = $this->guardMutation($request, 'mark_notifications_read', 'Unauthorized');
-        $this->account->markAllRead($user->id());
+        $input = (new ActionInput($request))->all();
+        if (array_key_exists('id', $input)) {
+            if (!is_string($input['id']) || trim($input['id']) === '') {
+                throw new ApiError('A notification ID is required.', 400);
+            }
+            $this->account->markNotificationRead($user->id(), $input['id']);
+        } else {
+            $this->account->markAllRead($user->id());
+        }
 
-        return $this->legacyJson(['success' => true, 'message' => 'All notifications marked as read']);
+        return $this->legacyJson(['success' => true, 'message' => 'Notifications marked as read']);
     }
 
     #[Route('/notifications/{id}/delete', name: 'web_notification_delete', methods: ['POST'])]

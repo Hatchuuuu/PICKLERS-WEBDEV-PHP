@@ -85,6 +85,88 @@ final class DiscoverTest extends AdminWebTestCase
         self::assertFalse($bad['json']['success']);
     }
 
+    public function testSlotsRejectInvalidTargetsAndDates(): void
+    {
+        $id = $this->fixtureFacilityId();
+        $court = (string)$this->scalar('SELECT id FROM courts WHERE facility_id = ? ORDER BY id LIMIT 1', [$id]);
+        $foreign = (string)$this->scalar('SELECT id FROM courts WHERE facility_id <> ? ORDER BY id LIMIT 1', [$id]);
+        foreach (['/api', '/api.php', "/api/facilities/{$id}/courts/{$court}/slots"] as $uri) {
+            foreach (['not-a-date', '2031-02-30'] as $date) {
+                $r = $this->get($uri, ['action' => 'slot_availability', 'facility_id' => $id, 'court_id' => $court, 'date' => $date]);
+                self::assertSame(400, $r['status'], $uri . ' ' . $date);
+                self::assertFalse($r['json']['success']);
+            }
+        }
+        foreach ([$foreign, 'nonexistent-court'] as $badCourt) {
+            foreach (['/api', "/api/facilities/{$id}/courts/{$badCourt}/slots"] as $uri) {
+                $r = $this->get($uri, ['action' => 'court_availability', 'facility_id' => $id, 'court_id' => $badCourt, 'date' => '2031-09-14']);
+                self::assertSame(404, $r['status'], $uri . ' ' . $badCourt);
+                self::assertFalse($r['json']['success']);
+            }
+        }
+        foreach (['999999', $id . '-invalid'] as $badFacility) {
+            $r = $this->get('/api', ['action' => 'slot_availability', 'facility_id' => $badFacility, 'court_id' => $court, 'date' => '2031-09-14']);
+            self::assertSame(404, $r['status'], 'invalid facility ' . $badFacility);
+        }
+    }
+
+    public function testPastAndBlockedSlotsAreUnavailableWithoutChangingTheGrid(): void
+    {
+        $id = $this->fixtureFacilityId();
+        self::pdo()->prepare('UPDATE facilities SET hours = ? WHERE id = ?')->execute(['', $id]);
+        $court = (string)$this->scalar('SELECT id FROM courts WHERE facility_id = ? ORDER BY id LIMIT 1', [$id]);
+        $uri = "/api/facilities/{$id}/courts/{$court}/slots";
+        $future = date('Y-m-d', strtotime('+20 days'));
+        $free = $this->get($uri, ['date' => $future]);
+        self::assertSame(200, $free['status']);
+        self::assertCount(15, $free['json']['slots']);
+        self::assertSame(420, $free['json']['slots'][0]['start_min']);
+        self::assertSame(1320, $free['json']['slots'][14]['end_min']);
+        self::assertNotContains(false, array_column($free['json']['slots'], 'available'));
+        $default = $this->get($uri);
+        self::assertSame(date('Y-m-d'), $default['json']['date']);
+        $now = (int)date('G') * 60 + (int)date('i');
+        foreach ($default['json']['slots'] as $slot) {
+            self::assertSame($slot['start_min'] > $now, $slot['available']);
+        }
+        $past = $this->get($uri, ['date' => date('Y-m-d', strtotime('-1 day'))]);
+        self::assertNotContains(true, array_column($past['json']['slots'], 'available'));
+        self::assertSame(['past'], array_values(array_unique(array_column($past['json']['slots'], 'reason'))));
+        foreach (['maintenance', 'UNAVAILABLE'] as $status) {
+            self::pdo()->prepare('UPDATE courts SET status = ? WHERE id = ?')->execute([$status, $court]);
+            $blocked = $this->get('/api', ['action' => 'slot_availability', 'facility_id' => $id, 'court_id' => $court, 'date' => $future]);
+            self::assertSame(200, $blocked['status']);
+            self::assertNotContains(true, array_column($blocked['json']['slots'], 'available'));
+            self::assertStringContainsString('maintenance', $blocked['json']['slots'][0]['reason']);
+        }
+        self::pdo()->prepare("UPDATE courts SET status = 'available' WHERE id = ?")->execute([$court]);
+        self::pdo()->prepare("UPDATE facilities SET operating_status = 'suspended' WHERE id = ?")->execute([$id]);
+        $blocked = $this->get($uri, ['date' => $future]);
+        self::assertNotContains(true, array_column($blocked['json']['slots'], 'available'));
+        self::assertStringContainsString('temporarily unavailable', $blocked['json']['slots'][0]['reason']);
+    }
+
+    public function testSlotsKeepBookedAndEndedEarlyBehavior(): void
+    {
+        $id = $this->fixtureFacilityId();
+        $court = (string)$this->scalar('SELECT id FROM courts WHERE facility_id = ? ORDER BY id LIMIT 1', [$id]);
+        $name = (string)$this->scalar('SELECT name FROM courts WHERE id = ?', [$court]);
+        $day = date('Y-m-d', strtotime('+20 days'));
+        self::pdo()->prepare('INSERT INTO bookings (id, user_id, facility_id, court_id, court_name, booking_date, start_min, end_min, status, ended_early) VALUES (?, ?, ?, ?, ?, ?, 600, 660, ?, 0)')
+            ->execute(['FX-SLOT-READ', 'usr_fx_p1', $id, $court, $name, $day, 'confirmed']);
+        $query = ['action' => 'slot_availability', 'facility_id' => $id, 'court_id' => $court, 'date' => $day];
+        $slots = $this->get('/api', $query)['json']['slots'];
+        $booked = array_values(array_filter($slots, static fn($slot) => $slot['start_min'] === 600))[0];
+        self::assertFalse($booked['available']);
+        self::assertSame('booked', $booked['reason']);
+        self::pdo()->exec("UPDATE bookings SET ended_early = 1 WHERE id = 'FX-SLOT-READ'");
+        $slots = $this->get('/api', $query)['json']['slots'];
+        $released = array_values(array_filter($slots, static fn($slot) => $slot['start_min'] === 600))[0];
+        self::assertTrue($released['available']);
+        self::assertNull($released['reason']);
+        self::pdo()->exec("DELETE FROM bookings WHERE id = 'FX-SLOT-READ'");
+    }
+
     public function testFavouritesNeedAccountCsrfAndPost(): void
     {
         $id = $this->fixtureFacilityId();
@@ -103,8 +185,10 @@ final class DiscoverTest extends AdminWebTestCase
         $list = $this->get('/api', ['action' => 'facilities'])['json']['facilities'];
         $mine = array_values(array_filter($list, fn ($f) => (string)$f['id'] === $id))[0];
         self::assertTrue($mine['is_favorited'], 'the list reflects the signed-in player');
+        self::assertTrue($this->get('/api', ['action' => 'facility_detail', 'id' => $id])['json']['facility']['is_favorited'], 'detail Follow reflects the same persisted favorite');
 
         self::assertFalse($this->favorite($id, 'web-test-token')['json']['favorited'], 'second toggle removes it');
+        self::assertFalse($this->get('/api', ['action' => 'facility_detail', 'id' => $id])['json']['facility']['is_favorited']);
     }
 
     public function testExpiredOrDeactivatedSessionsBrowseAsGuests(): void

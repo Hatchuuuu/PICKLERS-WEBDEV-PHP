@@ -11,9 +11,9 @@ final class PromoRepository
     private readonly \Doctrine\DBAL\Connection $db;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
+        \Doctrine\DBAL\Connection $db,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
+        $this->db = $db;
     }
 
     /**

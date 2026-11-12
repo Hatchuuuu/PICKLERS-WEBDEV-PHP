@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Service;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\OwnerRepository;
 use Picklers\Repositories\FacilityRepository;
 use Picklers\Services\TournamentService;
 
@@ -16,7 +16,7 @@ final class OwnerScope
     public function __construct(
         private readonly FacilityRepository $facilities,
         private readonly TournamentService $tournaments,
-        private readonly Database $db,
+        private readonly OwnerRepository $owners,
     ) {
     }
 
@@ -32,7 +32,7 @@ final class OwnerScope
         return (int)($user['is_owner'] ?? 0) === 1
             || (int)($user['is_admin'] ?? 0) === 1
             || (string)($user['role'] ?? '') === 'owner'
-            || $this->db->getStaffFacilityIdsForUser((string)($user['id'] ?? ''), (string)($user['email'] ?? '')) !== [];
+            || $this->owners->getStaffFacilityIdsForUser((string)($user['id'] ?? ''), (string)($user['email'] ?? '')) !== [];
     }
 
     /**
@@ -71,7 +71,7 @@ final class OwnerScope
         if (!empty($user['is_admin'])) {
             return $all;
         }
-        $staffFacilityIds = array_map('strval', $this->db->getStaffFacilityIdsForUser((string)($user['id'] ?? ''), (string)($user['email'] ?? '')));
+        $staffFacilityIds = array_map('strval', $this->owners->getStaffFacilityIdsForUser((string)($user['id'] ?? ''), (string)($user['email'] ?? '')));
 
         return array_values(array_filter($all, static function ($f) use ($user, $staffFacilityIds) {
             $isOwner = isset($f['owner_id']) && (string)$f['owner_id'] === (string)($user['id'] ?? '');
@@ -89,6 +89,15 @@ final class OwnerScope
     public function portalFacility(array $user, string $requestedId = ''): ?array
     {
         return self::pick($this->portalFacilities($user), trim($requestedId));
+    }
+
+    /** Court operations follow the same current, stable membership as the portal. */
+    public function canManageCourt(?array $user, string $courtId): bool
+    {
+        $court = $this->facilities->getCourtById($courtId);
+
+        return $user !== null && $court !== null
+            && $this->portalFacility($user, (string)$court['facility_id']) !== null;
     }
 
     /**

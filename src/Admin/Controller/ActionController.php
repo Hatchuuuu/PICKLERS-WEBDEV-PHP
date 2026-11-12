@@ -57,6 +57,8 @@ final class ActionController extends AbstractAdminController
         'admin_update_booking_status' => [Capability::MANAGE_BOOKINGS, true],
         'admin_cancel_booking' => [Capability::MANAGE_BOOKINGS, true],
         // Users & roles
+        'admin_create_user' => [Capability::CREATE_USER, true],
+        'admin_update_user' => [Capability::UPDATE_USER, true],
         'admin_get_users' => [Capability::VIEW_CONSOLE, false],
         'admin_get_user' => [Capability::VIEW_CONSOLE, false],
         'admin_toggle_verify' => [Capability::VERIFY_USERS, true],
@@ -75,6 +77,8 @@ final class ActionController extends AbstractAdminController
         'admin_get_wallet' => [Capability::VIEW_LEDGER, false],
         'admin_adjust_wallet' => [Capability::ADJUST_WALLET, true],
         // Moderation
+        'admin_update_post' => [Capability::MODERATE_CONTENT, true],
+        'admin_delete_post' => [Capability::MODERATE_CONTENT, true],
         'admin_get_moderation_case' => [Capability::MODERATE_CONTENT, false],
         'admin_moderation_flag' => [Capability::MODERATE_CONTENT, true],
         'admin_moderation_hide' => [Capability::MODERATE_CONTENT, true],
@@ -200,6 +204,8 @@ final class ActionController extends AbstractAdminController
                 + $this->bookings->cancel($admin, $in->string('booking_id'), $in->string('expected_status'), $in->string('reason')),
 
             'admin_get_users' => ['users' => $this->accounts->search(ListQuery::from($in->all(), [], ['created_at'], 'created_at'))->items],
+            'admin_create_user' => $this->users->create($admin, $in->all()),
+            'admin_update_user' => $this->users->updateIdentity($admin, $userId, $in->all()),
             'admin_get_user' => ['user' => $this->users->detail($userId)],
             'admin_toggle_verify' => ['user_id' => $userId] + $this->users->toggleVerification($admin, $userId),
             'admin_set_verification' => ['user_id' => $userId] + $this->users->setVerification($admin, $userId, $in->string('status')),
@@ -208,7 +214,11 @@ final class ActionController extends AbstractAdminController
             'admin_delete_user', 'admin_deactivate_user' => $this->users->deactivate($admin, $userId, $in->string('reason')),
             'admin_reactivate_user' => $this->users->reactivate($admin, $userId, $in->string('reason')),
             'admin_hard_delete_user', 'admin_delete_account' => $this->users->delete($admin, $userId, $in->string('confirm_text'), $in->string('reason')),
-            'admin_reset_password' => $this->users->resetPassword($admin, $userId, $in->string('new_password'), $in->string('reason')),
+            'admin_reset_password' => (function () use ($admin, $userId, $in): array {
+                $password = $in->all()['new_password'] ?? '';
+                if (!is_string($password)) throw AdminActionException::invalid('Password must be text.', 'new_password');
+                return $this->users->resetPassword($admin, $userId, $password, $in->string('reason'));
+            })(),
             'admin_send_notification' => $this->notifications->sendToUser($admin, $userId, $in->string('title'), $in->string('message'),
                 $in->string('idempotency_key') ?: bin2hex(random_bytes(16))),
             'admin_impersonate' => $this->users->impersonate($admin, $userId, $in->string('reason')),
@@ -222,6 +232,8 @@ final class ActionController extends AbstractAdminController
                 $in->string('reason') ?: $in->string('label'), $in->string('idempotency_key')),
 
             'admin_get_moderation_case' => ['case' => $this->moderation->caseDetail($in->string('case_id'))],
+            'admin_update_post' => $this->moderation->updatePost($admin, $in->string('post_id'), $in->string('content')),
+            'admin_delete_post' => $this->moderation->deletePost($admin, $in->string('post_id'), $in->string('confirm_text')),
             'admin_moderation_flag' => $this->moderation->flag($admin, $in->string('content_type'), $in->string('content_id'), $in->string('category'), $in->string('reason')),
             'admin_moderation_hide' => $this->moderation->hide($admin, $in->string('case_id'), $in->string('reason')),
             'admin_moderation_restore' => $this->moderation->restore($admin, $in->string('case_id'), $in->string('reason')),

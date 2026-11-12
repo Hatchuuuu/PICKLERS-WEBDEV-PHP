@@ -3,7 +3,11 @@ declare(strict_types=1);
 
 namespace Picklers\Web\Controller;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\FacilityRepository;
+use Picklers\Repositories\OpenPlayRepository;
+use Picklers\Repositories\BookingRepository;
+use Picklers\Repositories\WalletRepository;
+use Picklers\Repositories\OwnerRepository;
 use Picklers\Repositories\NotificationRepository;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,7 +19,11 @@ final class AppController extends AbstractWebController
     private const TABS = ['play', 'explore', 'wallet', 'bookings', 'settings'];
 
     public function __construct(
-        private readonly Database $db,
+        private readonly FacilityRepository $facilities,
+        private readonly OpenPlayRepository $openPlay,
+        private readonly BookingRepository $bookings,
+        private readonly WalletRepository $wallet,
+        private readonly OwnerRepository $owners,
         private readonly NotificationRepository $notifications,
     ) {
     }
@@ -35,6 +43,26 @@ final class AppController extends AbstractWebController
         }
         $id = (string)$user['id'];
         $notifications = $this->notifications->getNotifications($id);
+        $allFacilities = $this->facilities->getFacilities();
+        $ownerFacility = null;
+        foreach ($allFacilities as $f) {
+            if ((string)($f['owner_id'] ?? '') === $id) {
+                $ownerFacility = $f;
+                break;
+            }
+        }
+        $staffIds = $this->owners->getStaffFacilityIdsForUser($id, (string)($user['email'] ?? ''));
+        if ($ownerFacility === null && $staffIds !== []) {
+            foreach ($allFacilities as $f) {
+                if (in_array((int)$f['id'], $staffIds, true) || in_array((string)$f['id'], $staffIds, true)) {
+                    $ownerFacility = $f;
+                    break;
+                }
+            }
+        }
+        if ($ownerFacility === null && !empty($user['is_admin']) && !empty($allFacilities)) {
+            $ownerFacility = $allFacilities[0];
+        }
 
         return $this->render('web/app.html.twig', [
             'currentUser' => $user,
@@ -42,14 +70,15 @@ final class AppController extends AbstractWebController
             'userNotifications' => $notifications,
             'unreadNotifsCount' => count(array_filter($notifications, static fn($n) => empty($n['is_read']))),
             'csrfToken' => $this->csrfToken(),
-            'facilities' => $this->db->getFacilities(),
-            'favoriteFacilityIds' => $this->db->getFavoriteFacilityIds($id),
-            'matches' => $this->db->getMatches(),
-            'bookings' => $this->db->getBookings($id),
-            'walletTransactions' => $this->db->getWalletTransactions($id),
-            'latestApp' => $this->db->getLatestApplicationForUser($id),
-            'isStaffUser' => $this->db->getStaffFacilityIdsForUser($id, (string)($user['email'] ?? '')) !== [],
-            'db' => $this->db,
+            'facilities' => $allFacilities,
+            'ownerFacility' => $ownerFacility,
+            'favoriteFacilityIds' => $this->facilities->getFavoriteFacilityIds($id),
+            'matches' => $this->openPlay->getMatches(),
+            'bookings' => $this->bookings->getBookings($id),
+            'walletTransactions' => $this->wallet->getWalletTransactions($id),
+            'latestApp' => $this->owners->getLatestApplicationForUser($id),
+            'isStaffUser' => $staffIds !== [],
+            'db' => $this->bookings,
         ]);
     }
 }

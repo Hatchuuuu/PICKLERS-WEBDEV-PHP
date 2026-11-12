@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
  * Tests Open Play recurring rollover logic, target date resolution,
  * display date formatting, player count scoping, and roster filtering.
@@ -12,7 +10,8 @@ use Picklers\Core\Database;
 final class OpenPlayRolloverTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $matchRepository = $this->service(\Picklers\Repositories\MatchRepository::class);
+        $openplayRepository = $this->service(\Picklers\Repositories\OpenPlayRepository::class);
 
         // 1. Non-everyday expired match vs active match
         $expiredMatch = [
@@ -21,7 +20,7 @@ final class OpenPlayRolloverTest extends TestCase {
             'date' => date('Y-m-d', strtotime('-2 days')),
             'time' => '8:00 AM - 11:00 PM'
         ];
-        $this->assertTrue(Database::isMatchExpired($expiredMatch), 'Past dated match is identified as expired');
+        $this->assertTrue(\Picklers\Domain\Schedule::isMatchExpired($expiredMatch), 'Past dated match is identified as expired');
 
         $activeMatch = [
             'id' => 'test_op_active',
@@ -29,7 +28,7 @@ final class OpenPlayRolloverTest extends TestCase {
             'date' => date('Y-m-d', strtotime('+2 days')),
             'time' => '8:00 AM - 11:00 PM'
         ];
-        $this->assertFalse(Database::isMatchExpired($activeMatch), 'Future dated match is identified as active');
+        $this->assertFalse(\Picklers\Domain\Schedule::isMatchExpired($activeMatch), 'Future dated match is identified as active');
 
         // 2. Everyday match before end time
         $futureEndTime = date('g:i A', strtotime('+2 hours'));
@@ -41,9 +40,9 @@ final class OpenPlayRolloverTest extends TestCase {
         ];
         $todayFormatted = date('F j, Y');
         $tomorrowFormatted = date('F j, Y', strtotime('+1 day'));
-        $this->assertFalse(Database::isMatchExpired($everydayActive), 'Everyday match before end time is not expired');
-        $this->assertSame(date('Y-m-d'), Database::getMatchTargetDate($everydayActive), 'Everyday match before end time targets today');
-        $this->assertSame($todayFormatted, Database::getMatchDisplayDate($everydayActive), 'Everyday match before end time displays today formatted date');
+        $this->assertFalse(\Picklers\Domain\Schedule::isMatchExpired($everydayActive), 'Everyday match before end time is not expired');
+        $this->assertSame(date('Y-m-d'), \Picklers\Domain\Schedule::getMatchTargetDate($everydayActive), 'Everyday match before end time targets today');
+        $this->assertSame($todayFormatted, \Picklers\Domain\Schedule::getMatchDisplayDate($everydayActive), 'Everyday match before end time displays today formatted date');
 
         // 3. Everyday match after end time. The window must start before it
         // ends on the same day: a fixed "8:00 AM" start with an end of now−2h
@@ -65,13 +64,13 @@ final class OpenPlayRolloverTest extends TestCase {
             'time' => $pastStartTime . ' - ' . $pastEndTime
         ];
         $tomorrowStr = date('Y-m-d', strtotime('+1 day'));
-        $this->assertFalse(Database::isMatchExpired($everydayPassed), 'Everyday match past end time is not expired (rolls over)');
-        $this->assertSame($tomorrowStr, Database::getMatchTargetDate($everydayPassed), 'Everyday match past end time targets tomorrow');
-        $this->assertSame($tomorrowFormatted, Database::getMatchDisplayDate($everydayPassed), 'Everyday match past end time displays tomorrow formatted date');
+        $this->assertFalse(\Picklers\Domain\Schedule::isMatchExpired($everydayPassed), 'Everyday match past end time is not expired (rolls over)');
+        $this->assertSame($tomorrowStr, \Picklers\Domain\Schedule::getMatchTargetDate($everydayPassed), 'Everyday match past end time targets tomorrow');
+        $this->assertSame($tomorrowFormatted, \Picklers\Domain\Schedule::getMatchDisplayDate($everydayPassed), 'Everyday match past end time displays tomorrow formatted date');
 
         // 4. Test getMatches output formatting for rollover match
         $facilityId = 1;
-        $rolledMatch = $db->insertMatch([
+        $rolledMatch = $matchRepository->insertMatch([
             'id' => 'op_rollover_test',
             'facility_id' => $facilityId,
             'facility_name' => 'Cebu IT Park Pickle Center',
@@ -87,7 +86,7 @@ final class OpenPlayRolloverTest extends TestCase {
             'title' => 'Cebu IT Park Pickle Center'
         ]);
 
-        $matches = $db->getMatches();
+        $matches = $openplayRepository->getMatches();
         $foundRollover = null;
         foreach ($matches as $m) {
             if (($m['id'] ?? '') === 'op_rollover_test') {
@@ -101,6 +100,6 @@ final class OpenPlayRolloverTest extends TestCase {
         $this->assertSame(0, (int)($foundRollover['current_players'] ?? -1), 'Rollover match current_players resets to 0 for tomorrow session');
 
         // Clean up test match
-        $db->deleteMatch('op_rollover_test', $facilityId, 'Court 1');
+        $openplayRepository->deleteMatch('op_rollover_test', $facilityId, 'Court 1');
     }
 }

@@ -1037,7 +1037,7 @@
       html += '<div class="tb-divider"></div>';
       html += '<div class="tb-section-head"><h4>' +
         (mix ? 'Add Player to Draw Pool' : (singles ? 'Add Player' : 'Add Fixed Team')) +
-        '</h4><span class="tb-hint" style="margin:0; color:#FFFFFF;">Search registered players</span></div>';
+        '</h4><span class="tb-hint" style="margin:0; color:var(--pk-text-muted);">Search registered players</span></div>';
 
       html += '<div class="tb-search-wrap" style="margin-top:10px;">' +
         '<label class="tb-label" for="tbPlayer1">' + (mix || singles ? 'Player name' : 'Player 1') + '</label>' +
@@ -1143,17 +1143,22 @@
 
   function queueSearch(input, box) {
     clearTimeout(searchTimer);
+    input.dataset.searchVersion = String((Number(input.dataset.searchVersion) || 0) + 1);
+    box.classList.remove('is-open');
+    box.innerHTML = '';
     var query = input.value.trim();
     searchTimer = setTimeout(function () { runSearch(query, input, box); }, 160);
   }
 
   function runSearch(query, input, box) {
+    var requestVersion = input.dataset.searchVersion;
     fetch(cfg.apiUrl + '?action=search_players&q=' + encodeURIComponent(query), {
       credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        if (input.dataset.searchVersion !== requestVersion || input.value.trim() !== query) return;
         var users = (data && data.users) || [];
         var taken = new Set();
         if (state && state.tournament) {
@@ -1207,7 +1212,9 @@
           });
         });
       })
-      .catch(function () { box.classList.remove('is-open'); });
+      .catch(function () {
+        if (input.dataset.searchVersion === requestVersion && input.value.trim() === query) box.classList.remove('is-open');
+      });
   }
 
   function highlight(text, query) {
@@ -1242,6 +1249,9 @@
   function openCrown() {
     var t = state.tournament;
     if (!crown.root || !t.champion_team_id) return;
+    if (!crown.root.classList.contains('is-open') && !document.querySelector('.tb-modal.is-open')) {
+      lastFocused = document.activeElement;
+    }
 
     var team = teamOf(t.champion_team_id);
     crown.name.textContent = t.champion || (team && team.name) || 'Champion';
@@ -1251,6 +1261,7 @@
     crown.players.hidden = !players;
 
     crown.root.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
     dropConfetti();
 
     var first = crown.root.querySelector('button, a');
@@ -1259,7 +1270,7 @@
 
   function closeCrown() {
     if (!crown.root) return;
-    crown.root.classList.remove('is-open');
+    closeModal(crown.root);
     if (crown.confetti) crown.confetti.innerHTML = '';
   }
 
@@ -1295,10 +1306,22 @@
   function closeModal(node) {
     if (!node) return;
     node.classList.remove('is-open');
-    if (!document.querySelector('.tb-modal.is-open') && !document.querySelector('.tb-crown.is-open')) {
-      document.body.style.overflow = '';
+    var remaining = document.querySelector('.tb-crown.is-open') || document.querySelector('.tb-modal.is-open');
+    if (remaining) {
+      if (!remaining.contains(document.activeElement)) {
+        var inside = remaining.querySelector('button, [href], input, select, textarea');
+        if (inside) inside.focus();
+      }
+      return;
     }
-    if (lastFocused && lastFocused.focus) lastFocused.focus();
+    document.body.style.overflow = '';
+    var target = lastFocused;
+    if (!target || !document.contains(target)) {
+      target = Array.prototype.find.call(document.querySelectorAll('[data-match]'), function (card) {
+        return card.getAttribute('data-match') === state.activeMatchId;
+      }) || el.crownBtn;
+    }
+    if (target && !target.hidden && target.focus) target.focus();
   }
 
   function showAlert(node, message) {

@@ -80,7 +80,14 @@
     var el = typeof id === 'string' ? document.getElementById(id) : id;
     if (!el) return null;
     for (var s = 0; s < stack.length; s++) {
-      if (stack[s].el === el) return el;
+      if (stack[s].el === el) {
+        if (stack[s].cancelClose) {
+          stack[s].cancelClose();
+          el.classList.remove('ux-closing');
+          el.classList.add('ux-open', 'open');
+        }
+        return el;
+      }
     }
 
     var opts = options || {};
@@ -97,9 +104,13 @@
       }
     }
 
+    var previous = topDialog();
+    var restoreFocus = document.activeElement;
+    // A replacement dialog must return past a panel already on its way out.
+    if (previous && previous.cancelClose) restoreFocus = previous.restoreFocus;
     var entry = {
       el: el,
-      restoreFocus: document.activeElement,
+      restoreFocus: restoreFocus,
       dismissible: opts.dismissible !== false,
       downOnBackdrop: false
     };
@@ -117,6 +128,7 @@
     // setTimeout rather than rAF: rAF does not fire in background/throttled
     // tabs, which would leave focus stranded behind the backdrop.
     window.setTimeout(function () {
+      if (topDialog() !== entry || entry.cancelClose) return;
       var preferred = el.querySelector('[data-autofocus]');
       var targets = focusableWithin(el);
       var target = preferred || targets[0] || el;
@@ -133,6 +145,11 @@
 
   function close(id) {
     var el = typeof id === 'string' ? document.getElementById(id) : id;
+    // Dismissing a submitted confirmation cannot cancel its server mutation.
+    if (el && el.getAttribute('aria-busy') === 'true') return;
+    if (el && (el.id === 'quickBookModal' || el.id === 'confirmBookingModal') && typeof window.invalidateBookingAvailability === 'function') {
+      window.invalidateBookingAvailability(el.id);
+    }
     var index = -1;
     for (var i = stack.length - 1; i >= 0; i--) {
       if (!el || stack[i].el === el) { index = i; break; }
@@ -148,16 +165,29 @@
     }
 
     var entry = stack[index];
-    stack.splice(index, 1);
+    if (entry.cancelClose) return;
     var node = entry.el;
 
     var finish = function () {
+      var wasTop = topDialog() === entry;
+      stack.splice(stack.indexOf(entry), 1);
+      stack.forEach(function (remaining) {
+        if (remaining.restoreFocus === node || node.contains(remaining.restoreFocus)) {
+          remaining.restoreFocus = entry.restoreFocus;
+        }
+      });
       node.style.display = 'none';
       node.classList.remove('ux-open', 'ux-closing', 'open');
       unlockScroll();
-      if (entry.restoreFocus && document.contains(entry.restoreFocus)) {
+      if (!wasTop) return;
+      var next = topDialog();
+      var target = entry.restoreFocus;
+      if (next && (!target || !next.el.contains(target))) {
+        target = focusableWithin(next.el)[0] || next.el;
+      }
+      if (target && document.contains(target)) {
         try {
-          entry.restoreFocus.focus({ preventScroll: true });
+          target.focus({ preventScroll: true });
         } catch (err) { /* ignore */ }
       }
     };
@@ -172,15 +202,24 @@
     node.classList.add('ux-closing');
 
     var done = false;
+    var timer;
     var onEnd = function (evt) {
       if (evt && evt.target !== node) return;
       if (done) return;
       done = true;
       node.removeEventListener('animationend', onEnd);
+      window.clearTimeout(timer);
+      entry.cancelClose = null;
       finish();
     };
+    entry.cancelClose = function () {
+      done = true;
+      node.removeEventListener('animationend', onEnd);
+      window.clearTimeout(timer);
+      entry.cancelClose = null;
+    };
     node.addEventListener('animationend', onEnd);
-    window.setTimeout(onEnd, 260); // fallback if the animation never fires
+    timer = window.setTimeout(onEnd, 260); // fallback if the animation never fires
   }
 
   function closeTop() {

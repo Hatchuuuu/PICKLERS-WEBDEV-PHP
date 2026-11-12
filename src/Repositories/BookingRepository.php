@@ -19,25 +19,25 @@ final class BookingRepository
     private readonly \Picklers\Repositories\FacilityRepository $facilities;
 
     public function __construct(
-        ?\Doctrine\DBAL\Connection $db = null,
-        ?\Picklers\Domain\BookingRules $bookingRules = null,
-        ?\Picklers\Domain\Notifier $notifier = null,
-        ?\Picklers\Repositories\UserRepository $users = null,
-        ?\Picklers\Repositories\NotificationRepository $notifications = null,
-        ?\Picklers\Repositories\PromoRepository $promos = null,
-        ?\Picklers\Repositories\WalletRepository $wallet = null,
-        ?\Picklers\Repositories\MatchRepository $matches = null,
-        ?\Picklers\Repositories\FacilityRepository $facilities = null,
+        \Doctrine\DBAL\Connection $db,
+        \Picklers\Domain\BookingRules $bookingRules,
+        \Picklers\Domain\Notifier $notifier,
+        \Picklers\Repositories\UserRepository $users,
+        \Picklers\Repositories\NotificationRepository $notifications,
+        \Picklers\Repositories\PromoRepository $promos,
+        \Picklers\Repositories\WalletRepository $wallet,
+        \Picklers\Repositories\MatchRepository $matches,
+        \Picklers\Repositories\FacilityRepository $facilities,
     ) {
-        $this->db = $db ?? \Picklers\Core\Database::get()->dbal();
-        $this->bookingRules = $bookingRules ?? \Picklers\Core\Database::get()->bookingRules();
-        $this->notifier = $notifier ?? \Picklers\Core\Database::get()->notifier();
-        $this->users = $users ?? new \Picklers\Repositories\UserRepository($this->db);
-        $this->notifications = $notifications ?? new \Picklers\Repositories\NotificationRepository($this->db);
-        $this->promos = $promos ?? new \Picklers\Repositories\PromoRepository($this->db);
-        $this->wallet = $wallet ?? new \Picklers\Repositories\WalletRepository($this->db);
-        $this->matches = $matches ?? new \Picklers\Repositories\MatchRepository($this->db, $this->bookingRules);
-        $this->facilities = $facilities ?? new \Picklers\Repositories\FacilityRepository($this->db, $this->notifier);
+        $this->db = $db;
+        $this->bookingRules = $bookingRules;
+        $this->notifier = $notifier;
+        $this->users = $users;
+        $this->notifications = $notifications;
+        $this->promos = $promos;
+        $this->wallet = $wallet;
+        $this->matches = $matches;
+        $this->facilities = $facilities;
     }
 
     /**
@@ -60,9 +60,8 @@ final class BookingRepository
      * see 'ended_sessions' in the sync response and PickSync.onSessionEnded()
      * in ux-core.js.
      *
-     * Scoped to today's bookings only so shipping this feature doesn't
-     * suddenly "end-alert" every confirmed booking in history the first time
-     * an existing user polls.
+     * Scoped to sessions ending today, including yesterday's overnight play,
+     * so an existing user's first poll never alerts their whole booking history.
      *
      * @return array<int,array{booking_id:string,court_name:string,facility_name:string}>
      */
@@ -71,18 +70,19 @@ final class BookingRepository
             return [];
         }
         $todayStr = date('Y-m-d');
+        $yesterdayStr = date('Y-m-d', strtotime('-1 day'));
         $alerts = [];
 
         $stmt = $this->db->executeQuery(
             "SELECT * FROM bookings
-             WHERE user_id = ? AND booking_date = ? AND status = 'confirmed'
+             WHERE user_id = ? AND booking_date BETWEEN ? AND ? AND status = 'confirmed'
                AND (end_alert_sent = 0 OR end_alert_sent IS NULL)",
-            [$userId, $todayStr]
+            [$userId, $yesterdayStr, $todayStr]
         );
         $candidates = $stmt->fetchAllAssociative();
 
         foreach ($candidates as $b) {
-            if (!\Picklers\Domain\Schedule::isBookingPast($b)) {
+            if (!$this->sessionEndAlertDue($b)) {
                 continue;
             }
             $bookingId = (string)($b['id'] ?? '');
@@ -90,25 +90,49 @@ final class BookingRepository
                 continue;
             }
 
-            $this->db->executeStatement("UPDATE bookings SET end_alert_sent = 1 WHERE id = ?", [$bookingId]);
-
-            $courtName = (string)($b['court_name'] ?? 'your court');
-            $facilityName = (string)($b['facility_name'] ?? 'the facility');
-            $this->notifications->addNotification(
-                $userId,
-                '⏰ Your Time Is Up!',
-                "Your session at {$courtName}, {$facilityName} has ended. Thanks for playing — see you again soon!",
-                'session_ended'
-            );
-
-            $alerts[] = [
-                'booking_id' => $bookingId,
-                'court_name' => $courtName,
-                'facility_name' => $facilityName,
-            ];
+            $alert = $this->db->transactional(function () use ($bookingId, $userId): ?array {
+                // Recheck the current row after waiting: another poll or cancellation may have won.
+                $current = $this->db->fetchAssociative(
+                    "SELECT * FROM bookings WHERE id = ? AND user_id = ? AND booking_date BETWEEN ? AND ?
+                       AND status = 'confirmed' AND (end_alert_sent = 0 OR end_alert_sent IS NULL) FOR UPDATE",
+                    [$bookingId, $userId, date('Y-m-d', strtotime('-1 day')), date('Y-m-d')]
+                );
+                if (!$current || !$this->sessionEndAlertDue($current)) {
+                    return null;
+                }
+                $this->db->executeStatement("UPDATE bookings SET end_alert_sent = 1 WHERE id = ?", [$bookingId]);
+                $courtName = (string)($current['court_name'] ?? 'your court');
+                $facilityName = (string)($current['facility_name'] ?? 'the facility');
+                $this->notifications->addNotification(
+                    $userId,
+                    '⏰ Your Time Is Up!',
+                    "Your session at {$courtName}, {$facilityName} has ended. Thanks for playing — see you again soon!",
+                    'session_ended'
+                );
+                return [
+                    'booking_id' => $bookingId,
+                    'court_name' => $courtName,
+                    'facility_name' => $facilityName,
+                ];
+            });
+            if ($alert !== null) {
+                $alerts[] = $alert;
+            }
         }
 
         return $alerts;
+    }
+
+    private function sessionEndAlertDue(array $booking): bool {
+        $day = (string)($booking['booking_date'] ?? '');
+        if ($day !== date('Y-m-d')) {
+            $endMin = $booking['end_min'] ?? (\Picklers\Domain\Schedule::parseTimeRange((string)($booking['time'] ?? ''))[1] ?? 0);
+            if ($day !== date('Y-m-d', strtotime('-1 day')) || (int)$endMin < 1440) {
+                return false;
+            }
+        }
+
+        return \Picklers\Domain\Schedule::isBookingPast($booking);
     }
 
     public function verifyBookingOwner(string $bookingId, string $ownerUserId): bool {
@@ -183,8 +207,8 @@ final class BookingRepository
      * Every booking channel (court booking, Open Play join, owner-hosted session)
      * calls this so admin suspension and court maintenance apply everywhere.
      */
-    public function bookingBlockReason(int|string $facilityId, ?string $courtId = null, ?string $courtName = null): ?string {
-        return $this->bookingRules->blockReason($facilityId, $courtId, $courtName);
+    public function bookingBlockReason(int|string $facilityId, ?string $courtId = null, ?string $courtName = null, ?string $time = null): ?string {
+        return $this->bookingRules->blockReason($facilityId, $courtId, $courtName, $time);
     }
 
     /**
@@ -335,11 +359,7 @@ final class BookingRepository
         // booking within the same request could see the pre-insert, stale
         // result the second time.
         $this->facilities->invalidateReadCache();
-        // booking_date/start_min/end_min are optional here: joinMatch()'s Open
-        // Play bookings don't need them (that occupancy path is driven by the
-        // `matches` table, not a booking's own time window), but a caller
-        // constructing a real timed-slot booking outside createBooking()'s
-        // own validation (e.g. a test fixture) can supply them directly.
+        // Legacy fixtures may omit canonical dates/minutes; current joins supply them.
         $this->db->executeStatement("INSERT INTO bookings (id, user_id, facility_id, court_id, match_id, facility_name, court_name, date, time, booking_date, start_min, end_min, duration, price, payment_method, status, is_new, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
             $b['id'], $b['user_id'], $b['facility_id'], $b['court_id'] ?? null, $b['match_id'] ?? null, $b['facility_name'], $b['court_name'],
             $b['date'], $b['time'], $b['booking_date'] ?? null, $b['start_min'] ?? null, $b['end_min'] ?? null,
@@ -349,7 +369,7 @@ final class BookingRepository
         return $b;
     }
 
-    public function isFacilityOpen(?string $hoursStr): bool {
+    public function isFacilityOpen(?string $hoursStr, ?\DateTimeImmutable $now = null): bool {
         if (empty($hoursStr)) {
             return true;
         }
@@ -385,8 +405,8 @@ final class BookingRepository
             return true;
         }
 
-        $nowH = (int)date('G');
-        $nowM = (int)date('i');
+        $nowH = (int)($now === null ? date('G') : $now->format('G'));
+        $nowM = (int)($now === null ? date('i') : $now->format('i'));
         $currentMin = $nowH * 60 + $nowM;
 
         if ($closeMin > $openMin) {
@@ -446,7 +466,7 @@ final class BookingRepository
         return $dayStart === false ? null : $dayStart + $startMin * 60;
     }
 
-    private function hasBookingStarted(array $booking): bool {
+    public function hasBookingStarted(array $booking): bool {
         if (!empty($booking['ended_early'])) {
             return true;
         }
@@ -480,6 +500,33 @@ final class BookingRepository
 
     private const AVAILABILITY_SLOT_MINUTES  = 60;
 
+    /** Adjacent days share one court: overnight intervals remain occupied after midnight. */
+    private function courtBookingWindows(int|string $facilityId, string $courtId, string $courtName, string $date, bool $lock = false): array {
+        $rows = $this->db->fetchAllAssociative(
+            "SELECT booking_date, time, start_min, end_min FROM bookings
+             WHERE facility_id = ? AND booking_date BETWEEN ? AND ?
+               AND (court_id = ? OR court_name = ?)
+               AND status NOT IN ('cancelled', 'declined')
+               AND (ended_early = 0 OR ended_early IS NULL)" . ($lock ? ' FOR UPDATE' : ''),
+            [$facilityId, date('Y-m-d', strtotime($date . ' -1 day')), date('Y-m-d', strtotime($date . ' +1 day')), $courtId, $courtName]
+        );
+        $windows = [];
+        foreach ($rows as $row) {
+            $range = $row['start_min'] !== null && $row['end_min'] !== null
+                ? [(int)$row['start_min'], (int)$row['end_min']]
+                : \Picklers\Domain\Schedule::parseTimeRange((string)$row['time']);
+            $offset = (int)((strtotime((string)$row['booking_date']) - strtotime($date)) / 60);
+            if ($range !== null) {
+                $row['start_min'] = $range[0] + $offset;
+                $row['end_min'] = $range[1] + $offset;
+                $windows[] = $row;
+            } elseif ($offset === 0) {
+                $windows[] = $row;
+            }
+        }
+        return $windows;
+    }
+
     /**
      * Which of a court's fixed hourly slots on a given day are actually free.
      *
@@ -492,48 +539,46 @@ final class BookingRepository
      * @return array<int,array{start_min:int,end_min:int,label:string,available:bool,reason:?string}>
      */
     public function getSlotAvailability(int|string $facilityId, string $courtId, string $date): array {
-        $taken = [];
-        if ($courtId !== '') {
-            // Include legacy rows that pre-date court_id (stored by court_name only).
-            $courtName = '';
-            $cnStmt = $this->db->executeQuery("SELECT name FROM courts WHERE id = ? LIMIT 1", [$courtId]);
-            $cnRow = $cnStmt->fetchAssociative();
-            if ($cnRow) {
-                $courtName = (string)($cnRow['name'] ?? '');
-            }
-            $stmt = $this->db->executeQuery(
-                "SELECT start_min, end_min FROM bookings
-                 WHERE facility_id = ? AND booking_date = ?
-                   AND (court_id = ? OR (? != '' AND court_name = ?))
-                   AND status NOT IN ('cancelled', 'declined')
-                   AND start_min IS NOT NULL AND end_min IS NOT NULL",
-                [$facilityId, $date, $courtId, $courtName, $courtName]
-            );
-            $taken = $stmt->fetchAllAssociative();
+        if (!ctype_digit((string)$facilityId)) {
+            throw new \OutOfBoundsException('Court not found at this facility.');
         }
+        $court = $this->db->fetchAssociative(
+            'SELECT c.name, f.hours FROM courts c JOIN facilities f ON f.id = c.facility_id WHERE c.id = ? AND c.facility_id = ?',
+            [$courtId, $facilityId]
+        );
+        if (!$court) {
+            throw new \OutOfBoundsException('Court not found at this facility.');
+        }
+        $blocked = $this->bookingRules->blockReason($facilityId, $courtId, (string)$court['name']);
+        $taken = $this->courtBookingWindows($facilityId, $courtId, (string)$court['name'], $date);
 
         $isToday = ($date === date('Y-m-d'));
         $nowMin  = ((int)date('G') * 60) + (int)date('i');
 
         $slots = [];
-        for ($m = self::AVAILABILITY_DAY_START_MIN; $m < self::AVAILABILITY_DAY_END_MIN; $m += self::AVAILABILITY_SLOT_MINUTES) {
+        $configuredHours = \Picklers\Domain\Schedule::parseTimeRange((string)$court['hours']) !== null || str_contains((string)$court['hours'], '24');
+        $dayStart = $configuredHours ? 0 : self::AVAILABILITY_DAY_START_MIN;
+        $dayEnd = $configuredHours ? 1440 : self::AVAILABILITY_DAY_END_MIN;
+        for ($m = $dayStart; $m < $dayEnd; $m += self::AVAILABILITY_SLOT_MINUTES) {
             $end = $m + self::AVAILABILITY_SLOT_MINUTES;
 
             $booked = false;
             foreach ($taken as $t) {
+                if ($t['start_min'] === null || $t['end_min'] === null) continue;
                 if (\Picklers\Domain\Schedule::rangesOverlap([$m, $end], [(int)$t['start_min'], (int)$t['end_min']])) {
                     $booked = true;
                     break;
                 }
             }
-            $past = $isToday && $m <= $nowMin;
+            $past = $date < date('Y-m-d') || ($isToday && $m <= $nowMin);
+            $withinHours = \Picklers\Domain\Schedule::slotWithinOperatingHours($court['hours'], [$m, $end]);
 
             $slots[] = [
                 'start_min' => $m,
                 'end_min'   => $end,
                 'label'     => \Picklers\Domain\Schedule::minutesToLabel($m) . ' – ' . \Picklers\Domain\Schedule::minutesToLabel($end),
-                'available' => !$booked && !$past,
-                'reason'    => $booked ? 'booked' : ($past ? 'past' : null),
+                'available' => $blocked === null && !$booked && !$past && $withinHours,
+                'reason'    => $blocked ?? ($booked ? 'booked' : ($past ? 'past' : (!$withinHours ? 'outside_operating_hours' : null))),
             ];
         }
 
@@ -598,37 +643,27 @@ final class BookingRepository
             $this->db->beginTransaction();
 
             // Admin suspension / court maintenance applies to every channel.
-            if (($blocked = $this->bookingBlockReason($facilityId, $courtId !== '' ? $courtId : null, (string)$courtName)) !== null) {
+            $userRow = $this->db->fetchAssociative('SELECT wallet_balance, role FROM users WHERE id = ? FOR UPDATE', [$userId]);
+            if (!$userRow || in_array($userRow['role'], ['deleted', 'deactivated'], true)) {
+                $this->db->rollBack();
+                return ['success' => false, 'message' => 'This account is no longer active.'];
+            }
+            $court = $this->db->fetchAssociative(
+                'SELECT id, name FROM courts WHERE facility_id = ? AND ' . ($courtId !== '' ? 'id = ?' : 'name = ?') . ' LIMIT 1 FOR UPDATE',
+                [$facilityId, $courtId !== '' ? $courtId : $courtName]
+            );
+            if ($court === false) {
+                $this->db->rollBack();
+                return ['success' => false, 'message' => 'That court is no longer listed at this venue.'];
+            }
+            $courtId = (string)$court['id'];
+            $courtName = (string)$court['name'];
+            if (($blocked = $this->bookingBlockReason($facilityId, $courtId !== '' ? $courtId : null, (string)$courtName, (string)$time)) !== null) {
                 $this->db->rollBack();
                 return ['success' => false, 'message' => $blocked];
             }
 
-            // Pessimistic lock scoped to the CANONICAL date (not whatever
-            // display string the client happened to send), then evaluate
-            // real time-range overlap. Matches by court_id OR court_name
-            // so a legacy row that predates court_id (still NULL — see
-            // the migration backfill) is never skipped and a real
-            // conflict never goes undetected; idx_booking_date_lock keeps
-            // this narrow either way.
-            if ($courtId !== '') {
-                $chk = $this->db->executeQuery(
-                    "SELECT time, start_min, end_min FROM bookings
-                     WHERE facility_id = ? AND booking_date = ?
-                       AND (court_id = ? OR court_name = ?)
-                       AND status NOT IN ('cancelled', 'declined')
-                     FOR UPDATE",
-                    [$facilityId, $bookingDate, $courtId, $courtName]
-                );
-            } else {
-                $chk = $this->db->executeQuery(
-                    "SELECT time, start_min, end_min FROM bookings
-                     WHERE facility_id = ? AND booking_date = ? AND court_name = ?
-                       AND status NOT IN ('cancelled', 'declined')
-                     FOR UPDATE",
-                    [$facilityId, $bookingDate, $courtName]
-                );
-            }
-            $existingRows = $chk->fetchAllAssociative();
+            $existingRows = $this->courtBookingWindows($facilityId, $courtId, $courtName, $bookingDate, true);
 
             $conflict = null;
             foreach ($existingRows as $row) {
@@ -660,8 +695,6 @@ final class BookingRepository
 
             // Atomic wallet check and deduction if Pickle Credits
             if ($paymentMethod === 'Pickle Credits') {
-                $userStmt = $this->db->executeQuery("SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE", [$userId]);
-                $userRow = $userStmt->fetchAssociative();
                 if (!$userRow || (float)($userRow['wallet_balance'] ?? 0) < (float)$price) {
                     $this->db->rollBack();
                     return ['success' => false, 'message' => 'Insufficient Pickle Credits. Please top up your wallet!'];
@@ -688,7 +721,7 @@ final class BookingRepository
 
             if ($paymentMethod === 'Pickle Credits') {
                 $payStr = !empty($paymentMethod) ? " via $paymentMethod" : '';
-                $this->wallet->addTransaction($userId, 'debit', $price, "Booking #$bookingId at $facilityName$payStr", ['entry_kind' => 'booking_payment', 'booking_id' => $bookingId]);
+                $this->wallet->addTransaction($userId, 'debit', $price, "Booking #$bookingId at $facilityName$payStr", ['entry_kind' => 'booking_payment', 'booking_id' => $bookingId, 'balance_after' => (string)$this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = ?', [$userId])]);
             }
 
             // Recorded in the SAME transaction as the booking itself: a
@@ -699,6 +732,35 @@ final class BookingRepository
             // together on any failure above).
             if ($promoCode !== null && $promoCode !== '' && $promoDiscount > 0) {
                 $this->promos->recordPromoRedemption($promoCode, $userId, $bookingId, $promoDiscount);
+            }
+
+            // This is a REQUEST awaiting the facility owner's approval, not a
+            // confirmed reservation yet — the actual "Booking Confirmed!"
+            // notification is sent from 'approve_booking' in ApiController once
+            // the owner accepts it. Telling the player it's "confirmed" here,
+            // before anyone at the facility has reviewed it, is misleading.
+            $this->notifications->addNotification(
+                $userId,
+                'Reservation Requested ⏳',
+                "Your request for $courtName at $facilityName on $date ($time) has been sent to the facility for confirmation. We'll notify you once it's approved.",
+                'booking'
+            );
+
+            // The player has always been told a booking landed. The facility
+            // owner never was — their only way to learn about a new reservation
+            // was noticing it in the dashboard's request queue on their own.
+            $ownerId = $this->facilities->getFacilityOwnerId($facilityId);
+            if ($ownerId !== null && $ownerId !== $userId) {
+                $bookerName = $this->users->getUserById($userId)['name'] ?? 'A player';
+                $this->notifications->addNotification(
+                    $ownerId,
+                    'New reservation 🎾',
+                    sprintf(
+                        '%s booked %s at %s for %s (%s) — ₱%s.',
+                        $bookerName, $courtName, $facilityName, $date, $time, number_format((float)$price, 2)
+                    ),
+                    'booking'
+                );
             }
 
             $this->db->commit();
@@ -731,35 +793,6 @@ final class BookingRepository
             }
             error_log('[DB Error] createBooking failed: ' . $e->getMessage());
             return ['success' => false, 'message' => 'Reservation failed due to a system error. Please try again.'];
-        }
-
-        // This is a REQUEST awaiting the facility owner's approval, not a
-        // confirmed reservation yet — the actual "Booking Confirmed!"
-        // notification is sent from 'approve_booking' in ApiController once
-        // the owner accepts it. Telling the player it's "confirmed" here,
-        // before anyone at the facility has reviewed it, is misleading.
-        $this->notifications->addNotification(
-            $userId,
-            'Reservation Requested ⏳',
-            "Your request for $courtName at $facilityName on $date ($time) has been sent to the facility for confirmation. We'll notify you once it's approved.",
-            'booking'
-        );
-
-        // The player has always been told a booking landed. The facility
-        // owner never was — their only way to learn about a new reservation
-        // was noticing it in the dashboard's request queue on their own.
-        $ownerId = $this->facilities->getFacilityOwnerId($facilityId);
-        if ($ownerId !== null && $ownerId !== $userId) {
-            $bookerName = $this->users->getUserById($userId)['name'] ?? 'A player';
-            $this->notifications->addNotification(
-                $ownerId,
-                'New reservation 🎾',
-                sprintf(
-                    '%s booked %s at %s for %s (%s) — ₱%s.',
-                    $bookerName, $courtName, $facilityName, $date, $time, number_format((float)$price, 2)
-                ),
-                'booking'
-            );
         }
 
         return ['success' => true, 'booking' => $booking, 'message' => 'Court booked successfully!'];
@@ -829,6 +862,20 @@ final class BookingRepository
                 ) ? (float)$booking['price'] : 0;
             }
 
+            $paidWith = (string)($booking['payment_method'] ?? '');
+            if ($refundAmount > 0) {
+                $msg = "Booking cancelled. ₱" . number_format($refundAmount, 2) . " has been fully refunded to your Pickle Credits!";
+            } elseif ($paidWith === 'Pickle Credits' && (float)($booking['price'] ?? 0) > 0) {
+                $msg = "Booking cancelled. Since cancellation occurred within 24 hours of play, no refund is provided per venue policy.";
+            } elseif ($paidWith === 'Pay at Venue') {
+                $msg = "Booking cancelled. Nothing was charged for this Pay at Venue booking.";
+            } else {
+                // Only Pickle Credits can be refunded in-app.
+                $msg = "Booking cancelled. Selected payment method: " . ($paidWith !== '' ? $paidWith : 'not recorded')
+                    . ". The app does not confirm external payment; please contact the facility about your payment.";
+            }
+            $this->notifications->addNotification($userId, 'Booking Cancelled', $msg, 'booking');
+
             $this->db->commit();
         } catch (\Throwable $e) {
             if ($this->db->isTransactionActive()) {
@@ -837,20 +884,6 @@ final class BookingRepository
             error_log('[DB Error] cancelBooking failed: ' . $e->getMessage());
             return ['success' => false, 'message' => 'Cancellation failed. Please try again.'];
         }
-
-        $paidWith = (string)($booking['payment_method'] ?? '');
-        if ($refundAmount > 0) {
-            $msg = "Booking cancelled. ₱" . number_format($refundAmount, 2) . " has been fully refunded to your Pickle Credits!";
-        } elseif ($paidWith === 'Pickle Credits' && (float)($booking['price'] ?? 0) > 0) {
-            $msg = "Booking cancelled. Since cancellation occurred within 24 hours of play, no refund is provided per venue policy.";
-        } elseif ($paidWith === 'Pay at Venue') {
-            $msg = "Booking cancelled. Nothing was charged for this Pay at Venue booking.";
-        } else {
-            // Only Pickle Credits can be refunded in-app.
-            $msg = "Booking cancelled. It was paid via " . ($paidWith !== '' ? $paidWith : 'another method')
-                . ", so please contact the facility about your payment.";
-        }
-        $this->notifications->addNotification($userId, 'Booking Cancelled', $msg, 'booking');
 
         return ['success' => true, 'message' => $msg, 'refund_amount' => $refundAmount];
     }

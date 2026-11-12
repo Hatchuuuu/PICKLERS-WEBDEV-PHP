@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
  * Guards the request-scoped read cache on facility/court lookups.
  *
@@ -14,25 +12,25 @@ use Picklers\Core\Database;
 final class CacheInvalidationTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $facilityRepository = $this->service(\Picklers\Repositories\FacilityRepository::class);
 
         // ── Cache is transparent for reads ─────────────────────────────────
-        $a = $db->getFacilities();
-        $b = $db->getFacilities();
+        $a = $facilityRepository->getFacilities();
+        $b = $facilityRepository->getFacilities();
         $this->assertEquals($a, $b, 'Repeated getFacilities() calls return identical data');
         $this->assertGreaterThan(0, count($a), 'Facilities are actually returned, not an empty cache');
 
-        $f1 = $db->getFacility(1);
-        $f2 = $db->getFacility(1);
+        $f1 = $facilityRepository->getFacility(1);
+        $f2 = $facilityRepository->getFacility(1);
         $this->assertEquals($f1, $f2, 'Repeated getFacility() calls return identical data');
         $this->assertNotNull($f1, 'Facility 1 resolves');
 
-        $c1 = $db->getCourtsByFacility(1);
-        $c2 = $db->getCourtsByFacility(1);
+        $c1 = $facilityRepository->getCourtsByFacility(1);
+        $c2 = $facilityRepository->getCourtsByFacility(1);
         $this->assertEquals($c1, $c2, 'Repeated getCourtsByFacility() calls return identical data');
 
         // Different arguments must not collide in the cache key.
-        $other = $db->getFacility(2);
+        $other = $facilityRepository->getFacility(2);
         if ($other !== null) {
             $this->assertFalse(
                 ($other['id'] ?? null) === ($f1['id'] ?? null),
@@ -40,12 +38,12 @@ final class CacheInvalidationTest extends TestCase {
             );
         }
 
-        $filtered = $db->getFacilities('Pickle');
+        $filtered = $facilityRepository->getFacilities('Pickle');
         $this->assertLessThanOrEqual(count($a), count($filtered),
             'A search filter never returns more rows than the unfiltered set');
 
         // ── A write invalidates the cache ──────────────────────────────────
-        $courts = $db->getCourtsByFacility(1);
+        $courts = $facilityRepository->getCourtsByFacility(1);
         if (!empty($courts)) {
             $court    = $courts[0];
             $courtId  = (string)$court['id'];
@@ -53,8 +51,8 @@ final class CacheInvalidationTest extends TestCase {
             $flipped  = $original === 'maintenance' ? 'available' : 'maintenance';
 
             try {
-                $db->updateCourtStatus($courtId, $flipped);
-                $after = $db->getCourtsByFacility(1);
+                $facilityRepository->updateCourtStatus($courtId, $flipped);
+                $after = $facilityRepository->getCourtsByFacility(1);
 
                 $seen = null;
                 foreach ($after as $c) {
@@ -63,10 +61,10 @@ final class CacheInvalidationTest extends TestCase {
                 $this->assertSame($flipped, $seen,
                     'A court status write is reflected immediately — the cache was invalidated');
             } finally {
-                $db->updateCourtStatus($courtId, $original);
+                $facilityRepository->updateCourtStatus($courtId, $original);
             }
 
-            $restored = $db->getCourtsByFacility(1);
+            $restored = $facilityRepository->getCourtsByFacility(1);
             $seenBack = null;
             foreach ($restored as $c) {
                 if ((string)$c['id'] === $courtId) { $seenBack = (string)($c['status'] ?? ''); break; }

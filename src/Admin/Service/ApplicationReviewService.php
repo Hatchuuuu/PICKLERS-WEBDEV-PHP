@@ -139,16 +139,21 @@ final class ApplicationReviewService
             throw AdminActionException::invalid('Keep the approval note under 1,000 characters.', 'reason');
         }
 
-        return $this->db->transactional(function () use ($actor, $applicationId, $note): array {
+        $userId = (string)$this->resolve('', $applicationId)['user_id'];
+        return $this->db->transactional(function () use ($actor, $applicationId, $note, $userId): array {
+            // Submission takes the account lock first; review must use the same order.
+            $applicant = $this->db->fetchAssociative('SELECT * FROM users WHERE id = ? FOR UPDATE', [$userId]);
             $app = $this->db->fetchAssociative('SELECT * FROM owner_applications WHERE id = ? FOR UPDATE', [$applicationId]);
             if ($app === false) {
                 throw AdminActionException::notFound('Application');
+            }
+            if ((string)$app['user_id'] !== $userId) {
+                throw AdminActionException::conflict('The applicant changed. Refresh to see the current application.');
             }
             $status = (string)($app['status'] ?? 'pending_review');
             if ($status !== 'pending_review') {
                 throw AdminActionException::conflict("This application was already {$status}" . ($app['reviewed_at'] ? ' on ' . $app['reviewed_at'] : '') . '. Refresh to see its current state.', ['status' => $status]);
             }
-            $applicant = $this->db->fetchAssociative('SELECT * FROM users WHERE id = ? FOR UPDATE', [$app['user_id']]);
             if ($applicant === false || RoleMapper::isDeactivated($applicant)) {
                 throw AdminActionException::conflict('The applicant account no longer exists or is deactivated. Reject the application instead.');
             }
@@ -156,6 +161,8 @@ final class ApplicationReviewService
             try {
                 // The shared provisioning rule (also used by the owner flow); joins this transaction.
                 $facilityId = $this->facilities->createFromApplication($app);
+            } catch (\InvalidArgumentException $e) {
+                throw AdminActionException::invalid($e->getMessage());
             } catch (\Throwable $e) {
                 $this->logger->error('[PICKLERS Admin] provisioning failed for {application}: {message}', ['application' => $applicationId, 'message' => $e->getMessage(), 'exception' => $e]);
                 throw new AdminActionException('Could not provision the facility, so nothing was changed. Try again; if it keeps failing, check the System panel.', 500);
@@ -205,10 +212,15 @@ final class ApplicationReviewService
             throw AdminActionException::invalid('Keep the reason under 500 characters.', 'reason');
         }
 
-        return $this->db->transactional(function () use ($actor, $applicationId, $reason): array {
+        $userId = (string)$this->resolve('', $applicationId)['user_id'];
+        return $this->db->transactional(function () use ($actor, $applicationId, $reason, $userId): array {
+            $applicant = $this->db->fetchAssociative('SELECT * FROM users WHERE id = ? FOR UPDATE', [$userId]);
             $app = $this->db->fetchAssociative('SELECT * FROM owner_applications WHERE id = ? FOR UPDATE', [$applicationId]);
             if ($app === false) {
                 throw AdminActionException::notFound('Application');
+            }
+            if ((string)$app['user_id'] !== $userId) {
+                throw AdminActionException::conflict('The applicant changed. Refresh to see the current application.');
             }
             $status = (string)($app['status'] ?? 'pending_review');
             if ($status !== 'pending_review') {
@@ -223,8 +235,7 @@ final class ApplicationReviewService
 
             // An already-approved owner keeps verification earned elsewhere; a
             // pending applicant's review flag is cleared (legacy behaviour).
-            $applicant = $this->db->fetchAssociative('SELECT * FROM users WHERE id = ?', [$app['user_id']]);
-            if ($applicant !== false && !RoleMapper::isOwner($applicant) && !RoleMapper::isDeactivated($applicant) && ($applicant['verification_status'] ?? '') === 'pending') {
+            if ($applicant !== false && !RoleMapper::isOwner($applicant) && !RoleMapper::isDeactivated($applicant) && in_array($applicant['verification_status'] ?? '', ['pending', 'pending_owner_review'], true)) {
                 $this->db->update('users', ['verification_status' => 'unverified'], ['id' => $app['user_id']]);
             }
             $this->notifier->notify(

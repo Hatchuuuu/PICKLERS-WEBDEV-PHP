@@ -51,11 +51,19 @@ final class DiscoverController extends AbstractWebController
             return $this->legacyError('facility_id and court_id are required.', 400);
         }
 
-        return $this->legacyJson(['success' => true] + $this->discover->slots(
-            DiscoverService::facilityId($id),
-            trim($courtId),
-            (string)$request->query->get('date', ''),
-        ));
+        try {
+            $slots = $this->discover->slots(
+                DiscoverService::facilityId($id),
+                trim($courtId),
+                (string)$request->query->get('date', ''),
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->legacyError($e->getMessage(), 400);
+        } catch (\OutOfBoundsException $e) {
+            return $this->legacyError($e->getMessage(), 404);
+        }
+
+        return $this->legacyJson(['success' => true] + $slots);
     }
 
     #[Route('/{id}/favorite', name: 'web_facility_favorite', methods: ['POST'])]

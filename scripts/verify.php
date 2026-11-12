@@ -28,7 +28,8 @@ $gates['php -l (all project PHP files)'] = static function () use ($root, $php):
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
     foreach ($it as $f) {
         $p = str_replace('\\', '/', $f->getPathname());
-        if (!str_ends_with($p, '.php') || preg_match('#/(vendor|var|\.git|graphify-out|node_modules)/#', $p)) {
+        $relative = substr($p, strlen(str_replace('\\', '/', $root)) + 1);
+        if (!str_ends_with($p, '.php') || preg_match('#^(vendor|var|\.git|graphify-out|node_modules)/#', $relative)) {
             continue;
         }
         $count++;
@@ -39,18 +40,26 @@ $gates['php -l (all project PHP files)'] = static function () use ($root, $php):
     }
     exec("{$php} -l bin/console 2>&1", $o2, $c2);
 
-    return [$bad === [] && $c2 === 0, ($count + 1) . ' files' . ($bad ? '; errors: ' . implode(', ', $bad) : '')];
+    return [$count > 0 && $bad === [] && $c2 === 0, ($count + 1) . ' files' . ($bad ? '; errors: ' . implode(', ', $bad) : '')];
 };
 $cmd = static fn(string $c) => static function () use ($c): array {
     exec($c . ' 2>&1', $out, $code);
     $text = preg_replace('/\e\[[0-9;]*m/', '', implode("\n", $out));
     $lines = array_values(array_filter(array_map('trim', explode("\n", (string)$text))));
 
-    return [$code === 0, end($lines) ?: ''];
+    return [$code === 0, $code === 0 ? (end($lines) ?: '') : (string)$text];
 };
 $gates['composer validate --strict'] = $cmd('composer validate --strict');
 $gates['composer check-platform-reqs'] = $cmd('composer check-platform-reqs');
 $gates['composer audit'] = $cmd('composer audit');
+$gates['javascript syntax (app + owner)'] = static function () use ($cmd): array {
+    foreach (['app', 'owner'] as $script) {
+        [$ok, $detail] = $cmd('node --check public/assets/js/' . $script . '.js')();
+        if (!$ok) return [false, $detail];
+    }
+    return [true, '2 scripts'];
+};
+$gates['frontend regression suite'] = $cmd('node --test ' . implode(' ', array_map('escapeshellarg', glob($root . '/tests/Frontend/*.test.js') ?: [])));
 foreach (['dev', 'test', 'prod'] as $env) {
     $gates["lint:container ({$env})"] = $cmd("{$php} bin/console lint:container --env={$env}");
 }
@@ -75,6 +84,7 @@ echo "PICKLERS verification gates\n" . str_repeat('=', 72) . "\n";
 foreach ($gates as $name => $gate) {
     [$ok, $detail] = $gate();
     printf("%-44s %s  %s\n", $name, $ok ? 'PASS' : 'FAIL', mb_strimwidth((string)$detail, 0, 90, '…'));
+    if (!$ok) echo (string)$detail . "\n";
     $failed += $ok ? 0 : 1;
 }
 echo str_repeat('=', 72) . "\n" . ($failed === 0 ? "All gates passed.\n" : "{$failed} gate(s) failed.\n");

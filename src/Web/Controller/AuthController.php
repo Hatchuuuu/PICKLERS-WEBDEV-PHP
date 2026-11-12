@@ -42,7 +42,10 @@ final class AuthController extends AbstractWebController
         $error = (string)($flashes->get('auth_error')[0] ?? '');
         $success = (string)($flashes->get('auth_success')[0] ?? '');
         if ($request->query->has('logout')) {
-            $this->session->destroy();
+            if ($this->sessionUser() !== null) {
+                if (!$this->validCsrf($request)) return $this->legacyError('CSRF security verification failed.', 403);
+                $this->session->destroy();
+            }
             $success = 'You have been safely signed out.';
         }
         $intent = (string)$request->query->get('intent', '');
@@ -56,9 +59,10 @@ final class AuthController extends AbstractWebController
         ]);
     }
 
-    #[Route('/logout', name: 'logout', methods: ['GET'])]
+    #[Route('/logout', name: 'logout', methods: ['GET', 'POST'])]
     public function logout(Request $request): Response
     {
+        if (!$this->validCsrf($request)) return $this->legacyError('CSRF security verification failed.', 403);
         $this->session->destroy();
 
         return $this->redirectToPath($request, 'auth?logout=1');
@@ -134,7 +138,7 @@ final class AuthController extends AbstractWebController
         }
 
         $this->throttle->clear($identifier);
-        $this->session->signIn((string)$row['id']);
+        $this->session->signIn((string)$row['id'], passwordHash: $hash);
         $redirect = $request->getBaseUrl() . '/app.php';
         if ($ajax) {
             return $this->legacySuccess('Successfully signed in!', ['redirect' => $redirect, 'user' => $user->row()]);
@@ -159,6 +163,7 @@ final class AuthController extends AbstractWebController
 
         $error = match (true) {
             $name === '' || $email === '' || $password === '' => 'Please fill in all required fields (Name, Email, Password).',
+            $password !== (string)$in->input('password_confirm', $password) => 'Passwords do not match. Please re-enter them.',
             // users.name is VARCHAR(120) (a hard error under strict mode); angle brackets have no place in a name.
             mb_strlen($name) > 120 || preg_match('/[<>]/', $name) === 1 => 'Please enter a valid name (up to 120 characters, no < or >).',
             strlen($email) > 120 || !filter_var($email, FILTER_VALIDATE_EMAIL) => 'Please enter a valid email address.',
@@ -177,17 +182,21 @@ final class AuthController extends AbstractWebController
         }
 
         // Registration always creates a player; owners go through the reviewed application.
+        $passwordHash = $this->hashers->getPasswordHasher(SessionUser::class)->hash($password);
         try {
             $row = $this->auth->createUser([
                 'name' => $name,
                 'email' => $email,
                 'phone' => $phone !== '' ? $phone : null,
-                'password_hash' => $this->hashers->getPasswordHasher(SessionUser::class)->hash($password),
+                'password_hash' => $passwordHash,
                 'role' => 'player',
                 'is_admin' => 0,
                 'is_owner' => 0,
             ]);
         } catch (\Throwable $e) {
+            if (\Picklers\Repositories\UserRepository::isPhoneConflict($e)) {
+                return $fail('This mobile number is already linked to another account.', 400);
+            }
             // Two sign-ups racing for one email both pass the lookup; the UNIQUE index rejects the second.
             $this->logger->warning('[PICKLERS Auth] createUser failed: {message}', ['message' => $e->getMessage()]);
             $row = null;
@@ -196,7 +205,7 @@ final class AuthController extends AbstractWebController
             return $fail('We could not create your account. If you already registered, please sign in instead.', 400);
         }
 
-        $this->session->signIn((string)$row['id']);
+        $this->session->signIn((string)$row['id'], passwordHash: $passwordHash);
         $redirect = (string)$in->input('role', 'player') === 'owner' ? 'owner-application' : 'app';
         if ($ajax) {
             return $this->legacySuccess('Account created successfully!', ['redirect' => $redirect, 'user' => (new SessionUser($row))->row()]);

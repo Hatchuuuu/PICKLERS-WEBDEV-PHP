@@ -48,8 +48,17 @@ final class Version20261005000002 extends AbstractMigration
                     INDEX idx_audit_correlation (correlation_id)
                 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE = InnoDB
                 SQL);
-            $this->addSql("CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_events is append-only'");
-            $this->addSql("CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_events is append-only'");
+        }
+
+        // MySQL retains successful DDL after a failure; retries must repair missing triggers.
+        foreach (['audit_events_no_update' => 'UPDATE', 'audit_events_no_delete' => 'DELETE'] as $name => $operation) {
+            $exists = $this->connection->fetchOne(
+                "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() AND EVENT_OBJECT_TABLE = 'audit_events' AND TRIGGER_NAME = ?",
+                [$name]
+            );
+            if (!(int)$exists) {
+                $this->addSql("CREATE TRIGGER {$name} BEFORE {$operation} ON audit_events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_events is append-only'");
+            }
         }
 
         if (!$schema->hasTable('admin_privileges')) {

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * PICKLERS — test runner (zero dependencies).
+ * PICKLERS — service test runner.
  *
  *   php tests/run.php            run every suite
  *   php tests/run.php Pricing    run suites whose name contains "Pricing"
@@ -16,46 +16,13 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $root = dirname(__DIR__);
-define('ROOT_PATH', $root);
-define('APP_PATH', $root . '/src');
-define('CONFIG_PATH', $root . '/config');
-// Stored DATETIMEs are Asia/Manila wall-clock time, as in config/bootstrap.php.
-date_default_timezone_set('Asia/Manila');
-// The suite gets its OWN schema-stamp / seed-flag / JSON-fallback directory,
-// separate from the app's /database. Those stamp files are keyed by path,
-// not by MySQL database name — pointing the suite at picklers_test while
-// still reading /database/.schema_version would see production's stamp,
-// skip schema creation on the empty test database, and every query would
-// fail against tables that were never created.
+// Force isolation before shared bootstrap loads environment defaults.
 define('DATA_PATH', $root . '/database/.test-state');
-define('PUBLIC_PATH', $root . '/public');
-
-// Load .env so the suite exercises the same host/credentials the app does.
-$envFile = $root . '/.env';
-if (is_file($envFile)) {
-    foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
-        [$k, $v] = explode('=', $line, 2);
-        $k = trim($k); $v = trim($v);
-        if (strlen($v) >= 2 && (($v[0] === '"' && $v[-1] === '"') || ($v[0] === "'" && $v[-1] === "'"))) {
-            $v = substr($v, 1, -1);
-        }
-        $_ENV[$k] = $v;
-    }
-}
-
-// The suite must never read or write the live database: an admin toggling a
-// promo code or cancelling a real booking must not make `php tests/run.php`
-// flip red, and a test bug must never touch a real player's data. Everything
-// below runs against a dedicated, disposable `picklers_test` database that
-// this process creates, schemas and seeds on demand (Database::__construct()
-// already does exactly that for any database that doesn't exist yet).
 $_ENV['DB_DATABASE'] = 'picklers_test';
+$_ENV['APP_ENV'] = 'test';
 putenv('DB_DATABASE=picklers_test');
-if (!is_dir(DATA_PATH)) {
-    @mkdir(DATA_PATH, 0750, true);
-}
+putenv('APP_ENV=test');
+require $root . '/config/bootstrap.php';
 
 // `--fresh` rebuilds the disposable test database from nothing: it drops ONLY
 // `picklers_test` and clears ONLY the suite's own stamp directory, so the run
@@ -74,8 +41,6 @@ if (count($argvFiltered) !== count($argv)) {
     echo "Rebuilt isolated database picklers_test from scratch.\n";
 }
 
-require_once $root . '/vendor/autoload.php';
-
 require_once __DIR__ . '/TestCase.php';
 
 $filter  = $argv[1] ?? '';
@@ -89,7 +54,8 @@ foreach (glob(__DIR__ . '/*Test.php') ?: [] as $file) {
 }
 
 if (!$suites) {
-    exit($filter !== '' ? "No suites match \"{$filter}\".\n" : "No test suites found.\n");
+    fwrite(STDERR, $filter !== '' ? "No suites match \"{$filter}\".\n" : "No test suites found.\n");
+    exit(1);
 }
 
 $totalPassed = 0;
@@ -102,21 +68,14 @@ if (($_ENV['DB_DATABASE'] ?? '') !== 'picklers_test') {
     fwrite(STDERR, "Refusing to run: DB_DATABASE is \"{$_ENV['DB_DATABASE']}\", not the isolated test database.\n");
     exit(1);
 }
-$__db = \Picklers\Core\Database::get();
-if (!$__db->isUsingMySQL()) {
-    fwrite(STDERR, "MySQL is unreachable — the suite needs the isolated picklers_test database, not the JSON fallback.\n");
-    exit(1);
-}
-
-// Apply the admin console's Doctrine migrations to picklers_test as well, so the
-// player/owner flows are exercised against the same schema production runs.
-if (is_file($root . '/vendor/autoload.php')) {
-    $__out = [];
-    $__code = 0;
+// Install the shared base schema and apply the application's Doctrine migrations.
+foreach (['picklers:schema:install', 'doctrine:migrations:migrate -n'] as $command) {
+    $output = [];
+    $code = 0;
     exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/bin/console')
-        . ' doctrine:migrations:migrate -n --env=test --database=picklers_test --data-path=database/.test-state 2>&1', $__out, $__code);
-    if ($__code !== 0) {
-        fwrite(STDERR, "Could not migrate picklers_test:\n" . implode("\n", $__out) . "\n");
+        . ' ' . $command . ' --env=test --database=picklers_test --data-path=database/.test-state 2>&1', $output, $code);
+    if ($code !== 0) {
+        fwrite(STDERR, "Could not prepare picklers_test:\n" . implode("\n", $output) . "\n");
         exit(1);
     }
 }

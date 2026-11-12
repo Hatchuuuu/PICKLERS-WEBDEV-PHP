@@ -70,7 +70,7 @@ final class AdminSessionAuthenticator extends AbstractAuthenticator implements A
             }
             // A password reset signs out every session that authenticated before it.
             $changedAt = $user->row()['password_changed_at'] ?? null;
-            if ($state === null && $changedAt && $this->session->authenticatedAt() < (int)strtotime((string)$changedAt)) {
+            if ($state === null && $this->session->passwordChanged($id, $changedAt)) {
                 $this->session->destroy();
                 throw new CustomUserMessageAuthenticationException('Your password was changed. Sign in again.');
             }

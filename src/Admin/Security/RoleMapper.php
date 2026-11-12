@@ -65,6 +65,9 @@ final class RoleMapper
         if (self::isOwner($row)) {
             $labels[] = 'Owner';
         }
+        if (!empty($row['is_staff'])) {
+            $labels[] = 'Staff';
+        }
         if ($labels === []) {
             $labels[] = 'Player';
         }

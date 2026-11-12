@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Picklers\Tests\Admin;
 
-use Picklers\Core\Database;
+use Picklers\Repositories\CommunityRepository;
 
 /** R06 — content moderation queue, reversible hiding and public exclusion. */
 final class ModerationTest extends AdminWebTestCase
@@ -16,7 +16,7 @@ final class ModerationTest extends AdminWebTestCase
 
     private function visiblePostIds(): array
     {
-        return array_column(Database::get()->getFeedPosts('usr_fx_p1'), 'id');
+        return array_column(static::getContainer()->get(CommunityRepository::class)->getFeedPosts('usr_fx_p1'), 'id');
     }
 
     public function testFlagHideRestoreResolveLifecycle(): void
@@ -30,7 +30,7 @@ final class ModerationTest extends AdminWebTestCase
 
         self::assertSame(200, $this->action('admin_moderation_hide', ['case_id' => $case, 'reason' => 'Clear scam pattern'])['status']);
         self::assertNotContains('fx_post2', $this->visiblePostIds(), 'hidden from the public feed');
-        self::assertFalse(Database::get()->toggleLikePost('fx_post2', 'usr_fx_p1')['success'] ?? false, 'cannot like hidden content');
+        self::assertFalse(static::getContainer()->get(CommunityRepository::class)->toggleLikePost('fx_post2', 'usr_fx_p1')['success'] ?? false, 'cannot like hidden content');
         self::assertSame(1, (int)$this->scalar("SELECT COUNT(*) FROM feed_posts WHERE id = 'fx_post2'"), 'never deleted');
         self::assertSame(409, $this->action('admin_moderation_dismiss', ['case_id' => $case, 'reason' => 'No violation found'])['status'], 'cannot dismiss while hidden');
 
@@ -50,7 +50,7 @@ final class ModerationTest extends AdminWebTestCase
     {
         $r = $this->action('admin_moderation_flag', ['content_type' => 'comment', 'content_id' => 'fx_com2', 'category' => 'harassment', 'reason' => 'Accusatory reply']);
         self::assertSame(200, $this->action('admin_moderation_hide', ['case_id' => $r['json']['case_id'], 'reason' => 'Hide pending review'])['status']);
-        $post = array_values(array_filter(Database::get()->getFeedPosts('usr_fx_p1'), fn($p) => $p['id'] === 'fx_post2'))[0];
+        $post = array_values(array_filter(static::getContainer()->get(CommunityRepository::class)->getFeedPosts('usr_fx_p1'), fn($p) => $p['id'] === 'fx_post2'))[0];
         self::assertSame([], $post['comments']);
         self::assertSame(0, $post['comment_count']);
         self::assertSame(200, $this->action('admin_moderation_resolve', ['case_id' => $r['json']['case_id'], 'reason' => 'Comment stays hidden'])['status']);

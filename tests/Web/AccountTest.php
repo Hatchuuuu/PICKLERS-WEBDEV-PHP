@@ -86,6 +86,27 @@ final class AccountTest extends AdminWebTestCase
         self::assertSame('Advanced', $this->scalar("SELECT level FROM users WHERE id = 'usr_fx_p1'"));
     }
 
+    public function testPhoneCanBeRemovedWithoutPartialUpdatesClearingIt(): void
+    {
+        $this->signIn('usr_fx_p1');
+        $phone = $this->scalar("SELECT phone FROM users WHERE id = 'usr_fx_p1'");
+        self::assertNotEmpty($phone);
+        self::assertSame(200, $this->post('update_profile', ['avatar_url' => 'https://example.test/updated.png'])['status']);
+        self::assertSame($phone, $this->scalar("SELECT phone FROM users WHERE id = 'usr_fx_p1'"), 'omitting phone must preserve it');
+
+        $cleared = $this->post('update_profile', ['phone' => '']);
+        self::assertSame(200, $cleared['status']);
+        self::assertNull($cleared['json']['user']['phone']);
+        self::assertNull($this->scalar("SELECT phone FROM users WHERE id = 'usr_fx_p1'"));
+
+        self::assertSame(200, $this->post('update_profile', ['phone' => $phone])['status']);
+        $this->client->jsonRequest('POST', '/api/me/profile', ['phone' => '   '], ['HTTP_X_CSRF_TOKEN' => self::TOKEN]);
+        self::assertResponseIsSuccessful();
+        self::assertNull($this->scalar("SELECT phone FROM users WHERE id = 'usr_fx_p1'"), 'the JSON settings form must clear the stored phone too');
+        $this->client->request('GET', '/api/me');
+        self::assertNull(json_decode((string)$this->client->getResponse()->getContent(), true)['user']['phone']);
+    }
+
     public function testVerificationIsRequestedNeverSelfGranted(): void
     {
         $this->signIn('usr_fx_p2');
@@ -108,6 +129,42 @@ final class AccountTest extends AdminWebTestCase
         self::assertStringEndsWith('auth.php?logout=1', $ok['json']['redirect']);
         self::assertSame('deleted', $this->scalar("SELECT role FROM users WHERE id = 'usr_fx_p4'"));
         self::assertArrayNotHasKey('picklers_user_id', $_SESSION['_sf2_attributes'] ?? [], 'signed out');
+    }
+
+    private function deletionBooking(string $id, string $status, string $day, int $start, int $end, string $created): void
+    {
+        $facility = $this->scalar("SELECT id FROM facilities WHERE owner_id = 'usr_fx_owner1' LIMIT 1");
+        $this->db()->insert('bookings', ['id' => $id, 'user_id' => 'usr_fx_p4', 'facility_id' => $facility, 'court_name' => 'Court 1', 'date' => $day, 'booking_date' => $day, 'time' => date('g:i A', strtotime($day) + $start * 60) . ' - ' . date('g:i A', strtotime($day) + $end * 60), 'start_min' => $start, 'end_min' => $end, 'price' => 100, 'payment_method' => 'Pickle Credits', 'status' => $status, 'created_at' => $created]);
+    }
+
+    public function testDeletionRefusedCancellationRollsBackEarlierRefundAndKeepsSession(): void
+    {
+        $this->deletionBooking('DELETE-STARTED', 'confirmed', date('Y-m-d'), 0, 1439, '2030-01-01 00:00:00');
+        $this->deletionBooking('DELETE-FUTURE', 'pending', date('Y-m-d', strtotime('+10 days')), 540, 600, '2031-01-01 00:00:00');
+        $this->signIn('usr_fx_p4');
+        $wallet = $this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p4'");
+        $result = $this->post('delete_own_account', ['confirm' => 'DELETE']);
+        self::assertFalse($result['json']['success']);
+        self::assertSame('player', $this->scalar("SELECT role FROM users WHERE id = 'usr_fx_p4'"));
+        self::assertSame('pending', $this->scalar("SELECT status FROM bookings WHERE id = 'DELETE-FUTURE'"));
+        self::assertSame($wallet, $this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p4'"));
+        self::assertSame('usr_fx_p4', $_SESSION['_sf2_attributes']['picklers_user_id']);
+    }
+
+    public function testFailedAccountWriteRollsBackCancellationAndRefund(): void
+    {
+        $this->deletionBooking('DELETE-DBFAIL', 'pending', date('Y-m-d', strtotime('+10 days')), 540, 600, '2031-01-01 00:00:00');
+        $wallet = $this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p4'");
+        $this->db()->executeStatement("CREATE TRIGGER test_account_delete_fail BEFORE UPDATE ON users FOR EACH ROW BEGIN IF NEW.id = 'usr_fx_p4' AND NEW.role = 'deleted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Injected account failure'; END IF; END");
+        try {
+            $this->signIn('usr_fx_p4');
+            self::assertFalse($this->post('delete_own_account', ['confirm' => 'DELETE'])['json']['success']);
+            self::assertSame('pending', $this->scalar("SELECT status FROM bookings WHERE id = 'DELETE-DBFAIL'"));
+            self::assertSame($wallet, $this->scalar("SELECT wallet_balance FROM users WHERE id = 'usr_fx_p4'"));
+            self::assertSame('player', $this->scalar("SELECT role FROM users WHERE id = 'usr_fx_p4'"));
+        } finally {
+            $this->db()->executeStatement('DROP TRIGGER test_account_delete_fail');
+        }
     }
 
     public function testNotificationsReadAndDeleteOnlyYourOwn(): void

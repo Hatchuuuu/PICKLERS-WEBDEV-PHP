@@ -13,7 +13,7 @@
 <!-- Search / Filter Input Box -->
 <div class="court-filter-wrap">
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pk-text-muted, #94A3B8)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-  <input type="text" id="courtSearchInput" class="court-filter-input" placeholder="Filter by court name..." onkeyup="filterCourtsList(this.value)">
+  <input type="text" id="courtSearchInput" aria-label="Filter courts by name" class="court-filter-input" placeholder="Filter by court name..." onkeyup="filterCourtsList(this.value)">
 </div>
 
 <!-- Physical Court Cards Stack -->
@@ -34,7 +34,7 @@
         <div>
           <div class="court-item-title">{{ c.name }}</div>
         </div>
-        <span class="court-status-pill {{ statusClass }}" {{ ((hasOpenPlay ? 'style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color: #FFB800;"' : ''))|raw }}>{{ statusText }}</span>
+        <span class="court-status-pill {{ statusClass }}" {{ ((hasOpenPlay ? 'style="background: rgba(255, 184, 0, 0.15); border: 1px solid rgba(255, 184, 0, 0.4); color:var(--accent-warning-text);"' : ''))|raw }}>{{ statusText }}</span>
       </div>
 
       <!-- Pricing & Player Row -->
@@ -45,7 +45,7 @@
             <div>
               <div style="font-size:13px; font-weight:800; text-align:right;">{{ player }}</div>
               {% if not ((not (playerTime ?? null))) %}
-                <div style="font-size:11px; font-weight:700; color:#EF4444; text-align:right;">{{ playerTime }}</div>
+                <div style="font-size:11px; font-weight:700; color:var(--pk-danger-text); text-align:right;">{{ playerTime }}</div>
               {% endif %}
             </div>
             <div class="player-avatar-circle">

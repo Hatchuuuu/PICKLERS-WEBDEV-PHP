@@ -3,10 +3,8 @@ declare(strict_types=1);
 
 namespace Picklers\Tests;
 
-use Picklers\Core\Database;
-
 /**
- * Covers the real-time "your time is up" alert: Database::checkAndNotifySessionEnd(),
+ * Covers the real-time "your time is up" alert: BookingRepository::checkAndNotifySessionEnd(),
  * polled via action=sync (ApiController) roughly every 12s while the player app is
  * open (see PickSync.onSessionEnded() in ux-core.js / app.js). A booking whose end
  * time has passed must fire exactly once — a real notification is created and the
@@ -15,16 +13,19 @@ use Picklers\Core\Database;
 final class SessionEndedAlertTest extends TestCase {
 
     public function run(): void {
-        $db = Database::get();
+        $facilityRepository = $this->service(\Picklers\Repositories\FacilityRepository::class);
+        $userRepository = $this->service(\Picklers\Repositories\UserRepository::class);
+        $notificationRepository = $this->service(\Picklers\Repositories\NotificationRepository::class);
+        $bookingRepository = $this->service(\Picklers\Repositories\BookingRepository::class);
         $facilityId = 3;
-        $courts = $db->getCourtsByFacility($facilityId);
+        $courts = $facilityRepository->getCourtsByFacility($facilityId);
         $court = $courts[0];
 
-        $allUsers = $db->getAllUsers();
+        $allUsers = $userRepository->getAllUsers();
         $this->assertTrue(count($allUsers) > 0, 'At least one seeded user exists to book as');
         $userId = (string)($allUsers[0]['id'] ?? '');
 
-        $notifsBefore = count($db->getNotifications($userId));
+        $notifsBefore = count($notificationRepository->getNotifications($userId));
 
         // A booking that ended a few minutes ago, today.
         $nowMin   = ((int)date('G') * 60) + (int)date('i');
@@ -34,7 +35,7 @@ final class SessionEndedAlertTest extends TestCase {
         $endLabel   = date('g:i A', strtotime('today') + $endMin * 60);
 
         $bookingId = 'test_sea_' . bin2hex(random_bytes(4));
-        $db->insertBooking([
+        $bookingRepository->insertBooking([
             'id' => $bookingId,
             'user_id' => $userId,
             'facility_id' => $facilityId,
@@ -53,7 +54,7 @@ final class SessionEndedAlertTest extends TestCase {
         ]);
 
         // First check: this is the one live poll that actually catches it.
-        $alerts = $db->checkAndNotifySessionEnd($userId);
+        $alerts = $bookingRepository->checkAndNotifySessionEnd($userId);
         $found = null;
         foreach ($alerts as $a) {
             if (($a['booking_id'] ?? '') === $bookingId) { $found = $a; break; }
@@ -61,26 +62,26 @@ final class SessionEndedAlertTest extends TestCase {
         $this->assertNotNull($found, 'A just-ended booking is returned on the poll that catches it');
         $this->assertSame((string)($court['name'] ?? 'Court 1'), $found['court_name'] ?? null, 'Alert carries the real court name');
 
-        $updated = $db->getBookingById($bookingId);
+        $updated = $bookingRepository->getBookingById($bookingId);
         $this->assertNotNull($updated, 'Booking still exists after the alert fires');
         $this->assertTrue(!empty($updated['end_alert_sent']), 'Booking is flagged end_alert_sent so it is not re-alerted');
         $this->assertSame('confirmed', (string)($updated['status'] ?? ''), 'Firing the alert does not change the booking status');
 
-        $notifsAfter = count($db->getNotifications($userId));
+        $notifsAfter = count($notificationRepository->getNotifications($userId));
         $this->assertSame($notifsBefore + 1, $notifsAfter, 'Exactly one real notification is created for the alert');
 
         // Second check, simulating the next ~12s poll: must not fire again.
-        $alertsAgain = $db->checkAndNotifySessionEnd($userId);
+        $alertsAgain = $bookingRepository->checkAndNotifySessionEnd($userId);
         $foundAgain = false;
         foreach ($alertsAgain as $a) {
             if (($a['booking_id'] ?? '') === $bookingId) { $foundAgain = true; break; }
         }
         $this->assertFalse($foundAgain, 'A later poll does not re-alert the same booking');
 
-        $notifsFinal = count($db->getNotifications($userId));
+        $notifsFinal = count($notificationRepository->getNotifications($userId));
         $this->assertSame($notifsAfter, $notifsFinal, 'No duplicate notification is created on the later poll');
 
         // Leave no trace for later suite runs.
-        $db->updateBookingStatus($bookingId, 'cancelled');
+        $bookingRepository->updateBookingStatus($bookingId, 'cancelled');
     }
 }

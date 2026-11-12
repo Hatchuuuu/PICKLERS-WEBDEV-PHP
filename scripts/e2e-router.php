@@ -38,7 +38,11 @@ if (!is_dir(DATA_PATH)) {
 
 $subdir = '/PICKLERS WEBDEV PROJECT';
 $uri    = (string)($_SERVER['REQUEST_URI'] ?? '/');
-$path   = rawurldecode((string)parse_url($uri, PHP_URL_PATH));
+$path   = str_replace('\\', '/', rawurldecode((string)parse_url($uri, PHP_URL_PATH)));
+if (str_contains($path, "\0") || preg_match('#(?:^|/)\.[^/]*(?:/|$)#', $path)) {
+    http_response_code(403);
+    return true;
+}
 
 /** Mirrors the legacy asset aliases declared in public/.htaccess. */
 $legacyAlias = static function (string $inner) use ($root): ?string {
@@ -51,36 +55,44 @@ $legacyAlias = static function (string $inner) use ($root): ?string {
     return null;
 };
 
-// Emulate Apache's two .htaccess rewrites for the sub-directory install.
-if (str_starts_with($path, $subdir . '/') || $path === $subdir) {
-    $inner = substr($path, strlen($subdir)) ?: '/';
+// Resolve both deployment shapes before applying the same public-file boundary.
+$subdirectoryInstall = str_starts_with($path, $subdir . '/') || $path === $subdir;
+$inner = $subdirectoryInstall ? (substr($path, strlen($subdir)) ?: '/') : $path;
+if ($subdirectoryInstall) {
     if (str_starts_with($inner, '/public/')) {
         $inner = substr($inner, 7);
     }
-    $file = $root . '/public' . $inner;
-    if ($inner !== '/' && is_file($file)) {
-        return serveStatic($file);
-    }
+}
+$public = realpath($root . '/public');
+$file = realpath($public . $inner);
+if ($file === false || !is_file($file)) {
     if (($alias = $legacyAlias($inner)) !== null && is_file($alias)) {
-        return serveStatic($alias);
+        $file = realpath($alias);
     }
-    $_SERVER['SCRIPT_NAME']     = $subdir . '/public/index.php';
-    $_SERVER['SCRIPT_FILENAME'] = $root . '/public/index.php';
-    $_SERVER['PHP_SELF']        = $_SERVER['SCRIPT_NAME'];
-    require $root . '/public/index.php';
+}
+$boundary = $public . DIRECTORY_SEPARATOR;
+if ($file !== false && $file !== $public && (PHP_OS_FAMILY === 'Windows'
+    ? strncasecmp($file, $boundary, strlen($boundary)) !== 0
+    : !str_starts_with($file, $boundary))) {
+    http_response_code(403);
     return true;
 }
-
-$file = $root . '/public' . $path;
-if ($path !== '/' && is_file($file)) {
-    return false; // let the built-in server stream real static files
+$relative = $file === false ? $inner : '/' . str_replace('\\', '/', substr($file, strlen($public) + 1));
+$uploadExecutable = '/\.(php\d*|phtml|phar|pht|inc|cgi|pl|py|sh|exe|bat|cmd|ps1)$/i';
+// PHP's server ignores .htaccess: enforce hidden-file and upload protections here.
+if (preg_match('#(?:^|/)\.[^/]*(?:/|$)|^/uploads/permits(?:/|$)#i', $inner)
+    || preg_match('#(?:^|/)\.[^/]*(?:/|$)|^/uploads/permits(?:/|$)#i', $relative)
+    || (str_starts_with(strtolower($inner), '/uploads/') && preg_match($uploadExecutable, $inner))
+    || (str_starts_with(strtolower($relative), '/uploads/') && preg_match($uploadExecutable, $relative))) {
+    http_response_code(403);
+    return true;
 }
-if (($alias = $legacyAlias($path)) !== null && is_file($alias)) {
-    return serveStatic($alias);
+if ($file !== false && is_file($file) && !preg_match('/\.(php\d*|phtml|phar|pht|inc|cgi|pl|py|sh)$/i', $file)) {
+    return serveStatic($file);
 }
-$_SERVER['SCRIPT_NAME']     = '/index.php';
+$_SERVER['SCRIPT_NAME']     = $subdirectoryInstall ? $subdir . '/public/index.php' : '/index.php';
 $_SERVER['SCRIPT_FILENAME'] = $root . '/public/index.php';
-$_SERVER['PHP_SELF']        = '/index.php';
+$_SERVER['PHP_SELF']        = $_SERVER['SCRIPT_NAME'];
 require $root . '/public/index.php';
 return true;
 

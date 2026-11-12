@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Picklers\Admin\Command;
 
 use Doctrine\DBAL\Connection;
+use Picklers\Admin\Http\AdminActionException;
 use Picklers\Admin\Repository\AccountRepository;
 use Picklers\Admin\Security\Capability;
 use Picklers\Admin\Security\RoleMapper;
@@ -26,8 +27,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   php bin/console picklers:admin:privilege revoke <email-or-id> --reason="…"
  *   php bin/console picklers:admin:privilege matrix
  *
- * The target must already be an active administrator (is_admin = 1). Every
- * change is written to the audit trail with actor "console".
+ * Bootstrap promotes a registered active user only when no active admin exists.
+ * Grant/revoke require an active administrator. Every change is audited.
  */
 #[AsCommand(name: 'picklers:admin:privilege', description: 'List, grant or revoke privileged administrator access; print the capability matrix.')]
 final class AdminPrivilegeCommand extends Command
@@ -43,7 +44,7 @@ final class AdminPrivilegeCommand extends Command
 
     protected function configure(): void
     {
-        $this->addArgument('operation', InputArgument::REQUIRED, 'list | grant | revoke | matrix')
+        $this->addArgument('operation', InputArgument::REQUIRED, 'list | bootstrap | grant | revoke | matrix')
             ->addArgument('user', InputArgument::OPTIONAL, 'Email address or user id')
             ->addOption('reason', null, InputOption::VALUE_REQUIRED, 'Why (recorded in the audit trail)');
     }
@@ -72,8 +73,8 @@ final class AdminPrivilegeCommand extends Command
 
             return Command::SUCCESS;
         }
-        if (!in_array($op, ['grant', 'revoke'], true)) {
-            $io->error('Operation must be list, grant, revoke or matrix.');
+        if (!in_array($op, ['bootstrap', 'grant', 'revoke'], true)) {
+            $io->error('Operation must be list, bootstrap, grant, revoke or matrix.');
 
             return Command::INVALID;
         }
@@ -86,43 +87,51 @@ final class AdminPrivilegeCommand extends Command
         }
         $id = $this->db->fetchOne('SELECT id FROM users WHERE id = ? OR email = ? LIMIT 1', [$who, $who]);
         $user = $id !== false ? $this->accounts->find((string)$id) : null;
-        if ($user === null || !RoleMapper::isAdmin($user)) {
+        if ($user === null || RoleMapper::isDeactivated($user) || ($op !== 'bootstrap' && !RoleMapper::isAdmin($user))) {
             $io->error('No active administrator matches that email/id. Privileged access can only be granted to an existing administrator.');
 
             return Command::FAILURE;
         }
         $this->context->set('console', 'console (' . get_current_user() . ')', null, null);
 
-        if ($op === 'grant') {
-            if ($user['is_privileged']) {
-                $io->note("{$user['name']} is already a privileged administrator.");
-
-                return Command::SUCCESS;
-            }
-            $this->db->transactional(function () use ($user, $reason): void {
-                $this->accounts->grantPrivilege((string)$user['id'], null, $reason);
-                $this->audit->record('user.privilege.grant', 'user', (string)$user['id'], ['privileged' => ['from' => false, 'to' => true], 'via' => 'console'], $reason);
+        try {
+            $changed = $this->db->transactional(function () use ($user, $reason, $op): bool {
+                $this->accounts->lockActiveAdministrators();
+                if ($op === 'bootstrap' && $this->accounts->countActiveAdmins() !== 0) {
+                    throw AdminActionException::conflict('An active administrator already exists; use the existing administrator to manage roles.');
+                }
+                $current = $this->accounts->find((string)$user['id'], true);
+                if ($current === null || RoleMapper::isDeactivated($current) || ($op !== 'bootstrap' && !RoleMapper::isAdmin($current))) {
+                    throw AdminActionException::conflict('This account is no longer an active administrator.');
+                }
+                $grant = $op !== 'revoke';
+                if ($op !== 'bootstrap' && $grant === $current['is_privileged']) return false;
+                $changes = ['privileged' => ['from' => $current['is_privileged'], 'to' => $grant], 'via' => 'console'];
+                if ($op === 'bootstrap') {
+                    $this->accounts->update((string)$user['id'], ['is_admin' => 1, 'role' => 'admin']);
+                    $changes['is_admin'] = ['from' => $current['is_admin'], 'to' => 1];
+                    $changes['role'] = ['from' => $current['role'], 'to' => 'admin'];
+                }
+                if ($grant) {
+                    $this->accounts->grantPrivilege((string)$user['id'], null, $reason);
+                } else {
+                    if ($this->accounts->countActivePrivileged() <= 1) {
+                        throw AdminActionException::conflict('This is the last privileged administrator; grant someone else first.');
+                    }
+                    $this->accounts->revokePrivilege((string)$user['id']);
+                }
+                $this->audit->record('user.privilege.' . $op, 'user', (string)$user['id'], $changes, $reason);
+                return true;
             });
-            $io->success("{$user['name']} <{$user['email']}> is now a privileged administrator.");
-
-            return Command::SUCCESS;
-        }
-
-        if (!$user['is_privileged']) {
-            $io->note("{$user['name']} is not a privileged administrator.");
-
-            return Command::SUCCESS;
-        }
-        if ($this->accounts->countActivePrivileged() <= 1) {
-            $io->error('This is the last privileged administrator; grant someone else first.');
-
+        } catch (AdminActionException $e) {
+            $io->error($e->getMessage());
             return Command::FAILURE;
         }
-        $this->db->transactional(function () use ($user, $reason): void {
-            $this->accounts->revokePrivilege((string)$user['id']);
-            $this->audit->record('user.privilege.revoke', 'user', (string)$user['id'], ['privileged' => ['from' => true, 'to' => false], 'via' => 'console'], $reason);
-        });
-        $io->success("Privileged access revoked from {$user['name']}.");
+        if (!$changed) {
+            $io->note($op === 'grant' ? "{$user['name']} is already a privileged administrator." : "{$user['name']} is not a privileged administrator.");
+        } else {
+            $io->success($op !== 'revoke' ? "{$user['name']} <{$user['email']}> is now a privileged administrator." : "Privileged access revoked from {$user['name']}.");
+        }
 
         return Command::SUCCESS;
     }
