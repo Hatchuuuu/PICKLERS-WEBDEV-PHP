@@ -18,9 +18,10 @@ $alias = false;
 if ($file === false || !is_file($file)) {
     $target = match (true) {
         $path === '/style.css' => '/assets/css/style.css',
-        $path === '/favicon.svg' => '/assets/images/favicon.svg',
+        $path === '/favicon.svg' => '/favicon.svg',
+        $path === '/favicon.ico' => '/favicon.ico',
         str_starts_with($path, '/brand-logos/') => '/assets' . $path,
-        (bool)preg_match('#^/[^/]+\.(svg|png|jpe?g|webp)$#i', $path) => '/assets/images' . $path,
+        (bool)preg_match('#^/[^/]+\.(svg|png|jpe?g|webp|ico)$#i', $path) => '/assets/images' . $path,
         default => $path,
     };
     $file = realpath($public . $target);
@@ -42,7 +43,7 @@ if ($file !== false && is_file($file) && !preg_match('/\.(php\d*|phtml|phar|pht|
     if (!$alias) {
         return false;
     }
-    $types = ['css' => 'text/css', 'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp'];
+    $types = ['css' => 'text/css', 'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp', 'ico' => 'image/x-icon'];
     header('Content-Type: ' . ($types[strtolower(pathinfo($file, PATHINFO_EXTENSION))] ?? 'application/octet-stream'));
     readfile($file);
     return true;
