@@ -52,3 +52,4 @@ copy(__DIR__ . '/../public/assets/images/favicon.svg', __DIR__ . '/../public/fav
 copy(__DIR__ . '/../public/assets/images/favicon.svg', __DIR__ . '/../favicon.svg');
 
 echo "Favicons generated and copied successfully!\n";
+
